@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 const root = resolve(dirname(new URL(import.meta.url).pathname), "..");
@@ -20,6 +20,7 @@ function has(name) {
 const environmentName = option("--environment", "staging");
 const shouldApply = has("--apply");
 const explicitSuffix = option("--suffix", undefined);
+const backupOutputDirectory = option("--output-dir", join(root, "backups"));
 
 function yaml(path, optional = false) {
   if (optional && !existsSync(path)) return {};
@@ -411,6 +412,33 @@ function pull(context) {
     const skill = hifox(["skill", "view", value.id, "--output", "json"]);
     writeFileSync(join(snapshotRoot, "skills", `${key}.json`), JSON.stringify(skill, null, 2) + "\n");
   }
+  return snapshotRoot;
+}
+
+function backup(context) {
+  const snapshotRoot = pull(context);
+  const timestamp = new Date().toISOString().replaceAll(":", "-").replace(/\.\d{3}Z$/, "Z");
+  const backupRoot = resolve(backupOutputDirectory, timestamp, environmentName);
+  mkdirSync(backupRoot, { recursive: true });
+  cpSync(join(root, "config"), join(backupRoot, "config"), { recursive: true });
+  cpSync(join(root, "environments", environmentName), join(backupRoot, "environment"), { recursive: true });
+  cpSync(snapshotRoot, join(backupRoot, "snapshot"), { recursive: true });
+  writeFileSync(
+    join(backupRoot, "manifest.json"),
+    JSON.stringify(
+      {
+        version: 1,
+        createdAt: new Date().toISOString(),
+        environment: environmentName,
+        organizationId: context.env.organizationId,
+        spaceId: context.env.spaceId,
+        crewId: context.state.crew[context.crew.key].id,
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+  console.log(`Backup created: ${backupRoot}`);
 }
 
 function help() {
@@ -421,6 +449,7 @@ function help() {
   hifox-config apply    [--environment NAME] [--suffix TEXT] [--apply]
   hifox-config diff     [--environment NAME] [--suffix TEXT]
   hifox-config pull     [--environment NAME]
+  hifox-config backup   [--environment NAME] [--output-dir PATH]
 
 Mutating commands are dry-run unless --apply is provided.
 The default environment is staging.
@@ -441,6 +470,8 @@ try {
       apply(context);
     } else if (command === "pull") {
       pull(context);
+    } else if (command === "backup") {
+      backup(context);
     } else {
       throw new Error(`unknown command: ${command}`);
     }

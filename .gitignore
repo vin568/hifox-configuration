@@ -1,0 +1,5 @@
+# Generated remote-state caches.
+snapshots/
+
+# Timestamped local backup bundles. Copy these to durable private storage.
+backups/

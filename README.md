@@ -8,7 +8,8 @@
 - `config/agents/*/instructions.md`：Agent 指令，支持名称变量。
 - `environments/<name>/environment.yaml`：组织、Space 和名称后缀。
 - `environments/<name>/state.yaml`：部署后由工具记录的远端 UUID。
-- `snapshots/<environment>/`：各环境的小队、Agent 与 Skill 原始 JSON，只用于审计和对比。
+- `snapshots/<environment>/`：可再生成的远端状态缓存，已被 Git 忽略。
+- `backups/<timestamp>/<environment>/`：带时间戳的完整本地备份，已被 Git 忽略。
 - `hifox-config`：同步入口。
 
 ## 默认 Staging 实例
@@ -28,6 +29,24 @@
 ```bash
 ./hifox-config diff --environment current
 ```
+
+## 快照与备份
+
+`pull` 只刷新可再生成的远端缓存：
+
+```bash
+./hifox-config pull
+```
+
+`backup` 会先拉取最新远端状态，再保存配置模板、环境 state、远端快照和 manifest：
+
+```bash
+./hifox-config backup
+./hifox-config backup --environment current
+./hifox-config backup --output-dir /path/to/private-backups
+```
+
+默认备份位置为 `backups/<UTC timestamp>/<environment>/`。仓库内的 `snapshots/` 和 `backups/` 都不会提交 Git；重要备份应复制到私有对象存储或其他持久化位置。
 
 ## 克隆新实例
 
