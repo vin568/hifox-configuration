@@ -1,0 +1,26 @@
+version: 1
+nameSuffix: " - staging"
+crew:
+  ragnarok:
+    id: 56e88c23-17be-4e26-96e5-111f041cf07d
+    deployedName: "诸神的黄昏 Ragnarok - staging"
+agents:
+  baldur:
+    id: 971d79a4-af64-49d3-a31a-0209c45864bc
+    deployedName: "巴德尔 Baldur - staging"
+  loki:
+    id: 49db3c8f-a9db-448a-8154-1df20b84d436
+    deployedName: "洛基 Loki - staging"
+  odin:
+    id: 14d47f10-65e0-4382-808e-416d5ab15681
+    deployedName: "奥丁 Odin - staging"
+  skadi:
+    id: 55e20ae8-abf9-4f98-bf06-229775ed8fb0
+    deployedName: "斯卡蒂 Skadi - staging"
+  thor:
+    id: f48758fe-dd4a-482c-9682-8589d27c2d36
+    deployedName: "托尔 Thor - staging"
+skills:
+  maintainer-review:
+    id: 775960a0-1c8c-4ef8-9cc3-45755ecfec34
+    deployedName: "Maintainer Review"

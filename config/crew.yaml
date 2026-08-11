@@ -1,0 +1,18 @@
+key: ragnarok
+name: 诸神的黄昏 Ragnarok
+description: Apfiox 业务开发
+instructionsFile: crew-instructions.md
+visibility: space
+sameComputerSharedTaskWorkdirEnabled: false
+leader: odin
+members:
+  - agent: odin
+    role: leader
+  - agent: loki
+    role: ""
+  - agent: thor
+    role: ""
+  - agent: baldur
+    role: ""
+  - agent: skadi
+    role: ""

@@ -1,0 +1,29 @@
+key: loki
+name: 洛基 Loki
+jobTitle: 代码分析师
+description: ""
+instructionsFile: instructions.md
+runtime:
+  customArguments: []
+taskWorkingDirectory:
+  mode: specified
+  paths:
+    - /home/vin/explorer
+    - /home/vin/explorer-2
+    - /home/vin/explorer-3
+    - /home/vin/explorer-4
+    - /home/vin/explorer-5
+    - /home/vin/explorer-6
+    - /home/vin/explorer-7
+    - /home/vin/explorer-8
+    - /home/vin/explorer-9
+    - /home/vin/explorer-10
+permissions:
+  taskAssignment: true
+  directMessage: true
+  crewMembership: true
+  mention: true
+concurrency:
+  mode: manual
+  maxTasks: 10
+skills: []
