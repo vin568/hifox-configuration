@@ -23,6 +23,9 @@ agents:
   maintainer-reviewer:
     id: 87195093-e9cd-4845-ab55-b12cf96de26f
     deployedName: "伊登 Idunn"
+  eir:
+    id: 3e16560f-c5b6-402c-bd27-af8f6ec2ff1d
+    deployedName: "埃尔 Eir"
 skills:
   maintainer-review:
     id: 775960a0-1c8c-4ef8-9cc3-45755ecfec34

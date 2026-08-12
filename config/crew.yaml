@@ -18,3 +18,5 @@ members:
     role: ""
   - agent: skadi
     role: ""
+  - agent: eir
+    role: ""

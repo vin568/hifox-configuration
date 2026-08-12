@@ -38,11 +38,9 @@ gh workflow run .github/workflows/apifox-integration.yaml \
   -f BUILD_ALL=0 \
   -f GIT_BUILD_REF=feature/explorer-v2
 
-触发属于外部写操作。在真正执行命令前，先向我展示最终参数并请求一次确认；得到确认后再触发。
+该部署属于当前任务已授权的 staging 验证流程。只要 Odin 已提供完整的部署参数和明确的 staging 目标，直接执行部署，不要再次等待用户确认。禁止将部署到生产环境的授权理解为已获得；生产环境必须单独获得明确授权。
 
-如果希望 Agent 收到指令后无次确认，把最后一段替换为：
-
-我已明确授权你立即触发本次 GitHub Actions 构建，无需再次确认。
+如果部署参数不完整、目标不是 staging，或可能影响生产环境，必须暂停并向 Odin 报告阻塞原因。
 
 附录：
 
@@ -52,4 +50,3 @@ gh workflow run .github/workflows/apifox-integration.yaml \
 |vin|5672|
 |johann|5674|
 |vano|5679|
-
