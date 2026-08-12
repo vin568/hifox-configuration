@@ -20,6 +20,9 @@ agents:
   thor:
     id: f48758fe-dd4a-482c-9682-8589d27c2d36
     deployedName: "托尔 Thor - staging"
+  maintainer-reviewer:
+    id: 8584b787-a7e3-4df5-8884-8602591d85a2
+    deployedName: "伊登 Idunn - staging"
 skills:
   maintainer-review:
     id: 775960a0-1c8c-4ef8-9cc3-45755ecfec34

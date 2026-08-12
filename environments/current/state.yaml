@@ -1,25 +1,29 @@
 version: 1
+nameSuffix: ""
 crew:
   ragnarok:
     id: dc2bb6da-4111-4981-950d-ff34d98fcee1
-    deployedName: 诸神的黄昏 Ragnarok
+    deployedName: "诸神的黄昏 Ragnarok"
 agents:
   odin:
     id: 12ef385b-8665-43e9-bdef-fe1240bceb6b
-    deployedName: 奥丁 Odin
+    deployedName: "奥丁 Odin"
   loki:
     id: 91f10959-042e-4042-8fa1-8280aef9f8d6
-    deployedName: 洛基 Loki
+    deployedName: "洛基 Loki"
   thor:
     id: 6f092065-788d-4d08-bd13-b1b4e6878f24
-    deployedName: 托尔 Thor
+    deployedName: "托尔 Thor"
   baldur:
     id: eb4dbf97-e54f-4dc2-a834-2a15e8914746
-    deployedName: 巴德尔 Baldur
+    deployedName: "巴德尔 Baldur"
   skadi:
     id: 847e6902-34f3-417d-8c48-061589ff18a6
-    deployedName: 斯卡蒂 Skadi
+    deployedName: "斯卡蒂 Skadi"
+  maintainer-reviewer:
+    id: 87195093-e9cd-4845-ab55-b12cf96de26f
+    deployedName: "伊登 Idunn"
 skills:
   maintainer-review:
     id: 775960a0-1c8c-4ef8-9cc3-45755ecfec34
-    deployedName: Maintainer Review
+    deployedName: "Maintainer Review"

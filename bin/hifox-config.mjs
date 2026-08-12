@@ -19,6 +19,7 @@ function has(name) {
 
 const environmentName = option("--environment", "staging");
 const shouldApply = has("--apply");
+const explicitProduction = has("--production");
 const explicitSuffix = option("--suffix", undefined);
 const backupOutputDirectory = option("--output-dir", join(root, "backups"));
 
@@ -356,6 +357,22 @@ function requireCompleteState(context) {
 }
 
 function apply(context) {
+  context.state.agents ||= {};
+  context.state.crew ||= {};
+  context.state.version = 1;
+  context.state.nameSuffix = context.suffix;
+  for (const key of Object.keys(context.agents)) {
+    if (context.state.agents[key]?.id) continue;
+    const copySource = copySourceForAgent(key, context);
+    const result = copySource
+      ? hifox(["agent", "copy", copySource, "--name", context.names[key]], { mutate: true })
+      : hifox(agentFlags(key, context, true), { mutate: true });
+    if (shouldApply) {
+      context.state.agents[key] = { id: result.id, deployedName: context.names[key] };
+      saveState(context);
+      if (copySource) hifox(agentFlags(key, context, false), { mutate: true });
+    }
+  }
   requireCompleteState(context);
   for (const key of Object.keys(context.agents)) {
     hifox(agentFlags(key, context, false), { mutate: true });
@@ -446,7 +463,7 @@ function help() {
   hifox-config validate [--environment NAME] [--suffix TEXT]
   hifox-config create   --environment NAME --suffix TEXT [--apply]
   hifox-config clone    --environment NAME --suffix TEXT [--apply]
-  hifox-config apply    [--environment NAME] [--suffix TEXT] [--apply]
+  hifox-config apply    [--environment NAME] [--suffix TEXT] [--apply] [--production]
   hifox-config diff     [--environment NAME] [--suffix TEXT]
   hifox-config pull     [--environment NAME]
   hifox-config backup   [--environment NAME] [--output-dir PATH]
@@ -460,6 +477,9 @@ try {
   if (command === "help" || command === "--help" || command === "-h") {
     help();
   } else {
+    if (shouldApply && environmentName === "current" && !explicitProduction) {
+      throw new Error("publishing current requires explicit --production; use staging by default");
+    }
     const context = loadConfiguration();
     validate(context);
     if (command === "validate") {

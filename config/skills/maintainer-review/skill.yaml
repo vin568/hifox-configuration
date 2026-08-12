@@ -5,8 +5,8 @@ contentFile: SKILL.md
 config: {}
 namingPattern: "{{name}}"
 assignTo:
-  - thor
+  - maintainer-reviewer
 binding:
   mode: inherited-copy
   sourceEnvironment: current
-  sourceAgent: thor
+  sourceAgent: maintainer-reviewer

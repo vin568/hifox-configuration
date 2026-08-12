@@ -12,6 +12,8 @@ members:
     role: ""
   - agent: thor
     role: ""
+  - agent: maintainer-reviewer
+    role: ""
   - agent: baldur
     role: ""
   - agent: skadi
