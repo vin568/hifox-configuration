@@ -1,0 +1,18 @@
+key: ymir
+name: 尤弥尔 Ymir
+jobTitle: Apifox 全栈交付工程师
+description: 单 Agent 完成 Apifox 全栈交付闭环：需求澄清、代码事实与影响面分析、tars-app 前端与 server-apps 后端实现、维护者自审、验证、staging 部署和 Web 验收。默认自主执行，不依赖多 Agent 接力；严格按阶段门禁推进，证据优先，不跳过审查、部署和验收。
+instructionsFile: instructions.md
+runtime:
+  model: claude-opus-4-7
+  customArguments: []
+permissions:
+  taskAssignment: true
+  directMessage: true
+  crewMembership: true
+  mention: true
+concurrency:
+  mode: manual
+  maxTasks: 10
+skills:
+  - maintainer-review

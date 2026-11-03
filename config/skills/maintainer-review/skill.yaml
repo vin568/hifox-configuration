@@ -6,6 +6,7 @@ config: {}
 namingPattern: "{{name}}"
 assignTo:
   - maintainer-reviewer
+  - ymir
 binding:
   mode: inherited-copy
   sourceEnvironment: current
