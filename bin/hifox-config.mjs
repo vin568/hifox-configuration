@@ -2,7 +2,7 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 const root = resolve(dirname(new URL(import.meta.url).pathname), "..");
 const argv = process.argv.slice(2);
@@ -36,7 +36,7 @@ function read(path) {
 function hifox(args, { mutate = false } = {}) {
   console.log(`$ hifox ${args.map(shellDisplay).join(" ")}`);
   if (mutate && !shouldApply) return null;
-  const result = spawnSync("hifox", args, { encoding: "utf8" });
+  const result = spawnSync("hifox", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   if (result.status !== 0) {
     throw new Error(result.stderr || result.stdout || `hifox exited with ${result.status}`);
   }
@@ -69,9 +69,18 @@ function loadConfiguration() {
   const env = yaml(join(environmentPath, "environment.yaml"));
   const statePath = join(environmentPath, "state.yaml");
   const state = yaml(statePath, true);
-  const crew = yaml(join(root, "config", "crew.yaml"));
+  const configBase = join(root, "config");
+  const configRoot = resolve(root, env.configRoot || "config");
+  const configRelative = relative(configBase, configRoot);
+  if (configRelative === ".." || configRelative.startsWith(`..${sep}`) || isAbsolute(configRelative)) {
+    throw new Error(`${environmentName}: configRoot must be inside config/`);
+  }
+  if (!existsSync(join(configRoot, "crew.yaml"))) {
+    throw new Error(`${environmentName}: configRoot has no crew.yaml: ${configRelative || "."}`);
+  }
+  const crew = yaml(join(configRoot, "crew.yaml"));
   const agents = {};
-  const agentsRoot = join(root, "config", "agents");
+  const agentsRoot = join(configRoot, "agents");
   for (const key of readdirSync(agentsRoot).sort()) {
     const configPath = join(agentsRoot, key, "agent.yaml");
     if (!existsSync(configPath)) continue;
@@ -80,7 +89,7 @@ function loadConfiguration() {
     agents[key] = agent;
   }
   const skills = {};
-  const skillsRoot = join(root, "config", "skills");
+  const skillsRoot = join(configRoot, "skills");
   if (existsSync(skillsRoot)) {
     for (const key of readdirSync(skillsRoot).sort()) {
       const configPath = join(skillsRoot, key, "skill.yaml");
@@ -102,7 +111,7 @@ function loadConfiguration() {
       renderName(skill.namingPattern || pattern, skill.name, suffix, environmentName),
     ]),
   );
-  return { env, state, statePath, crew, agents, skills, names, skillNames, crewName, suffix };
+  return { env, state, statePath, crew, agents, skills, names, skillNames, crewName, suffix, configRoot };
 }
 
 function renderName(pattern, name, suffix, environment) {
@@ -137,14 +146,14 @@ function validate(context) {
   for (const [key, agent] of Object.entries(context.agents)) {
     if (!agent.name) errors.push(`${key}: name is required`);
     if (!agent.instructionsFile) errors.push(`${key}: instructionsFile is required`);
-    else renderInstructions(join(root, "config", "agents", key, agent.instructionsFile), context);
+    else renderInstructions(join(context.configRoot, "agents", key, agent.instructionsFile), context);
     if (!["personal", "space"].includes(visibilityFor("agents", agent, context))) {
       errors.push(`${key}: visibility must be personal or space`);
     }
   }
   for (const [key, skill] of Object.entries(context.skills)) {
     if (!skill.name) errors.push(`${key}: skill name is required`);
-    if (!skill.contentFile || !existsSync(join(root, "config", "skills", key, skill.contentFile))) {
+    if (!skill.contentFile || !existsSync(join(context.configRoot, "skills", key, skill.contentFile))) {
       errors.push(`${key}: skill contentFile does not exist`);
     }
     for (const agentKey of skill.assignTo || []) {
@@ -160,7 +169,7 @@ function validate(context) {
   if (context.env.ignoreAgentModels !== undefined && typeof context.env.ignoreAgentModels !== "boolean") {
     errors.push("environment ignoreAgentModels must be a boolean");
   }
-  renderInstructions(join(root, "config", context.crew.instructionsFile), context);
+  renderInstructions(join(context.configRoot, context.crew.instructionsFile), context);
   const deployedNames = [context.crewName, ...Object.values(context.names)];
   if (new Set(deployedNames).size !== deployedNames.length) errors.push("rendered crew and agent names must be unique");
   if (errors.length) throw new Error(errors.join("\n"));
@@ -174,7 +183,7 @@ function agentFlags(key, context, create) {
   add(args, "--name", context.names[key]);
   add(args, "--job-title", agent.jobTitle);
   add(args, "--description", agent.description ?? "");
-  add(args, "--instructions", renderInstructions(join(root, "config", "agents", key, agent.instructionsFile), context));
+  add(args, "--instructions", renderInstructions(join(context.configRoot, "agents", key, agent.instructionsFile), context));
   add(args, "--visibility", visibilityFor("agents", agent, context));
   add(args, "--space", context.env.spaceId);
   add(args, "--computer", agent.target?.computer ?? context.env.target?.computer);
@@ -199,7 +208,7 @@ function crewFlags(context, create) {
   if (!create) args.push(context.state.crew[context.crew.key].id);
   add(args, "--name", context.crewName);
   add(args, "--description", context.crew.description ?? "");
-  add(args, "--instructions", renderInstructions(join(root, "config", context.crew.instructionsFile), context));
+  add(args, "--instructions", renderInstructions(join(context.configRoot, context.crew.instructionsFile), context));
   add(args, "--leader", context.state.agents[context.crew.leader].id);
   add(args, "--visibility", visibilityFor("crew", context.crew, context));
   add(args, "--space", context.env.spaceId);
@@ -254,9 +263,10 @@ function skillFlags(key, context, create) {
   const skill = context.skills[key];
   const args = ["skill", create ? "create" : "edit"];
   if (!create) args.push(context.state.skills[key].id);
+  if (create) add(args, "--space", context.env.spaceId);
   add(args, "--name", context.skillNames[key]);
   add(args, "--description", skill.description ?? "");
-  args.push(`--content=${read(join(root, "config", "skills", key, skill.contentFile))}`);
+  args.push(`--content=${read(join(context.configRoot, "skills", key, skill.contentFile))}`);
   args.push(`--config=${JSON.stringify(skill.config || {})}`);
   args.push("--output", "json");
   return args;
@@ -450,6 +460,7 @@ function backup(context) {
         version: 1,
         createdAt: new Date().toISOString(),
         environment: environmentName,
+        configRoot: relative(root, context.configRoot),
         organizationId: context.env.organizationId,
         spaceId: context.env.spaceId,
         crewId: context.state.crew[context.crew.key].id,

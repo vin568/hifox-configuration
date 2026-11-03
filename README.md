@@ -115,6 +115,60 @@ ignoreAgentModels: true
 
 设置后，`hifox-config` 不再向 `hifox agent create/edit` 传递 `--model`，已有 Agent 的模型保持不变，新建 Agent 使用 runtime 默认模型。该开关只影响 `runtime.model`；`runtime.customArguments` 仍按配置传递。
 
+## 多空间维护
+
+默认所有环境共用 `config/`。需要维护多个 Space 时，为每个 Space 准备独立的 crew/agents/skills 目录，并在环境配置中用 `configRoot` 指向它：
+
+```text
+config/
+  spaces/
+    apifox/
+      crew.yaml
+      agents/
+      skills/
+    apidog/
+      crew.yaml
+      agents/
+      skills/
+environments/
+  apifox-current/
+    environment.yaml
+    state.yaml
+  apidog-current/
+    environment.yaml
+    state.yaml
+```
+
+`configRoot` 相对于仓库根目录，且必须位于 `config/` 内：
+
+```yaml
+organizationId: 86555f76-3f5b-4f7a-93c6-406074110a59
+spaceId: <目标 Space ID>
+configRoot: config/spaces/apifox
+nameSuffix: ""
+```
+
+两种常见用法：
+
+- **同一套 Agent/Skill 镜像到多个 Space**：多个环境使用相同的 `configRoot`，但 `spaceId` 不同；每个环境有自己的 `state.yaml`，Skill 会在各自 Space 创建。
+- **不同 Space 维护不同 Agent/Skill**：每个 Space 使用独立 `configRoot`，互不影响。
+
+`configRoot` 内的 `crew.yaml`、`agents/`、`skills/` 结构与原 `config/` 完全一致。复制现有配置：
+
+```bash
+mkdir -p config/spaces/apifox
+cp config/crew.yaml config/spaces/apifox/
+cp -R config/agents config/skills config/spaces/apifox/
+```
+
+注意事项：
+
+- `state.yaml` 必须按环境分开；不要把同一份 state 用于不同 Space。
+- 不要在已有环境上直接修改 `spaceId`；`state.yaml` 中的 Agent/Skill ID 属于原 Space，应该新建环境并重新 clone 一套。
+- 空间级 Skill 由 `ensureSkills` 在 `spaceId` 指定的 Space 创建，并在该环境 state 中记录 ID。`skill edit` 不能把 Skill 移到另一个 Space；更换 `spaceId` 后需要删除旧 Skill 并重新创建。
+- `inherited-copy` 依赖 `agent copy`，`agent copy` 没有 `--space` 参数，只适合同一 Space 内的环境克隆。跨 Space 时请在目标 Space 准备源 Agent/Skill，或改用不带 `binding` 的普通 Skill 配置，让 `ensureSkills` 在目标 Space 创建并分配给 Agent。
+- 每个环境的 `state.yaml` 仍然只记录该环境的 UUID；`apply`/`diff`/`pull` 都要带 `--environment`。
+
 ## 安全约束
 
 - 新建实例必须使用非空后缀。
@@ -124,7 +178,7 @@ ignoreAgentModels: true
 - 中途创建失败时会保留已成功创建的 UUID，便于排查并避免重复创建。
 - generated avatar、在线状态、时间戳等服务端字段不会写回模板。
 - Skill ID 必须在目标组织中有效；跨组织克隆前需要确认 Skill 可见性。
-- Agent 专属 Skill 使用 `inherited-copy`：新环境通过复制源 Agent 保留绑定，Skill 正文由 `config/skills/` 统一维护。
+- Agent 专属 Skill 使用 `inherited-copy`：同一 Space 内通过复制源 Agent 保留绑定，Skill 正文由 `config/skills/` 统一维护；跨 Space 见“多空间维护”。
 - 新建 Agent 需要成对配置 Computer Lease ID 与 Runtime ID，可通过 `hifox agent target list` 查询。
 
 ## 依赖
