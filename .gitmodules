@@ -1,0 +1,3 @@
+[submodule "vendor/hifox-dotfile"]
+	path = vendor/hifox-dotfile
+	url = ../hifox-dotfile.git

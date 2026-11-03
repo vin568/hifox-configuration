@@ -1,6 +1,6 @@
 # HiFox Agent Crew Configuration
 
-“诸神的黄昏 Ragnarok”小队的声明式本地配置，可用于维护现有实例，或使用名称后缀克隆一套全新的小队与 Agent。
+“诸神的黄昏 Ragnarok”小队的声明式本地配置。本仓库只保存配置与运行环境：部署逻辑位于 git 子模块 `vendor/hifox-dotfile`，由根目录的 `hifox-config` 壳脚本调用。
 
 ## 目录
 
@@ -12,7 +12,36 @@
 - `environments/<name>/state.yaml`：部署后由工具记录的远端 UUID。
 - `snapshots/<environment>/`：可再生成的远端状态缓存，已被 Git 忽略。
 - `backups/<timestamp>/<environment>/`：带时间戳的完整本地备份，已被 Git 忽略。
-- `hifox-config`：同步入口。
+- `vendor/hifox-dotfile/`：部署 CLI 子模块，不在本仓库内修改。
+- `hifox-config`：同步入口，固定把本仓库根目录作为 `--root` 传给 CLI。
+- `mise.toml`：Node 版本。
+
+CLI 的命令、选项以及 `environment.yaml` / `state.yaml` 字段说明见 [`vendor/hifox-dotfile/README.md`](vendor/hifox-dotfile/README.md)。
+
+## 子模块
+
+首次克隆：
+
+```bash
+git clone --recurse-submodules git@apifox.github.com:vin568/hifox-configuration.git
+```
+
+已有克隆补齐子模块：
+
+```bash
+git submodule update --init --recursive
+```
+
+`.gitmodules` 使用相对 URL `../hifox-dotfile.git`，与 `vin568/hifox-configuration` 同级解析为 `vin568/hifox-dotfile`。
+
+升级 CLI 版本：先在 `hifox-dotfile` 仓库提交并推送，再让本仓库指向新提交：
+
+```bash
+git -C vendor/hifox-dotfile fetch
+git -C vendor/hifox-dotfile checkout <commit>
+git add vendor/hifox-dotfile
+git commit -m "chore(deps): bump hifox-dotfile"
+```
 
 ## 默认 Staging 实例
 
@@ -31,6 +60,8 @@
 ```bash
 ./hifox-config diff --environment current
 ```
+
+对 `current` 执行 `--apply` 必须同时传入 `--production`。
 
 ## 快照与备份
 
@@ -119,7 +150,7 @@ instructions 支持部署时渲染以下变量：
 ignoreAgentModels: true
 ```
 
-设置后，`hifox-config` 不再向 `hifox agent create/edit` 传递 `--model`，已有 Agent 的模型保持不变，新建 Agent 使用 runtime 默认模型。该开关只影响 `runtime.model`；`runtime.customArguments` 仍按配置传递。
+设置后，CLI 不再向 `hifox agent create/edit` 传递 `--model`，已有 Agent 的模型保持不变，新建 Agent 使用 runtime 默认模型。该开关只影响 `runtime.model`；`runtime.customArguments` 仍按配置传递。
 
 ## 多空间维护
 
@@ -217,3 +248,4 @@ config/spaces/apifox/crews/
 - `hifox`
 - `node >= 18`（使用 mise 时执行 `mise install` 按 `mise.toml` 安装固定版本）
 - `yq`
+- `hifox-dotfile` 子模块的读取权限

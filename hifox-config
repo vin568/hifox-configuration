@@ -1,2 +1,4 @@
 #!/bin/sh
-exec node "$(dirname "$0")/bin/hifox-config.mjs" "$@"
+set -eu
+root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec node "$root/vendor/hifox-dotfile/bin/hifox-config.mjs" "$@" --root "$root"
