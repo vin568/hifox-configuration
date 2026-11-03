@@ -157,6 +157,9 @@ function validate(context) {
   if (Boolean(context.env.target?.computer) !== Boolean(context.env.target?.runtime)) {
     errors.push("environment target computer and runtime must be configured together");
   }
+  if (context.env.ignoreAgentModels !== undefined && typeof context.env.ignoreAgentModels !== "boolean") {
+    errors.push("environment ignoreAgentModels must be a boolean");
+  }
   renderInstructions(join(root, "config", context.crew.instructionsFile), context);
   const deployedNames = [context.crewName, ...Object.values(context.names)];
   if (new Set(deployedNames).size !== deployedNames.length) errors.push("rendered crew and agent names must be unique");
@@ -176,7 +179,7 @@ function agentFlags(key, context, create) {
   add(args, "--space", context.env.spaceId);
   add(args, "--computer", agent.target?.computer ?? context.env.target?.computer);
   add(args, "--runtime", agent.target?.runtime ?? context.env.target?.runtime);
-  add(args, "--model", agent.runtime?.model);
+  if (!context.env.ignoreAgentModels) add(args, "--model", agent.runtime?.model);
   add(args, "--thinking-effort", agent.runtime?.thinkingEffort);
   add(args, "--concurrency-setting-mode", agent.concurrency?.mode);
   add(args, "--max-concurrent-tasks", agent.concurrency?.maxTasks);

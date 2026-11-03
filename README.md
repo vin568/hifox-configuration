@@ -105,6 +105,16 @@ instructions 支持部署时渲染以下变量：
 
 例如 `@{{agents.thor.name}}` 在 staging 环境会渲染为 `@托尔 Thor - staging`。
 
+## 忽略 Agent 模型
+
+默认情况下，`apply` 会把 `config/agents/*/agent.yaml` 中的 `runtime.model` 同步到远端。若某个环境不希望配置覆盖线上模型，在该环境的 `environment.yaml` 中设置：
+
+```yaml
+ignoreAgentModels: true
+```
+
+设置后，`hifox-config` 不再向 `hifox agent create/edit` 传递 `--model`，已有 Agent 的模型保持不变，新建 Agent 使用 runtime 默认模型。该开关只影响 `runtime.model`；`runtime.customArguments` 仍按配置传递。
+
 ## 安全约束
 
 - 新建实例必须使用非空后缀。
