@@ -120,5 +120,5 @@ instructions 支持部署时渲染以下变量：
 ## 依赖
 
 - `hifox`
-- `node >= 18`
+- `node >= 18`（使用 mise 时执行 `mise install` 按 `mise.toml` 安装固定版本）
 - `yq`
