@@ -145,8 +145,10 @@ environments/
 organizationId: 86555f76-3f5b-4f7a-93c6-406074110a59
 spaceId: <目标 Space ID>
 configRoot: config/spaces/apifox
-nameSuffix: ""
+nameSuffix: " - apifox"
 ```
+
+新建环境时 `nameSuffix` 必须非空；如果希望 Agent 名称不带后缀，把 `namingPattern` 设为 `{{name}}`。
 
 两种常见用法：
 
