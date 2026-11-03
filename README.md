@@ -102,9 +102,12 @@ instructions 支持部署时渲染以下变量：
 ```text
 {{agents.thor.name}}
 {{agents.baldur.name}}
+{{crews.ragnarok.name}}
 {{crew.name}}
 {{environment}}
 ```
+
+`{{crew.name}}` 仅在只有一个 crew 时可用；多个 crew 时使用 `{{crews.<key>.name}}`，避免歧义。
 
 例如 `@{{agents.thor.name}}` 在 staging 环境会渲染为 `@托尔 Thor - staging`。
 
@@ -126,11 +129,14 @@ ignoreAgentModels: true
 config/
   spaces/
     apifox/
-      crew.yaml
+      crews/
+        ragnarok/
+          crew.yaml
+          instructions.md
       agents/
       skills/
-    apidog/
-      crew.yaml
+    hifox/
+      crews/
       agents/
       skills/
 environments/
@@ -158,7 +164,7 @@ nameSuffix: " - apifox"
 - **同一套 Agent/Skill 镜像到多个 Space**：多个环境使用相同的 `configRoot`，但 `spaceId` 不同；每个环境有自己的 `state.yaml`，Skill 会在各自 Space 创建。
 - **不同 Space 维护不同 Agent/Skill**：每个 Space 使用独立 `configRoot`，互不影响。
 
-`configRoot` 内的 `crew.yaml`、`agents/`、`skills/` 结构与 `config/spaces/apifox/` 完全一致。复制现有配置：
+`configRoot` 内的 `crews/`、`agents/`、`skills/` 结构与 `config/spaces/apifox/` 完全一致。复制现有配置：
 
 ```bash
 mkdir -p config/spaces/<space>
@@ -173,11 +179,32 @@ cp -R config/spaces/apifox/. config/spaces/<space>/
 - `inherited-copy` 依赖 `agent copy`，`agent copy` 没有 `--space` 参数，只适合同一 Space 内的环境克隆。跨 Space 时请在目标 Space 准备源 Agent/Skill，或改用不带 `binding` 的普通 Skill 配置，让 `ensureSkills` 在目标 Space 创建并分配给 Agent。
 - 每个环境的 `state.yaml` 仍然只记录该环境的 UUID；`apply`/`diff`/`pull` 都要带 `--environment`。
 
+## 多 Crew
+
+每个 `configRoot` 可以维护多个 crew，目录结构与 agents 类似：
+
+```text
+config/spaces/apifox/crews/
+  ragnarok/
+    crew.yaml
+    instructions.md
+  another-crew/
+    crew.yaml
+    instructions.md
+```
+
+- `crew.yaml` 的 `key` 必须与目录名一致。
+- `leader` 和 `members[].agent` 引用同一 `configRoot` 下的 agent key。
+- `instructionsFile` 相对于该 crew 目录，示例为 `instructions.md`。
+- `state.yaml` 的 `crew:` 节点按 crew key 记录；`apply` 会创建/更新所有 crew，`pull` 输出到 `snapshots/<env>/crews/<key>/`。
+- 只有一个 crew 时，`{{crew.name}}` 仍可用；多个 crew 时使用 `{{crews.<key>.name}}`。
+- 新增 crew 后先 `validate`，再 `diff`/`apply`；`diff` 会显示 `crew create` 和后续 edit 占位。
+
 ## 安全约束
 
 - 新建实例必须使用非空后缀。
-- 创建前会检查远端小队与 Agent 是否重名。
-- 已存在小队 UUID 的环境不能再次执行 create/clone；如果首次创建中断，会跳过 state 中已成功创建的 Agent 并继续。
+- 创建前会检查远端 crew 与 Agent 是否重名。
+- 已存在 crew UUID 的环境不能再次执行 create/clone；首次创建中断后用 `apply` 继续，state 中已成功的 Agent/Crew 会保留，缺失的会补建。
 - 更新始终依据 state 中的 UUID，不通过名称猜测目标。
 - 中途创建失败时会保留已成功创建的 UUID，便于排查并避免重复创建。
 - generated avatar、在线状态、时间戳等服务端字段不会写回模板。

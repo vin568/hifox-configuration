@@ -1,7 +1,7 @@
 key: ragnarok
 name: 诸神的黄昏 Ragnarok
 description: Apfiox 业务开发
-instructionsFile: crew-instructions.md
+instructionsFile: instructions.md
 visibility: space
 sameComputerSharedTaskWorkdirEnabled: false
 leader: odin

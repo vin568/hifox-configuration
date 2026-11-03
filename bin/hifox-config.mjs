@@ -75,10 +75,32 @@ function loadConfiguration() {
   if (configRelative === ".." || configRelative.startsWith(`..${sep}`) || isAbsolute(configRelative)) {
     throw new Error(`${environmentName}: configRoot must be inside config/`);
   }
-  if (!existsSync(join(configRoot, "crew.yaml"))) {
-    throw new Error(`${environmentName}: configRoot has no crew.yaml: ${configRelative || "."}`);
+  const crewsRoot = join(configRoot, "crews");
+  const legacyCrewPath = join(configRoot, "crew.yaml");
+  if (!existsSync(crewsRoot) && !existsSync(legacyCrewPath)) {
+    throw new Error(`${environmentName}: configRoot has no crews/ or crew.yaml: ${configRelative || "."}`);
   }
-  const crew = yaml(join(configRoot, "crew.yaml")) || {};
+  const crews = {};
+  if (existsSync(crewsRoot)) {
+    const crewDirs = readdirSync(crewsRoot, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of crewDirs) {
+      if (!entry.isDirectory()) continue;
+      const key = entry.name;
+      const dir = join(crewsRoot, key);
+      const configPath = join(dir, "crew.yaml");
+      if (!existsSync(configPath)) continue;
+      const crew = yaml(configPath) || {};
+      if (crew.key !== key) throw new Error(`${configPath}: key must be "${key}"`);
+      crew.__dir = dir;
+      crews[key] = crew;
+    }
+  } else {
+    const crew = yaml(legacyCrewPath) || {};
+    if (crew.key) {
+      crew.__dir = configRoot;
+      crews[crew.key] = crew;
+    }
+  }
   const agents = {};
   const agentsRoot = join(configRoot, "agents");
   for (const key of readdirSync(agentsRoot).sort()) {
@@ -104,14 +126,20 @@ function loadConfiguration() {
   const names = Object.fromEntries(
     Object.entries(agents).map(([key, agent]) => [key, renderName(pattern, agent.name, suffix, environmentName)]),
   );
-  const crewName = crew.name ? renderName(pattern, crew.name, suffix, environmentName) : "";
+  const crewNames = Object.fromEntries(
+    Object.entries(crews).map(([key, crew]) => [
+      key,
+      crew.name ? renderName(pattern, crew.name, suffix, environmentName) : "",
+    ]),
+  );
+  const crewName = Object.keys(crewNames).length === 1 ? Object.values(crewNames)[0] : undefined;
   const skillNames = Object.fromEntries(
     Object.entries(skills).map(([key, skill]) => [
       key,
       renderName(skill.namingPattern || pattern, skill.name, suffix, environmentName),
     ]),
   );
-  return { env, state, statePath, crew, agents, skills, names, skillNames, crewName, suffix, configRoot };
+  return { env, state, statePath, crews, crewNames, crewName, agents, skills, names, skillNames, suffix, configRoot };
 }
 
 function renderName(pattern, name, suffix, environment) {
@@ -121,27 +149,54 @@ function renderName(pattern, name, suffix, environment) {
     .replaceAll("{{environment}}", environment);
 }
 
-function renderInstructions(path, context) {
+function renderInstructions(path, context, crewKey) {
   let value = read(path);
   for (const [key, name] of Object.entries(context.names)) {
     value = value.replaceAll(`{{agents.${key}.name}}`, name);
   }
-  value = value.replaceAll("{{crew.name}}", context.crewName);
+  for (const [key, name] of Object.entries(context.crewNames || {})) {
+    value = value.replaceAll(`{{crews.${key}.name}}`, name);
+  }
+  if (value.includes("{{crew.name}}")) {
+    const crewName = crewKey ? context.crewNames?.[crewKey] : context.crewName;
+    if (crewName === undefined) {
+      throw new Error(`${path}: {{crew.name}} is ambiguous with multiple crews; use {{crews.<key>.name}}`);
+    }
+    value = value.replaceAll("{{crew.name}}", crewName);
+  }
   value = value.replaceAll("{{environment}}", environmentName);
   const unresolved = value.match(/{{[^}]+}}/g);
   if (unresolved) throw new Error(`${path}: unresolved variables: ${[...new Set(unresolved)].join(", ")}`);
   return value;
 }
 
+function crewInstructionsPath(key, context) {
+  const crew = context.crews[key];
+  return join(crew.__dir || context.configRoot, crew.instructionsFile || "");
+}
+
 function validate(context) {
   const errors = [];
-  if (!context.crew.key || !context.crew.name || !context.crew.leader) errors.push("crew key, name and leader are required");
-  if (context.crew.leader && !context.agents[context.crew.leader]) errors.push(`unknown crew leader: ${context.crew.leader}`);
-  const memberKeys = new Set();
-  for (const member of context.crew.members || []) {
-    if (!context.agents[member.agent]) errors.push(`unknown crew member: ${member.agent}`);
-    if (memberKeys.has(member.agent)) errors.push(`duplicate crew member: ${member.agent}`);
-    memberKeys.add(member.agent);
+  const crewEntries = Object.entries(context.crews);
+  if (!crewEntries.length) errors.push("at least one crew is required");
+  for (const [key, crew] of crewEntries) {
+    if (!crew.key || !crew.name || !crew.leader) errors.push(`${key}: crew key, name and leader are required`);
+    if (crew.leader && !context.agents[crew.leader]) errors.push(`${key}: unknown crew leader: ${crew.leader}`);
+    const memberKeys = new Set();
+    for (const member of crew.members || []) {
+      if (!context.agents[member.agent]) errors.push(`${key}: unknown crew member: ${member.agent}`);
+      if (memberKeys.has(member.agent)) errors.push(`${key}: duplicate crew member: ${member.agent}`);
+      memberKeys.add(member.agent);
+    }
+    if (!["personal", "space"].includes(visibilityFor("crew", crew, context))) {
+      errors.push(`${key}: crew visibility must be personal or space`);
+    }
+    if (!crew.instructionsFile) errors.push(`${key}: crew instructionsFile is required`);
+    else {
+      const path = crewInstructionsPath(key, context);
+      if (!existsSync(path)) errors.push(`${key}: crew instructionsFile does not exist`);
+      else renderInstructions(path, context, key);
+    }
   }
   for (const [key, agent] of Object.entries(context.agents)) {
     if (!agent.name) errors.push(`${key}: name is required`);
@@ -160,21 +215,17 @@ function validate(context) {
       if (!context.agents[agentKey]) errors.push(`${key}: unknown assigned Agent ${agentKey}`);
     }
   }
-  if (!["personal", "space"].includes(visibilityFor("crew", context.crew, context))) {
-    errors.push("crew visibility must be personal or space");
-  }
   if (Boolean(context.env.target?.computer) !== Boolean(context.env.target?.runtime)) {
     errors.push("environment target computer and runtime must be configured together");
   }
   if (context.env.ignoreAgentModels !== undefined && typeof context.env.ignoreAgentModels !== "boolean") {
     errors.push("environment ignoreAgentModels must be a boolean");
   }
-  if (!context.crew.instructionsFile) errors.push("crew instructionsFile is required");
-  else renderInstructions(join(context.configRoot, context.crew.instructionsFile), context);
-  const deployedNames = [context.crewName, ...Object.values(context.names)];
+  const deployedNames = [...Object.values(context.crewNames), ...Object.values(context.names)];
   if (new Set(deployedNames).size !== deployedNames.length) errors.push("rendered crew and agent names must be unique");
   if (errors.length) throw new Error(errors.join("\n"));
-  console.log(`Valid: 1 crew, ${Object.keys(context.agents).length} agents, suffix=${JSON.stringify(context.suffix)}`);
+  const crewCount = crewEntries.length;
+  console.log(`Valid: ${crewCount} crew${crewCount === 1 ? "" : "s"}, ${Object.keys(context.agents).length} agents, suffix=${JSON.stringify(context.suffix)}`);
 }
 
 function agentFlags(key, context, create) {
@@ -204,16 +255,17 @@ function agentFlags(key, context, create) {
   return ["agent", ...args];
 }
 
-function crewFlags(context, create) {
+function crewFlags(key, context, create) {
+  const crew = context.crews[key];
   const args = [create ? "create" : "edit"];
-  if (!create) args.push(context.state.crew[context.crew.key].id);
-  add(args, "--name", context.crewName);
-  add(args, "--description", context.crew.description ?? "");
-  add(args, "--instructions", renderInstructions(join(context.configRoot, context.crew.instructionsFile), context));
-  add(args, "--leader", context.state.agents[context.crew.leader].id);
-  add(args, "--visibility", visibilityFor("crew", context.crew, context));
+  if (!create) args.push(context.state.crew[key].id);
+  add(args, "--name", context.crewNames[key]);
+  add(args, "--description", crew.description ?? "");
+  add(args, "--instructions", renderInstructions(crewInstructionsPath(key, context), context, key));
+  add(args, "--leader", context.state.agents[crew.leader].id);
+  add(args, "--visibility", visibilityFor("crew", crew, context));
   add(args, "--space", context.env.spaceId);
-  add(args, "--same-computer-shared-task-workdir-enabled", boolLiteral(context.crew.sameComputerSharedTaskWorkdirEnabled));
+  add(args, "--same-computer-shared-task-workdir-enabled", boolLiteral(crew.sameComputerSharedTaskWorkdirEnabled));
   args.push("--output", "json");
   return ["crew", ...args];
 }
@@ -240,7 +292,7 @@ function saveState(context) {
 }
 
 function assertCreateState(context) {
-  if (context.state.crew?.[context.crew.key]?.id) {
+  if (Object.values(context.state.crew || {}).some((crew) => crew?.id)) {
     throw new Error(`environment "${environmentName}" already has a deployed crew; use apply or a new environment`);
   }
   if (context.state.nameSuffix !== undefined && context.state.nameSuffix !== context.suffix) {
@@ -254,9 +306,11 @@ function checkRemoteNameCollisions(context) {
   const remoteCrews = hifox(["crew", "list", "--output", "json"]) || [];
   const managedAgentIds = new Set(Object.values(context.state.agents || {}).map((item) => item.id));
   const agentNames = new Set(remoteAgents.filter((item) => !managedAgentIds.has(item.id)).map((item) => item.name));
-  const crewNames = new Set(remoteCrews.map((item) => item.name));
+  const remoteCrewNames = new Set(remoteCrews.map((item) => item.name));
   const collisions = Object.values(context.names).filter((name) => agentNames.has(name));
-  if (crewNames.has(context.crewName)) collisions.push(context.crewName);
+  for (const name of Object.values(context.crewNames)) {
+    if (remoteCrewNames.has(name)) collisions.push(name);
+  }
   if (collisions.length) throw new Error(`remote names already exist: ${collisions.join(", ")}`);
 }
 
@@ -322,6 +376,13 @@ function copySourceForAgent(key, context) {
   return null;
 }
 
+function addCrewMember(context, crewId, member) {
+  const args = ["crew", "member", "add", crewId, "--type", "agent", "--id", context.state.agents[member.agent].id];
+  add(args, "--role", member.role ?? "");
+  args.push("--output", "json");
+  hifox(args, { mutate: true });
+}
+
 function create(context) {
   assertCreateState(context);
   checkRemoteNameCollisions(context);
@@ -345,29 +406,37 @@ function create(context) {
     }
   }
   if (!shouldApply) {
-    console.log("$ hifox crew create ... # after Agent IDs are available");
-    console.log("$ hifox crew member add ... # for each non-leader member");
+    for (const key of Object.keys(context.crews)) {
+      console.log(`$ hifox crew create ... # ${key}`);
+    }
+    console.log("$ hifox crew member add ... # for each crew and non-leader member");
     return;
   }
   ensureSkills(context);
   for (const key of Object.keys(context.agents)) setSkills(key, context);
-  const crewResult = hifox(crewFlags(context, true), { mutate: true });
-  context.state.crew[context.crew.key] = { id: crewResult.id, deployedName: context.crewName };
-  saveState(context);
-  for (const member of context.crew.members || []) {
-    if (member.agent === context.crew.leader) continue;
-    const args = ["crew", "member", "add", crewResult.id, "--type", "agent", "--id", context.state.agents[member.agent].id];
-    add(args, "--role", member.role ?? "");
-    args.push("--output", "json");
-    hifox(args, { mutate: true });
+  for (const key of Object.keys(context.crews)) {
+    const crew = context.crews[key];
+    const crewResult = hifox(crewFlags(key, context, true), { mutate: true });
+    context.state.crew[key] = { id: crewResult.id, deployedName: context.crewNames[key] };
+    saveState(context);
+    for (const member of crew.members || []) {
+      if (member.agent === crew.leader) continue;
+      addCrewMember(context, crewResult.id, member);
+    }
+  }
+}
+
+function requireCompleteAgents(context) {
+  for (const key of Object.keys(context.agents)) {
+    if (!context.state.agents?.[key]?.id) throw new Error(`missing state ID for agent ${key}`);
   }
 }
 
 function requireCompleteState(context) {
-  for (const key of Object.keys(context.agents)) {
-    if (!context.state.agents?.[key]?.id) throw new Error(`missing state ID for agent ${key}`);
+  requireCompleteAgents(context);
+  for (const key of Object.keys(context.crews)) {
+    if (!context.state.crew?.[key]?.id) throw new Error(`missing state ID for crew ${key}`);
   }
-  if (!context.state.crew?.[context.crew.key]?.id) throw new Error("missing crew state ID");
 }
 
 function apply(context) {
@@ -387,26 +456,41 @@ function apply(context) {
       if (copySource) hifox(agentFlags(key, context, false), { mutate: true });
     }
   }
-  requireCompleteState(context);
+  requireCompleteAgents(context);
   for (const key of Object.keys(context.agents)) {
     hifox(agentFlags(key, context, false), { mutate: true });
     context.state.agents[key].deployedName = context.names[key];
   }
   ensureSkills(context);
   for (const key of Object.keys(context.agents)) setSkills(key, context);
-  hifox(crewFlags(context, false), { mutate: true });
-  context.state.crew[context.crew.key].deployedName = context.crewName;
+  for (const key of Object.keys(context.crews)) {
+    if (!context.state.crew[key]?.id) {
+      const result = hifox(crewFlags(key, context, true), { mutate: true });
+      if (!shouldApply) {
+        console.log(`$ hifox crew edit <${key} id> ... # after crew creation`);
+        continue;
+      }
+      context.state.crew[key] = { id: result.id, deployedName: context.crewNames[key] };
+      saveState(context);
+    } else {
+      hifox(crewFlags(key, context, false), { mutate: true });
+      if (shouldApply) context.state.crew[key].deployedName = context.crewNames[key];
+    }
+  }
   context.state.nameSuffix = context.suffix;
   if (shouldApply) saveState(context);
-  reconcileMembers(context);
+  for (const key of Object.keys(context.state.crew || {})) {
+    if (context.crews[key]) reconcileMembers(context, key);
+  }
 }
 
-function reconcileMembers(context) {
-  const crewId = context.state.crew[context.crew.key].id;
+function reconcileMembers(context, key) {
+  const crew = context.crews[key];
+  const crewId = context.state.crew[key].id;
   const current = hifox(["crew", "member", "list", crewId, "--output", "json"]) || [];
   const byId = new Map(current.filter((x) => x.member.type === "agent").map((x) => [x.member.id, x]));
   const desiredIds = new Set();
-  for (const member of context.crew.members || []) {
+  for (const member of crew.members || []) {
     const id = context.state.agents[member.agent].id;
     desiredIds.add(id);
     const found = byId.get(id);
@@ -431,10 +515,22 @@ function pull(context) {
   const snapshotRoot = join(root, "snapshots", environmentName);
   mkdirSync(join(snapshotRoot, "agents"), { recursive: true });
   mkdirSync(join(snapshotRoot, "skills"), { recursive: true });
-  const crew = hifox(["crew", "view", context.state.crew[context.crew.key].id, "--output", "json"]);
-  const members = hifox(["crew", "member", "list", context.state.crew[context.crew.key].id, "--output", "json"]);
-  writeFileSync(join(snapshotRoot, "crew.json"), JSON.stringify(crew, null, 2) + "\n");
-  writeFileSync(join(snapshotRoot, "members.json"), JSON.stringify(members, null, 2) + "\n");
+  const crewsSnapshotRoot = join(snapshotRoot, "crews");
+  mkdirSync(crewsSnapshotRoot, { recursive: true });
+  const stateCrewKeys = Object.keys(context.state.crew || {});
+  for (const key of stateCrewKeys) {
+    const crewId = context.state.crew[key].id;
+    const crew = hifox(["crew", "view", crewId, "--output", "json"]);
+    const members = hifox(["crew", "member", "list", crewId, "--output", "json"]);
+    const crewSnapshotRoot = join(crewsSnapshotRoot, key);
+    mkdirSync(crewSnapshotRoot, { recursive: true });
+    writeFileSync(join(crewSnapshotRoot, "crew.json"), JSON.stringify(crew, null, 2) + "\n");
+    writeFileSync(join(crewSnapshotRoot, "members.json"), JSON.stringify(members, null, 2) + "\n");
+    if (stateCrewKeys.length === 1) {
+      writeFileSync(join(snapshotRoot, "crew.json"), JSON.stringify(crew, null, 2) + "\n");
+      writeFileSync(join(snapshotRoot, "members.json"), JSON.stringify(members, null, 2) + "\n");
+    }
+  }
   for (const [key, value] of Object.entries(context.state.agents)) {
     const agent = hifox(["agent", "view", value.id, "--output", "json"]);
     writeFileSync(join(snapshotRoot, "agents", `${key}.json`), JSON.stringify(agent, null, 2) + "\n");
@@ -464,7 +560,8 @@ function backup(context) {
         configRoot: relative(root, context.configRoot),
         organizationId: context.env.organizationId,
         spaceId: context.env.spaceId,
-        crewId: context.state.crew[context.crew.key].id,
+        crews: Object.fromEntries(Object.entries(context.state.crew || {}).map(([key, value]) => [key, value.id])),
+        crewId: Object.keys(context.state.crew || {}).length === 1 ? Object.values(context.state.crew)[0].id : undefined,
       },
       null,
       2,
