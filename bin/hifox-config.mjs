@@ -78,7 +78,7 @@ function loadConfiguration() {
   if (!existsSync(join(configRoot, "crew.yaml"))) {
     throw new Error(`${environmentName}: configRoot has no crew.yaml: ${configRelative || "."}`);
   }
-  const crew = yaml(join(configRoot, "crew.yaml"));
+  const crew = yaml(join(configRoot, "crew.yaml")) || {};
   const agents = {};
   const agentsRoot = join(configRoot, "agents");
   for (const key of readdirSync(agentsRoot).sort()) {
@@ -104,7 +104,7 @@ function loadConfiguration() {
   const names = Object.fromEntries(
     Object.entries(agents).map(([key, agent]) => [key, renderName(pattern, agent.name, suffix, environmentName)]),
   );
-  const crewName = renderName(pattern, crew.name, suffix, environmentName);
+  const crewName = crew.name ? renderName(pattern, crew.name, suffix, environmentName) : "";
   const skillNames = Object.fromEntries(
     Object.entries(skills).map(([key, skill]) => [
       key,
@@ -136,7 +136,7 @@ function renderInstructions(path, context) {
 function validate(context) {
   const errors = [];
   if (!context.crew.key || !context.crew.name || !context.crew.leader) errors.push("crew key, name and leader are required");
-  if (!context.agents[context.crew.leader]) errors.push(`unknown crew leader: ${context.crew.leader}`);
+  if (context.crew.leader && !context.agents[context.crew.leader]) errors.push(`unknown crew leader: ${context.crew.leader}`);
   const memberKeys = new Set();
   for (const member of context.crew.members || []) {
     if (!context.agents[member.agent]) errors.push(`unknown crew member: ${member.agent}`);
@@ -169,7 +169,8 @@ function validate(context) {
   if (context.env.ignoreAgentModels !== undefined && typeof context.env.ignoreAgentModels !== "boolean") {
     errors.push("environment ignoreAgentModels must be a boolean");
   }
-  renderInstructions(join(context.configRoot, context.crew.instructionsFile), context);
+  if (!context.crew.instructionsFile) errors.push("crew instructionsFile is required");
+  else renderInstructions(join(context.configRoot, context.crew.instructionsFile), context);
   const deployedNames = [context.crewName, ...Object.values(context.names)];
   if (new Set(deployedNames).size !== deployedNames.length) errors.push("rendered crew and agent names must be unique");
   if (errors.length) throw new Error(errors.join("\n"));

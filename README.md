@@ -4,9 +4,11 @@
 
 ## 目录
 
-- `config/`：可复用模板，是人工维护的唯一事实来源。
-- `config/agents/*/instructions.md`：Agent 指令，支持名称变量。
-- `environments/<name>/environment.yaml`：组织、Space 和名称后缀。
+- `config/spaces/<space>/`：某个 Space 的 crew、agents、skills 配置，是人工维护的唯一事实来源。
+  - `config/spaces/apifox/`：当前 Apifox Space 的小队与 Agent 配置。
+  - `config/spaces/hifox/`：空配置模板，待填充。
+- `config/spaces/<space>/agents/*/instructions.md`：Agent 指令，支持名称变量。
+- `environments/<name>/environment.yaml`：组织、Space、`configRoot` 和名称后缀。
 - `environments/<name>/state.yaml`：部署后由工具记录的远端 UUID。
 - `snapshots/<environment>/`：可再生成的远端状态缓存，已被 Git 忽略。
 - `backups/<timestamp>/<environment>/`：带时间戳的完整本地备份，已被 Git 忽略。
@@ -56,11 +58,12 @@
 cp -R environments/example environments/my-environment
 ```
 
-编辑新环境的 `environment.yaml`，至少设置唯一后缀和 visibility：
+编辑新环境的 `environment.yaml`，至少设置唯一后缀、`configRoot` 和 visibility：
 
 ```yaml
 organizationId: 86555f76-3f5b-4f7a-93c6-406074110a59
 spaceId: fcb74b8e-d801-42f5-b3e9-787c13577112
+configRoot: config/spaces/apifox
 nameSuffix: " - staging"
 namingPattern: "{{name}}{{suffix}}"
 visibility:
@@ -107,7 +110,7 @@ instructions 支持部署时渲染以下变量：
 
 ## 忽略 Agent 模型
 
-默认情况下，`apply` 会把 `config/agents/*/agent.yaml` 中的 `runtime.model` 同步到远端。若某个环境不希望配置覆盖线上模型，在该环境的 `environment.yaml` 中设置：
+默认情况下，`apply` 会把 `configRoot` 下 `agents/*/agent.yaml` 中的 `runtime.model` 同步到远端。若某个环境不希望配置覆盖线上模型，在该环境的 `environment.yaml` 中设置：
 
 ```yaml
 ignoreAgentModels: true
@@ -117,7 +120,7 @@ ignoreAgentModels: true
 
 ## 多空间维护
 
-默认所有环境共用 `config/`。需要维护多个 Space 时，为每个 Space 准备独立的 crew/agents/skills 目录，并在环境配置中用 `configRoot` 指向它：
+每个环境通过 `configRoot` 指定其 Space 的 crew/agents/skills 目录。需要维护多个 Space 时，为每个 Space 准备独立的配置目录：
 
 ```text
 config/
@@ -155,12 +158,11 @@ nameSuffix: " - apifox"
 - **同一套 Agent/Skill 镜像到多个 Space**：多个环境使用相同的 `configRoot`，但 `spaceId` 不同；每个环境有自己的 `state.yaml`，Skill 会在各自 Space 创建。
 - **不同 Space 维护不同 Agent/Skill**：每个 Space 使用独立 `configRoot`，互不影响。
 
-`configRoot` 内的 `crew.yaml`、`agents/`、`skills/` 结构与原 `config/` 完全一致。复制现有配置：
+`configRoot` 内的 `crew.yaml`、`agents/`、`skills/` 结构与 `config/spaces/apifox/` 完全一致。复制现有配置：
 
 ```bash
-mkdir -p config/spaces/apifox
-cp config/crew.yaml config/spaces/apifox/
-cp -R config/agents config/skills config/spaces/apifox/
+mkdir -p config/spaces/<space>
+cp -R config/spaces/apifox/. config/spaces/<space>/
 ```
 
 注意事项：
@@ -180,7 +182,7 @@ cp -R config/agents config/skills config/spaces/apifox/
 - 中途创建失败时会保留已成功创建的 UUID，便于排查并避免重复创建。
 - generated avatar、在线状态、时间戳等服务端字段不会写回模板。
 - Skill ID 必须在目标组织中有效；跨组织克隆前需要确认 Skill 可见性。
-- Agent 专属 Skill 使用 `inherited-copy`：同一 Space 内通过复制源 Agent 保留绑定，Skill 正文由 `config/skills/` 统一维护；跨 Space 见“多空间维护”。
+- Agent 专属 Skill 使用 `inherited-copy`：同一 Space 内通过复制源 Agent 保留绑定，Skill 正文由 `config/spaces/<space>/skills/` 统一维护；跨 Space 见“多空间维护”。
 - 新建 Agent 需要成对配置 Computer Lease ID 与 Runtime ID，可通过 `hifox agent target list` 查询。
 
 ## 依赖

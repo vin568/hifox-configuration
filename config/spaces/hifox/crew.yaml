@@ -1,0 +1,10 @@
+# Empty Space configuration.
+# Fill in when this Space has a crew and agents.
+#
+# key: hifox
+# name: ...
+# description: ...
+# instructionsFile: crew-instructions.md
+# visibility: space
+# leader: ...
+# members: []
