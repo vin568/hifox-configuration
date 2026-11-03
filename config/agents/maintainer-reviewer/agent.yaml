@@ -16,3 +16,4 @@ concurrency:
   maxTasks: 10
 skills:
   - maintainer-review
+  - code-review-expert

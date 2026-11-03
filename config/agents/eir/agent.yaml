@@ -6,9 +6,6 @@ instructionsFile: instructions.md
 runtime:
   model: apifox/gpt-5.6-sol
   customArguments: []
-target:
-  computer: fc2b7c00-a3d0-4ffd-b9e9-736036b66f5a
-  runtime: 16bac72a-28f1-4e89-9d34-1a307f936741
 permissions:
   taskAssignment: true
   directMessage: true
