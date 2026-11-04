@@ -32,7 +32,7 @@ git clone --recurse-submodules git@apifox.github.com:vin568/hifox-configuration.
 git submodule update --init --recursive
 ```
 
-`.gitmodules` 使用绝对 URL `git@github.com:vin568/hifox-dotfile.git`；克隆本仓库前需要该仓库的读取权限。
+`.gitmodules` 使用 `git@apifox.github.com:vin568/hifox-dotfile.git`（`~/.ssh/config` 中该别名指向 `ssh.github.com:443`，以 vin568 的 key 认证）；克隆本仓库前需要该仓库的读取权限。
 
 升级 CLI 版本：先在 `hifox-dotfile` 仓库提交并推送，再让本仓库指向新提交：
 
