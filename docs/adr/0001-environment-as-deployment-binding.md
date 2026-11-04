@@ -82,7 +82,7 @@ export HIFOX_ORGANIZATION_ID=<organization-id>
 
 ## 待办
 
-- [x] 在 `hifox-dotfile` 实现 ActiveOrganization fail-fast guard：解析有效组织、比较 `environment.organizationId`、失败时给出可操作错误。
+- [x] 在 `hifox-deploy` 实现 ActiveOrganization fail-fast guard：解析有效组织、比较 `environment.organizationId`、失败时给出可操作错误。
 - [x] 校验 `spaceId` 属于声明的 `organizationId`（`hifox space view`）。
 - [x] 增加测试覆盖：profile 默认组织不匹配、`HIFOX_ORGANIZATION_ID` 不匹配、`--organization-id` 优先级、离线 `validate` 不触发 guard。
 - [x] 更新 README/AGENTS，明确 `organizationId` 的语义和安全约束。

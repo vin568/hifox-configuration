@@ -2,15 +2,15 @@
 
 ## 仓库定位
 
-本仓库是 HiFox 的声明式配置仓库：crew / agent / skill 模板，以及每个环境的 `environment.yaml`、`state.yaml`。部署逻辑不在本仓库，位于 git 子模块 `vendor/hifox-dotfile`，由根目录 `hifox-config` 固定以本仓库根目录作为 `--root` 调用。
+本仓库是 HiFox 的声明式配置仓库：crew / agent / skill 模板，以及每个环境的 `environment.yaml`、`state.yaml`。部署逻辑不在本仓库，位于 git 子模块 `vendor/hifox-deploy`，由根目录 `hifox-deploy` 固定以本仓库根目录作为 `--root` 调用。
 
 ## 关键原则：子模块是开发者工作副本
 
-根 README 将 `vendor/hifox-dotfile` 描述为部署 CLI 子模块，并说明普通配置使用者不需要修改。该说明只约束配置仓库的使用者：维护部署行为时：
+根 README 将 `vendor/hifox-deploy` 描述为部署 CLI 子模块，并说明普通配置使用者不需要修改。该说明只约束配置仓库的使用者：维护部署行为时：
 
-1. 直接在 `vendor/hifox-dotfile` 内编辑、测试（它是完整的 git 仓库，不是 vendored 只读代码）。
+1. 直接在 `vendor/hifox-deploy` 内编辑、测试（它是完整的 git 仓库，不是 vendored 只读代码）。
 2. 在子模块仓库内提交。
-3. 回到根仓库更新子模块指针：`git add vendor/hifox-dotfile && git commit`。
+3. 回到根仓库更新子模块指针：`git add vendor/hifox-deploy && git commit`。
 
 不要把子模块当只读依赖，也不要绕开它把部署逻辑复制到根仓库或壳脚本。
 
@@ -20,8 +20,8 @@
 - `environments/<env>/`：部署绑定（Organization、Space、`configRoot`、suffix、target、model policy）与部署后的 UUID；`state.yaml` 需要提交，不要手改其中的 UUID。
 - `snapshots/`、`backups/`：生成物，已被 Git 忽略，不提交。
 - `docs/domain/`、`docs/adr/`：领域语言、边界、不变量和关键决策；修改术语或契约前先读并同步。
-- `vendor/hifox-dotfile/`：CLI 源码与测试；改动走子模块自己的提交，遵守其 `AGENTS.md`。
-- `hifox-config`：消费方契约，路径和 `--root` 语义不要改。
+- `vendor/hifox-deploy/`：CLI 源码与测试；改动走子模块自己的提交，遵守其 `AGENTS.md`。
+- `hifox-deploy`：消费方契约，路径和 `--root` 语义不要改。
 
 ## 执行约定
 

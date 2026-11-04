@@ -8,7 +8,7 @@
 旧 CLI 中，`diff` 不是文本差异比较，而是 `apply` 的 dry-run 别名：
 
 ```text
-hifox-config diff  ==  hifox-config apply   （两者都不带 --apply）
+hifox-deploy diff  ==  hifox-deploy apply   （两者都不带 --apply）
 ```
 
 这里有两个容易混淆的 “apply”：
@@ -25,12 +25,12 @@ hifox-config diff  ==  hifox-config apply   （两者都不带 --apply）
 - 领域概念仍然叫 **DeploymentPlan**（部署计划）/ **Preview**。
 - CLI 的规范命令是 **`plan`**：
   ```bash
-  hifox-config plan --environment current
+  hifox-deploy plan --environment current
   ```
   它只生成 DeploymentPlan，不修改远端，也不接受 `--apply`。
 - **`apply` 只负责执行**：
   ```bash
-  hifox-config apply --apply --environment current
+  hifox-deploy apply --apply --environment current
   ```
   缺少 `--apply` 时直接失败，并提示改用 `plan`。它不再静默退化为 dry-run。
 - **`diff` 命令移除**，不再保留别名。应用未发布，不存在兼容负担。

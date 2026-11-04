@@ -30,7 +30,7 @@
 - **CLI 能力边界**：不提供 `migrate`。恢复用 `restore`，清理用 `prune`，两者都只做复制/删除，不改写备份内容。
 - **Restore**：只写入不存在或为空的 `--to` root，不覆盖现有工作区；复制 `config/`、`environment/`、`snapshot/`，保留原 `configRoot` 和 state UUID；恢复后用目标 root 重新 `validate`。它不是迁移：旧备份的 `configRoot` / legacy `crew.yaml` 原样保留。
 - **Prune**：`prune backups` 按时间戳保留最新 N 个；`prune snapshots` 删除孤儿快照或显式 `--environment` 的快照。两者默认预览，必须显式 `--apply` 才删除。
-- **Manifest 兼容**：字段、类型和版本规则见 [hifox-dotfile README 的 Backup manifest](../../vendor/hifox-dotfile/README.md#备份-manifest)；`version: 1` 保持不变，新增字段是 additive；`configRoot` / `crews` 缺失或为 `null` 时按 legacy 处理；`crewId` 只保证单 crew 时存在，多 crew / 零 crew 以 `crews` 映射（可能为空）为准。读取方必须容忍缺失字段，不能假设新布局；只有 breaking change 才升级到 `2`，读取方遇到未知版本必须报错而不是按 `1` 猜测。
+- **Manifest 兼容**：字段、类型和版本规则见 [hifox-deploy README 的 Backup manifest](../../vendor/hifox-deploy/README.md#备份-manifest)；`version: 1` 保持不变，新增字段是 additive；`configRoot` / `crews` 缺失或为 `null` 时按 legacy 处理；`crewId` 只保证单 crew 时存在，多 crew / 零 crew 以 `crews` 映射（可能为空）为准。读取方必须容忍缺失字段，不能假设新布局；只有 breaking change 才升级到 `2`，读取方遇到未知版本必须报错而不是按 `1` 猜测。
 
 ## 后果
 

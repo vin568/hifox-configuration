@@ -1,6 +1,6 @@
 # 领域模型
 
-本目录记录 `hifox-configuration` / `hifox-dotfile` 的领域语言与边界。
+本目录记录 `hifox-configuration` / `hifox-deploy` 的领域语言与边界。
 
 核心边界：**ConfigurationSet / ConfigRoot 与 Organization/Space 解耦**；Organization 和 Space 只在 `environment.yaml` 中定义，由 Environment 把配置集合绑定到目标 Space。
 

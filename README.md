@@ -1,6 +1,6 @@
 # HiFox Agent Crew Configuration
 
-“诸神的黄昏 Ragnarok”小队的声明式本地配置。本仓库只保存配置与运行环境：部署逻辑位于 git 子模块 `vendor/hifox-dotfile`，由根目录的 `hifox-config` 壳脚本调用。
+“诸神的黄昏 Ragnarok”小队的声明式本地配置。本仓库只保存配置与运行环境：部署逻辑位于 git 子模块 `vendor/hifox-deploy`，由根目录的 `hifox-deploy` 壳脚本调用。
 
 ## 目录
 
@@ -14,17 +14,17 @@
 - `environments/<name>/state.yaml`：部署后由工具记录的远端 UUID。
 - `snapshots/<environment>/`：可再生成的远端状态缓存，已被 Git 忽略。
 - `backups/<timestamp>/<environment>/`：带时间戳的完整本地备份，已被 Git 忽略。
-- `vendor/hifox-dotfile/`：部署 CLI 子模块。普通配置使用者不需要修改；维护部署逻辑时在该子模块内开发、测试并提交，再在根仓库更新子模块指针（见 `AGENTS.md`）。
-- `hifox-config`：同步入口，固定把本仓库根目录作为 `--root` 传给 CLI。
+- `vendor/hifox-deploy/`：部署 CLI 子模块。普通配置使用者不需要修改；维护部署逻辑时在该子模块内开发、测试并提交，再在根仓库更新子模块指针（见 `AGENTS.md`）。
+- `hifox-deploy`：同步入口，固定把本仓库根目录作为 `--root` 传给 CLI。
 - `mise.toml`：Node 版本。
 
-CLI 的命令、选项以及 `environment.yaml` / `state.yaml` 字段说明见 [`vendor/hifox-dotfile/README.md`](vendor/hifox-dotfile/README.md)。领域语言、边界与不变量见 [`docs/domain/`](docs/domain/README.md)，关键决策见 [`docs/adr/`](docs/adr/)。
+CLI 的命令、选项以及 `environment.yaml` / `state.yaml` 字段说明见 [`vendor/hifox-deploy/README.md`](vendor/hifox-deploy/README.md)。领域语言、边界与不变量见 [`docs/domain/`](docs/domain/README.md)，关键决策见 [`docs/adr/`](docs/adr/)。
 
 ## 文档边界
 
 - `docs/domain/`：领域语言、边界与不变量，是模型层的事实来源。
 - `docs/adr/`：关键设计决策及其取舍。
-- `vendor/hifox-dotfile/README.md`：CLI 契约，包括命令、选项、`environment.yaml` / `state.yaml` 字段和 manifest 规则。
+- `vendor/hifox-deploy/README.md`：CLI 契约，包括命令、选项、`environment.yaml` / `state.yaml` 字段和 manifest 规则。
 - 本 README：配置集合、环境绑定和日常操作说明；CLI 细节以上面的契约为准，不在本文重复维护。
 
 ## 子模块
@@ -41,26 +41,26 @@ git clone --recurse-submodules git@apifox.github.com:vin568/hifox-configuration.
 git submodule update --init --recursive
 ```
 
-`vendor/hifox-dotfile` 是独立仓库；首次克隆前需要该子模块仓库的读取权限。SSH/HTTPS 的本地 Git 配置按团队环境处理，不在本文档中固化。
+`vendor/hifox-deploy` 是独立仓库；首次克隆前需要该子模块仓库的读取权限。SSH/HTTPS 的本地 Git 配置按团队环境处理，不在本文档中固化。
 
-升级 CLI 版本：先在 `hifox-dotfile` 仓库提交并推送，再让本仓库指向新提交：
+升级 CLI 版本：先在 `hifox-deploy` 仓库提交并推送，再让本仓库指向新提交：
 
 ```bash
-git -C vendor/hifox-dotfile fetch
-git -C vendor/hifox-dotfile checkout <commit>
-git add vendor/hifox-dotfile
-git commit -m "chore(deps): bump hifox-dotfile"
+git -C vendor/hifox-deploy fetch
+git -C vendor/hifox-deploy checkout <commit>
+git add vendor/hifox-deploy
+git commit -m "chore(deps): bump hifox-deploy"
 ```
 
-开发 CLI 时不需要等上游发布：直接在 `vendor/hifox-dotfile` 内修改、运行 `npm test`，在该子模块仓库提交并推送，然后按上面的方式更新本仓库指针。拆分、测试与提交边界见根 [`AGENTS.md`](AGENTS.md) 和子模块 `AGENTS.md`。
+开发 CLI 时不需要等上游发布：直接在 `vendor/hifox-deploy` 内修改、运行 `npm test`，在该子模块仓库提交并推送，然后按上面的方式更新本仓库指针。拆分、测试与提交边界见根 [`AGENTS.md`](AGENTS.md) 和子模块 `AGENTS.md`。
 
 ## 默认 Staging 实例
 
 ```bash
-./hifox-config validate
-./hifox-config plan
-./hifox-config apply --apply
-./hifox-config pull
+./hifox-deploy validate
+./hifox-deploy plan
+./hifox-deploy apply --apply
+./hifox-deploy pull
 ```
 
 `staging` 是默认环境，小队和全部 Agent 均为 `personal`，名称追加 ` - staging`。
@@ -69,7 +69,7 @@ git commit -m "chore(deps): bump hifox-dotfile"
 原有无后缀实例保留在 `current` 环境：
 
 ```bash
-./hifox-config plan --environment current
+./hifox-deploy plan --environment current
 ```
 
 对 `current` 执行 `--apply` 必须同时传入 `--production`。
@@ -79,15 +79,15 @@ git commit -m "chore(deps): bump hifox-dotfile"
 `pull` 只刷新可再生成的远端缓存：
 
 ```bash
-./hifox-config pull
+./hifox-deploy pull
 ```
 
 `backup` 会先拉取最新远端状态，再保存整个 `config/` 树（含所有配置集合）、环境 state、远端快照和 manifest：
 
 ```bash
-./hifox-config backup
-./hifox-config backup --environment current
-./hifox-config backup --output-dir /path/to/private-backups
+./hifox-deploy backup
+./hifox-deploy backup --environment current
+./hifox-deploy backup --output-dir /path/to/private-backups
 ```
 
 默认备份位置为 `backups/<UTC timestamp>/<environment>/`。仓库内的 `snapshots/` 和 `backups/` 都不会提交 Git；重要备份应复制到私有对象存储或其他持久化位置。
@@ -95,17 +95,17 @@ git commit -m "chore(deps): bump hifox-dotfile"
 恢复备份到新的空目录（不覆盖工作区）：
 
 ```bash
-./hifox-config restore --from backups/2026-11-04T04-06-12Z/current --to /tmp/restored
-./hifox-config restore --from backups/2026-11-04T04-06-12Z/current --to /tmp/restored --apply
+./hifox-deploy restore --from backups/2026-11-04T04-06-12Z/current --to /tmp/restored
+./hifox-deploy restore --from backups/2026-11-04T04-06-12Z/current --to /tmp/restored --apply
 ```
 
 清理旧备份和孤儿快照：
 
 ```bash
-./hifox-config prune backups --keep 10          # 预览
-./hifox-config prune backups --keep 10 --apply  # 删除更旧的备份
-./hifox-config prune snapshots                  # 预览孤儿快照
-./hifox-config prune snapshots --apply
+./hifox-deploy prune backups --keep 10          # 预览
+./hifox-deploy prune backups --keep 10 --apply  # 删除更旧的备份
+./hifox-deploy prune snapshots                  # 预览孤儿快照
+./hifox-deploy prune snapshots --apply
 ```
 
 `restore` 保留备份中的 `configRoot` 和 state UUID，恢复后仍需 `validate` / `plan` / `apply` 才能与远端对齐。`prune` 不迁移备份内容，只按保留策略删除。
@@ -137,22 +137,22 @@ target:
 预览并创建：
 
 ```bash
-./hifox-config clone --environment my-environment
-./hifox-config clone --environment my-environment --apply
+./hifox-deploy clone --environment my-environment
+./hifox-deploy clone --environment my-environment --apply
 ```
 
 创建成功后会生成对应环境的 `state.yaml`。此后使用：
 
 ```bash
-./hifox-config plan --environment my-environment
-./hifox-config apply --environment my-environment --apply
-./hifox-config pull --environment my-environment
+./hifox-deploy plan --environment my-environment
+./hifox-deploy apply --environment my-environment --apply
+./hifox-deploy pull --environment my-environment
 ```
 
 也可以临时覆盖环境后缀：
 
 ```bash
-./hifox-config clone --environment my-environment --suffix " - Vin Test"
+./hifox-deploy clone --environment my-environment --suffix " - Vin Test"
 ```
 
 ## 名称变量
@@ -277,4 +277,4 @@ config/apifox/crews/
 - `hifox`
 - `node >= 18`（使用 mise 时执行 `mise install` 按 `mise.toml` 安装固定版本）
 - `yq`
-- `hifox-dotfile` 子模块的读取权限
+- `hifox-deploy` 子模块的读取权限

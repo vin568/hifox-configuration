@@ -1,6 +1,6 @@
 # 领域词汇表
 
-本表定义 `hifox-configuration` 与 `hifox-dotfile` 的 ubiquitous language。术语以代码和配置中的实际用法为准；中文解释用于讨论，不替代英文术语。
+本表定义 `hifox-configuration` 与 `hifox-deploy` 的 ubiquitous language。术语以代码和配置中的实际用法为准；中文解释用于讨论，不替代英文术语。
 
 ## 外部平台
 
@@ -49,7 +49,7 @@
 |---|---|---|
 | **Snapshot** | 远端状态的只读缓存，由 `pull` 生成，可重建。 | `DeploymentState` |
 | **Backup** | 不可变归档：`config/` + environment state + snapshot + manifest。 | `Snapshot` |
-| **Manifest** | `<backup>/<env>/manifest.json`，备份元数据；字段、类型和版本规则见 [hifox-dotfile README](../../vendor/hifox-dotfile/README.md#备份-manifest)。 | `DeploymentState` |
+| **Manifest** | `<backup>/<env>/manifest.json`，备份元数据；字段、类型和版本规则见 [hifox-deploy README](../../vendor/hifox-deploy/README.md#备份-manifest)。 | `DeploymentState` |
 | **RestoreRecord** | 恢复目标中的 `environments/<env>/restore.json`，记录来源备份、恢复时间和原 manifest；不是 backup manifest。 | `Manifest` |
 
 ## 命名规则
