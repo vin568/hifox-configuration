@@ -3,3 +3,5 @@ snapshots/
 
 # Timestamped local backup bundles. Copy these to durable private storage.
 backups/
+
+.DS_Store

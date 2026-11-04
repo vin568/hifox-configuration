@@ -4,19 +4,28 @@
 
 ## 目录
 
-- `config/spaces/<space>/`：某个 Space 的 crew、agents、skills 配置，是人工维护的唯一事实来源。
-  - `config/spaces/apifox/`：当前 Apifox Space 的小队与 Agent 配置。
-  - `config/spaces/hifox/`：空配置模板，待填充。
-- `config/spaces/<space>/agents/*/instructions.md`：Agent 指令，支持名称变量。
-- `environments/<name>/environment.yaml`：组织、Space、`configRoot` 和名称后缀。
+- `config/<config-set>/`：与 Organization/Space 解耦的配置集合，是 crew、agents、skills 的唯一事实来源。
+  - `config/apifox/`：当前 Apifox 配置集合（Ragnarok 小队）。
+  - `config/hifox/`：空的配置集合模板，待填充。
+- `config/<config-set>/agents/*/instructions.md`：Agent 指令，支持名称变量。
+- `docs/domain/`：领域词汇、上下文地图和当前实现缺口。
+- `docs/adr/`：关键设计决策记录。
+- `environments/<name>/environment.yaml`：Organization、Space、`configRoot` 和名称后缀；Organization/Space 只在这里定义。
 - `environments/<name>/state.yaml`：部署后由工具记录的远端 UUID。
 - `snapshots/<environment>/`：可再生成的远端状态缓存，已被 Git 忽略。
 - `backups/<timestamp>/<environment>/`：带时间戳的完整本地备份，已被 Git 忽略。
-- `vendor/hifox-dotfile/`：部署 CLI 子模块，不在本仓库内修改。
+- `vendor/hifox-dotfile/`：部署 CLI 子模块。普通配置使用者不需要修改；维护部署逻辑时在该子模块内开发、测试并提交，再在根仓库更新子模块指针（见 `AGENTS.md`）。
 - `hifox-config`：同步入口，固定把本仓库根目录作为 `--root` 传给 CLI。
 - `mise.toml`：Node 版本。
 
-CLI 的命令、选项以及 `environment.yaml` / `state.yaml` 字段说明见 [`vendor/hifox-dotfile/README.md`](vendor/hifox-dotfile/README.md)。
+CLI 的命令、选项以及 `environment.yaml` / `state.yaml` 字段说明见 [`vendor/hifox-dotfile/README.md`](vendor/hifox-dotfile/README.md)。领域语言、边界与不变量见 [`docs/domain/`](docs/domain/README.md)，关键决策见 [`docs/adr/`](docs/adr/)。
+
+## 文档边界
+
+- `docs/domain/`：领域语言、边界与不变量，是模型层的事实来源。
+- `docs/adr/`：关键设计决策及其取舍。
+- `vendor/hifox-dotfile/README.md`：CLI 契约，包括命令、选项、`environment.yaml` / `state.yaml` 字段和 manifest 规则。
+- 本 README：配置集合、环境绑定和日常操作说明；CLI 细节以上面的契约为准，不在本文重复维护。
 
 ## 子模块
 
@@ -32,7 +41,7 @@ git clone --recurse-submodules git@apifox.github.com:vin568/hifox-configuration.
 git submodule update --init --recursive
 ```
 
-`.gitmodules` 使用 `git@apifox.github.com:vin568/hifox-dotfile.git`（`~/.ssh/config` 中该别名指向 `ssh.github.com:443`，以 vin568 的 key 认证）；克隆本仓库前需要该仓库的读取权限。
+`vendor/hifox-dotfile` 是独立仓库；首次克隆前需要该子模块仓库的读取权限。SSH/HTTPS 的本地 Git 配置按团队环境处理，不在本文档中固化。
 
 升级 CLI 版本：先在 `hifox-dotfile` 仓库提交并推送，再让本仓库指向新提交：
 
@@ -43,22 +52,24 @@ git add vendor/hifox-dotfile
 git commit -m "chore(deps): bump hifox-dotfile"
 ```
 
+开发 CLI 时不需要等上游发布：直接在 `vendor/hifox-dotfile` 内修改、运行 `npm test`，在该子模块仓库提交并推送，然后按上面的方式更新本仓库指针。拆分、测试与提交边界见根 [`AGENTS.md`](AGENTS.md) 和子模块 `AGENTS.md`。
+
 ## 默认 Staging 实例
 
 ```bash
 ./hifox-config validate
-./hifox-config diff
+./hifox-config plan
 ./hifox-config apply --apply
 ./hifox-config pull
 ```
 
 `staging` 是默认环境，小队和全部 Agent 均为 `personal`，名称追加 ` - staging`。
-`apply` 和 `create` 默认只预览命令，必须显式传入 `--apply` 才会修改远端。
+`plan` 只预览 DeploymentPlan；`apply` 必须显式传 `--apply`；`create` / `clone` 默认只打印 provisioning 计划，传 `--apply` 才创建远端对象。
 
 原有无后缀实例保留在 `current` 环境：
 
 ```bash
-./hifox-config diff --environment current
+./hifox-config plan --environment current
 ```
 
 对 `current` 执行 `--apply` 必须同时传入 `--production`。
@@ -71,7 +82,7 @@ git commit -m "chore(deps): bump hifox-dotfile"
 ./hifox-config pull
 ```
 
-`backup` 会先拉取最新远端状态，再保存配置模板、环境 state、远端快照和 manifest：
+`backup` 会先拉取最新远端状态，再保存整个 `config/` 树（含所有配置集合）、环境 state、远端快照和 manifest：
 
 ```bash
 ./hifox-config backup
@@ -81,6 +92,24 @@ git commit -m "chore(deps): bump hifox-dotfile"
 
 默认备份位置为 `backups/<UTC timestamp>/<environment>/`。仓库内的 `snapshots/` 和 `backups/` 都不会提交 Git；重要备份应复制到私有对象存储或其他持久化位置。
 
+恢复备份到新的空目录（不覆盖工作区）：
+
+```bash
+./hifox-config restore --from backups/2026-11-04T04-06-12Z/current --to /tmp/restored
+./hifox-config restore --from backups/2026-11-04T04-06-12Z/current --to /tmp/restored --apply
+```
+
+清理旧备份和孤儿快照：
+
+```bash
+./hifox-config prune backups --keep 10          # 预览
+./hifox-config prune backups --keep 10 --apply  # 删除更旧的备份
+./hifox-config prune snapshots                  # 预览孤儿快照
+./hifox-config prune snapshots --apply
+```
+
+`restore` 保留备份中的 `configRoot` 和 state UUID，恢复后仍需 `validate` / `plan` / `apply` 才能与远端对齐。`prune` 不迁移备份内容，只按保留策略删除。
+
 ## 克隆新实例
 
 创建其他环境时复制示例配置：
@@ -89,12 +118,12 @@ git commit -m "chore(deps): bump hifox-dotfile"
 cp -R environments/example environments/my-environment
 ```
 
-编辑新环境的 `environment.yaml`，至少设置唯一后缀、`configRoot` 和 visibility：
+编辑新环境的 `environment.yaml`，至少设置唯一后缀、`configRoot` 和 visibility；如果要部署到不同 Organization/Space，还要设置 `organizationId` / `spaceId`：
 
 ```yaml
-organizationId: 86555f76-3f5b-4f7a-93c6-406074110a59
-spaceId: fcb74b8e-d801-42f5-b3e9-787c13577112
-configRoot: config/spaces/apifox
+organizationId: <organization-id>
+spaceId: <space-id>
+configRoot: config/apifox
 nameSuffix: " - staging"
 namingPattern: "{{name}}{{suffix}}"
 visibility:
@@ -115,7 +144,7 @@ target:
 创建成功后会生成对应环境的 `state.yaml`。此后使用：
 
 ```bash
-./hifox-config diff --environment my-environment
+./hifox-config plan --environment my-environment
 ./hifox-config apply --environment my-environment --apply
 ./hifox-config pull --environment my-environment
 ```
@@ -152,39 +181,38 @@ ignoreAgentModels: true
 
 设置后，CLI 不再向 `hifox agent create/edit` 传递 `--model`，已有 Agent 的模型保持不变，新建 Agent 使用 runtime 默认模型。该开关只影响 `runtime.model`；`runtime.customArguments` 仍按配置传递。
 
-## 多空间维护
+## 多配置集合与多 Space
 
-每个环境通过 `configRoot` 指定其 Space 的 crew/agents/skills 目录。需要维护多个 Space 时，为每个 Space 准备独立的配置目录：
+`configRoot` 指向一个与 Organization/Space 解耦的 **ConfigurationSet**。Organization 和 Space 只出现在 `environment.yaml`；同一个 ConfigurationSet 可以被多个 Environment 绑定到不同 Organization/Space。
 
 ```text
 config/
-  spaces/
-    apifox/
-      crews/
-        ragnarok/
-          crew.yaml
-          instructions.md
-      agents/
-      skills/
-    hifox/
-      crews/
-      agents/
-      skills/
+  apifox/
+    crews/
+      ragnarok/
+        crew.yaml
+        instructions.md
+    agents/
+    skills/
+  hifox/
+    crews/
+    agents/
+    skills/
 environments/
   apifox-current/
-    environment.yaml
+    environment.yaml   # organizationId + spaceId + configRoot: config/apifox
     state.yaml
-  apidog-current/
-    environment.yaml
+  apifox-staging/
+    environment.yaml   # same configRoot, different suffix
     state.yaml
 ```
 
 `configRoot` 相对于仓库根目录，且必须位于 `config/` 内：
 
 ```yaml
-organizationId: 86555f76-3f5b-4f7a-93c6-406074110a59
+organizationId: <organization-id>
 spaceId: <目标 Space ID>
-configRoot: config/spaces/apifox
+configRoot: config/apifox
 nameSuffix: " - apifox"
 ```
 
@@ -192,14 +220,14 @@ nameSuffix: " - apifox"
 
 两种常见用法：
 
-- **同一套 Agent/Skill 镜像到多个 Space**：多个环境使用相同的 `configRoot`，但 `spaceId` 不同；每个环境有自己的 `state.yaml`，Skill 会在各自 Space 创建。
-- **不同 Space 维护不同 Agent/Skill**：每个 Space 使用独立 `configRoot`，互不影响。
+- **同一个 ConfigurationSet 部署到多个 Space**：多个环境使用相同的 `configRoot`，但 `organizationId` / `spaceId` 不同；每个环境有自己的 `state.yaml`，Skill 会在各自 Space 创建。
+- **不同配置集合**：不同 crew / agent / skill 组合使用独立 `configRoot`，互不影响；Space 只是绑定目标。
 
-`configRoot` 内的 `crews/`、`agents/`、`skills/` 结构与 `config/spaces/apifox/` 完全一致。复制现有配置：
+`configRoot` 内的 `crews/`、`agents/`、`skills/` 结构与 `config/apifox/` 完全一致。复制现有配置：
 
 ```bash
-mkdir -p config/spaces/<space>
-cp -R config/spaces/apifox/. config/spaces/<space>/
+mkdir -p config/<config-set>
+cp -R config/apifox/. config/<config-set>/
 ```
 
 注意事项：
@@ -208,14 +236,14 @@ cp -R config/spaces/apifox/. config/spaces/<space>/
 - 不要在已有环境上直接修改 `spaceId`；`state.yaml` 中的 Agent/Skill ID 属于原 Space，应该新建环境并重新 clone 一套。
 - 空间级 Skill 由 `ensureSkills` 在 `spaceId` 指定的 Space 创建，并在该环境 state 中记录 ID。`skill edit` 不能把 Skill 移到另一个 Space；更换 `spaceId` 后需要删除旧 Skill 并重新创建。
 - `inherited-copy` 依赖 `agent copy`，`agent copy` 没有 `--space` 参数，只适合同一 Space 内的环境克隆。跨 Space 时请在目标 Space 准备源 Agent/Skill，或改用不带 `binding` 的普通 Skill 配置，让 `ensureSkills` 在目标 Space 创建并分配给 Agent。
-- 每个环境的 `state.yaml` 仍然只记录该环境的 UUID；`apply`/`diff`/`pull` 都要带 `--environment`。
+- 每个环境的 `state.yaml` 仍然只记录该环境的 UUID；`plan`/`apply`/`pull` 都要带 `--environment`。
 
 ## 多 Crew
 
 每个 `configRoot` 可以维护多个 crew，目录结构与 agents 类似：
 
 ```text
-config/spaces/apifox/crews/
+config/apifox/crews/
   ragnarok/
     crew.yaml
     instructions.md
@@ -229,18 +257,19 @@ config/spaces/apifox/crews/
 - `instructionsFile` 相对于该 crew 目录，示例为 `instructions.md`。
 - `state.yaml` 的 `crew:` 节点按 crew key 记录；`apply` 会创建/更新所有 crew，`pull` 输出到 `snapshots/<env>/crews/<key>/`。
 - 只有一个 crew 时，`{{crew.name}}` 仍可用；多个 crew 时使用 `{{crews.<key>.name}}`。
-- 新增 crew 后先 `validate`，再 `diff`/`apply`；`diff` 会显示 `crew create` 和后续 edit 占位。
+- 新增 crew 后先 `validate`，再 `plan`/`apply`；`plan` 会显示 `crew create` 和后续 edit 占位。
 
 ## 安全约束
 
 - 新建实例必须使用非空后缀。
+- 远程命令要求 `environment.organizationId`；effective organization 优先级为 `--organization-id` > `HIFOX_ORGANIZATION_ID` > profile 默认组织。不一致、缺少组织或 Space 不属于该组织时立即失败，不自动切换组织；`validate` 保持离线。
 - 创建前会检查远端 crew 与 Agent 是否重名。
 - 已存在 crew UUID 的环境不能再次执行 create/clone；首次创建中断后用 `apply` 继续，state 中已成功的 Agent/Crew 会保留，缺失的会补建。
 - 更新始终依据 state 中的 UUID，不通过名称猜测目标。
 - 中途创建失败时会保留已成功创建的 UUID，便于排查并避免重复创建。
 - generated avatar、在线状态、时间戳等服务端字段不会写回模板。
-- Skill ID 必须在目标组织中有效；跨组织克隆前需要确认 Skill 可见性。
-- Agent 专属 Skill 使用 `inherited-copy`：同一 Space 内通过复制源 Agent 保留绑定，Skill 正文由 `config/spaces/<space>/skills/` 统一维护；跨 Space 见“多空间维护”。
+- Skill ID 必须在目标组织中有效；跨组织克隆前需要确认 Skill 可见性。不在 `config/<config-set>/skills/` 中的外部 skill 不会被创建或校验，必须由目标 Space 预先提供。
+- Agent 专属 Skill 使用 `inherited-copy`：同一 Space 内通过复制源 Agent 保留绑定，Skill 正文由 `config/<config-set>/skills/` 统一维护；跨 Space 见“多空间维护”。
 - 新建 Agent 需要成对配置 Computer Lease ID 与 Runtime ID，可通过 `hifox agent target list` 查询。
 
 ## 依赖
