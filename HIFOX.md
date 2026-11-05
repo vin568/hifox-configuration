@@ -64,7 +64,7 @@ Crew 指令、Agent 指令、Skill 的 `SKILL.md` 以及 Skill 目录下的附�
 ./hifox-deploy create --environment staging --suffix " - staging"
 ./hifox-deploy plan --environment staging
 
-# 3. 执行远端变更（必须显式传 --apply；若目标为 current 环境还需加 --production）
+# 3. 执行远端变更（必须显式传 --apply）
 ./hifox-deploy create --environment staging --suffix " - staging" --apply
 ./hifox-deploy apply --environment staging --apply
 

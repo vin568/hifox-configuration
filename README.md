@@ -72,7 +72,7 @@ git commit -m "chore(deps): bump hifox-deploy"
 ./hifox-deploy plan --environment current
 ```
 
-对 `current` 执行 `--apply` 必须同时传入 `--production`。
+对 `current` 执行 `--apply` 会直接修改线上正在使用的无后缀实例，先用 `plan` 预览。
 
 ## 快照与备份
 
