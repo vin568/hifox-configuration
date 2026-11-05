@@ -92,9 +92,10 @@ git commit -m "chore(deps): bump hifox-deploy"
 
 默认备份位置为 `backups/<UTC timestamp>/<environment>/`。仓库内的 `snapshots/` 和 `backups/` 都不会提交 Git；重要备份应复制到私有对象存储或其他持久化位置。
 
-恢复备份到新的空目录（不覆盖工作区）：
+恢复备份（支持原地恢复到原位置，或通过 `--to` 恢复到新的空目录并物化外部引用）：
 
 ```bash
+./hifox-deploy restore --from backups/2026-11-04T04-06-12Z/current --apply
 ./hifox-deploy restore --from backups/2026-11-04T04-06-12Z/current --to /tmp/restored
 ./hifox-deploy restore --from backups/2026-11-04T04-06-12Z/current --to /tmp/restored --apply
 ```
@@ -157,17 +158,18 @@ target:
 
 ## 名称变量
 
-instructions 支持部署时渲染以下变量：
+instructions 与 Skill 文件（`SKILL.md` 及目录内附属文本文件）支持部署时编译渲染以下变量：
 
 ```text
 {{agents.thor.name}}
 {{agents.baldur.name}}
 {{crews.ragnarok.name}}
+{{skills.maintainer-review.name}}
 {{crew.name}}
 {{environment}}
 ```
 
-`{{crew.name}}` 仅在只有一个 crew 时可用；多个 crew 时使用 `{{crews.<key>.name}}`，避免歧义。
+`{{crew.name}}` 仅在只有一个 crew 时可用；多个 crew 时使用 `{{crews.<key>.name}}`，避免歧义。需要保留字面量双花括号时使用 `\{{...}}` 转义。
 
 例如 `@{{agents.thor.name}}` 在 staging 环境会渲染为 `@托尔 Thor - staging`。
 

@@ -36,9 +36,17 @@ _Avoid_: Environment（环境）, Host（主机）
 与 Organization 和 Space 解耦的一组期望 CrewConfig、AgentConfig 与 SkillConfig，是跨资源引用与命名的校验边界而非事务性聚合根。
 _Avoid_: Space（空间）, Environment（环境）
 
+**ProjectRoot（项目根目录）**:
+承载宿主项目源码、共享指令或技能定义的仓库根位置；在专用配置仓库中与 DeploymentRoot 重合。
+_Avoid_: DeploymentRoot（部署根目录）, ConfigRoot（配置根目录）, Space（空间）
+
+**DeploymentRoot（部署根目录）**:
+承载全部 ConfigurationSet、Environment 与本地产物（Snapshot、Backup）的 HiFox 根位置。
+_Avoid_: ConfigRoot（配置根目录）, ProjectRoot（项目根目录）, Space（空间）
+
 **ConfigRoot（配置根目录）**:
 单个 ConfigurationSet 的根位置。
-_Avoid_: Space（空间）, Workspace（工作区）
+_Avoid_: DeploymentRoot（部署根目录）, ProjectRoot（项目根目录）, Space（空间）, Workspace（工作区）
 
 **CrewConfig（小队配置）**:
 期望的 Crew 声明，包含标识键、基础名称、leader 引用、成员引用、指令与可见性。
@@ -49,7 +57,7 @@ _Avoid_: Crew（小队）
 _Avoid_: Agent（智能体）
 
 **SkillConfig（技能配置）**:
-期望的 Skill 声明，包含标识键、基础名称、正文内容、目标 Agent 分配关系与绑定策略。
+期望的 Skill 声明，包含标识键、基础名称、正文内容、附属文件集合、目标 Agent 分配关系与绑定策略。
 _Avoid_: Skill（技能）
 
 **SkillBinding（技能绑定策略）**:
