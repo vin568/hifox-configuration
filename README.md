@@ -8,8 +8,6 @@
   - `config/apifox/`：当前 Apifox 配置集合（Ragnarok 小队）。
   - `config/hifox/`：空的配置集合模板，待填充。
 - `config/<config-set>/agents/*/instructions.md`：Agent 指令，支持名称变量。
-- `GLOSSARY.md`：领域词汇表（Ubiquitous Language）。
-- `docs/adr/`：关键设计决策记录。
 - `environments/<name>/environment.yaml`：Organization、Space、`configRoot` 和名称后缀；Organization/Space 只在这里定义。
 - `environments/<name>/state.yaml`：部署后由工具记录的远端 UUID。
 - `snapshots/<environment>/`：可再生成的远端状态缓存，已被 Git 忽略。
@@ -18,12 +16,12 @@
 - `hifox-deploy`：同步入口，固定把本仓库根目录作为 `--root` 传给 CLI。
 - `mise.toml`：Node 版本。
 
-CLI 的命令、选项以及 `environment.yaml` / `state.yaml` 字段说明见 [`vendor/hifox-deploy/README.md`](vendor/hifox-deploy/README.md)。领域词汇见 [`GLOSSARY.md`](GLOSSARY.md)，关键决策见 [`docs/adr/`](docs/adr/)。
+CLI 的命令、选项以及 `environment.yaml` / `state.yaml` 字段说明见 [`vendor/hifox-deploy/README.md`](vendor/hifox-deploy/README.md)。领域词汇见 [`vendor/hifox-deploy/GLOSSARY.md`](vendor/hifox-deploy/GLOSSARY.md)，关键决策见 [`vendor/hifox-deploy/docs/adr/`](vendor/hifox-deploy/docs/adr/)。
 
 ## 文档边界
 
-- `GLOSSARY.md`：领域词汇表，定义平台、配置、部署与产物的核心概念。
-- `docs/adr/`：关键设计决策及其取舍。
+- `vendor/hifox-deploy/GLOSSARY.md`：领域词汇表，定义平台、配置、部署与产物的核心概念。
+- `vendor/hifox-deploy/docs/adr/`：关键设计决策及其取舍。
 - `vendor/hifox-deploy/README.md`：CLI 契约，包括命令、选项、`environment.yaml` / `state.yaml` 字段和 manifest 规则。
 - 本 README：配置集合、环境绑定和日常操作说明；CLI 细节以上面的契约为准，不在本文重复维护。
 

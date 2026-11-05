@@ -21,8 +21,7 @@
 - `config/<config-set>/`：与 Organization/Space 解耦的配置集合，是 crew / agent / skill 的唯一事实来源；`organizationId`、`spaceId` 只在 `environments/` 中定义。
 - `environments/<env>/`：部署绑定（Organization、Space、`configRoot`、suffix、target、model policy）与部署后的 UUID；`state.yaml` 需要提交，不要手改其中的 UUID。
 - `snapshots/`、`backups/`：生成物，已被 Git 忽略，不提交。
-- `GLOSSARY.md`、`docs/adr/`：领域词汇表与关键架构决策；修改术语或契约前先读并同步。
-- `vendor/hifox-deploy/`：CLI 源码与测试；改动走子模块自己的提交，遵守其 `AGENTS.md`。
+- `vendor/hifox-deploy/`：CLI 源码、测试、领域词汇表（`GLOSSARY.md`）与关键架构决策（`docs/adr/`）；修改术语或契约前先读并同步。改动走子模块自己的提交，遵守其 `AGENTS.md`。
 - `hifox-deploy`：消费方契约，路径和 `--root` 语义不要改。
 
 ## 执行约定
