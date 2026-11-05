@@ -43,17 +43,18 @@ git submodule update --init --recursive
 
 `vendor/hifox-deploy` 是独立仓库；首次克隆前需要该子模块仓库的读取权限。SSH/HTTPS 的本地 Git 配置按团队环境处理，不在本文档中固化。
 
-升级 CLI 版本：可先执行 `./hifox-deploy update` 预览，再执行 `./hifox-deploy update --apply` 显式升级到 origin 默认分支 tip，并由升级后的 CLI 刷新物料；随后提交新子模块指针。`init` / `init.sh` 重跑不升级依赖。需要固定已验证版本时，在 `hifox-deploy` 仓库提交并推送后手动选取提交：
+本仓库的子模块跟踪 `hifox-deploy` 的 `dev` 开发分支（`.gitmodules` 中 `branch = dev`），`main` 为稳定分支。不要在本仓库执行 `./hifox-deploy update --apply`：它升级到 origin 默认分支（`main`）tip，会让子模块回退到稳定版。升级到 `dev` 最新提交：
 
 ```bash
-git -C vendor/hifox-deploy fetch
-git -C vendor/hifox-deploy checkout <commit>
+git submodule update --remote --rebase vendor/hifox-deploy
 ./hifox-deploy init
 git add vendor/hifox-deploy
 git commit -m "chore(deps): bump hifox-deploy"
 ```
 
-开发 CLI 时不需要等上游发布：直接在 `vendor/hifox-deploy` 内修改、运行 `npm test`，在该子模块仓库提交并推送，然后按上面的方式更新本仓库指针。拆分、测试与提交边界见根 [`AGENTS.md`](AGENTS.md) 和子模块 `AGENTS.md`。
+`init` / `init.sh` 重跑不升级依赖。需要固定已验证版本时，用 `git -C vendor/hifox-deploy checkout <commit>` 代替第一步。
+
+开发 CLI 时不需要等上游发布：`git submodule update --init` 后子模块处于 detached HEAD，先执行 `git -C vendor/hifox-deploy switch dev`，再在 `vendor/hifox-deploy` 内修改、运行 `npm test`，在该子模块仓库提交并推送到 `origin/dev`，然后 `git add vendor/hifox-deploy` 提交本仓库指针。拆分、测试与提交边界见根 [`AGENTS.md`](AGENTS.md) 和子模块 `AGENTS.md`。
 
 ## 默认 Staging 实例
 

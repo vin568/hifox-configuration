@@ -8,9 +8,11 @@
 
 根 README 将 `vendor/hifox-deploy` 描述为部署 CLI 子模块，并说明普通配置使用者不需要修改。该说明只约束配置仓库的使用者：维护部署行为时：
 
-1. 直接在 `vendor/hifox-deploy` 内编辑、测试（它是完整的 git 仓库，不是 vendored 只读代码）。
-2. 在子模块仓库内提交。
+1. 在 `vendor/hifox-deploy` 的 `dev` 分支上直接编辑、测试（它是完整的 git 仓库，不是 vendored 只读代码）。`.gitmodules` 设置 `branch = dev`，`main` 是稳定分支。
+2. 在子模块仓库内提交并推送到 `origin/dev`。
 3. 回到根仓库更新子模块指针：`git add vendor/hifox-deploy && git commit`。
+
+拉取子模块上游更新用 `git submodule update --remote --rebase vendor/hifox-deploy`。不要在本仓库执行 `./hifox-deploy update --apply`：它前进到 origin 默认分支（`main`）tip，会回退子模块指针。
 
 不要把子模块当只读依赖，也不要绕开它把部署逻辑复制到根仓库或壳脚本。
 
