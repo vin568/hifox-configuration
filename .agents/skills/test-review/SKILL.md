@@ -9,7 +9,7 @@ Green tests do not mean working software. A large suite of low-quality tests cre
 
 This skill evaluates test suites against **five orthogonal industry dimensions** (synthesizing Vladimir Khorikov's *Four Pillars of Unit Testing*, *Mutation Testing* fault-detection theory, Kent Beck's *Test Desiderata*, and *Contract/Test-Double Fidelity*).
 
-See [anti-patterns.md](anti-patterns.md) for concrete before/after examples of false-security tests.
+Read [anti-patterns.md](anti-patterns.md) only when you need concrete before/after rewrite templates for findings.
 
 ---
 
@@ -29,64 +29,82 @@ Every test (and the suite as a whole) is judged across these five dimensions:
 
 ## Evaluation Workflow
 
-### Step 1: Map the Domain Invariants & Risk Surface First (Before Reading Tests)
+Review only by default: **never leave persistent edits in production or test files** unless the user explicitly asks to apply fixes.
 
-Do **not** start by reading the test file—reading tests first anchors you to what the author thought to test.
+### Step 0: Scope Routing & Scale Guard
 
-1. Read the production code/diff, project glossary, architecture docs, and specs/ADRs.
-2. List the **public seams** (public functions/classes, HTTP/RPC endpoints, CLI commands, database/filesystem outputs, external API calls).
-3. Write down the **Must-Hold Invariants & High-Risk Boundaries**:
-   - **Safety & Security Guards**: Authn/authz checks, tenant/organization isolation, path traversal / symlink escapes, input validation, dry-run or confirmation gates on destructive actions.
-   - **State & Lifecycle Transitions**: Empty/initial state vs partial failure/retry state vs existing state (idempotency, deduplication, stale resource cleanup, rollback).
-   - **Feature Interactions**: Combined parameters or configuration modes that interact non-trivially when enabled together.
-   - **External Contract Boundaries**: Third-party API request/response schemas, database constraints, subprocess CLI flags, serialization formats.
+1. **Resolve Scope**:
+   - Explicit files, directories, or commands specified by the user.
+   - Otherwise, current uncommitted or branch changes (`git status -sb`, `git diff --stat`).
+   - If neither exists, ask one concise question to pin the target module or test file instead of scanning the entire repository.
+2. **Sub-Agent Sharding & Large-Suite Pruning Funnel**:
+   - If the target scope exceeds ~300 lines of test code or ~20 test cases across multiple modules, split by module/feature and run parallel read-only sub-agents so single-context attention does not degrade into rubber-stamping `KEEP`.
+   - For large legacy suites, run a fast **Pre-Screen Funnel** first (`grep` / scan) to pinpoint the 4 high-suspect categories before deep reading: (a) tests named `legacy` / `old` / `compat` / `v1` / `deprecated`, (b) adjacent micro-tests repeating heavy setup (`spawnSync`, DB/tempdir creation) for single-branch checks, (c) tests where mock setup lines exceed state assertions, and (d) static prose regex or snapshot-only tests.
 
-### Step 2: Run Mental (or Actual) Mutation Testing on Each Test
+### Step 1: Map Domain Invariants First (Anti-Anchoring)
 
-For every test in scope:
+Do **not** read `.test.*` / `.spec.*` files first—reading tests first anchors you to what the author thought to test.
 
-1. **Identify the Seam**: Is it testing a public seam or reaching into internal implementation details?
-2. **Apply the Mutation Probe**: Point to 1–3 concrete lines in the production code and ask:
-   - *"If I delete this guard, invert this `<` to `<=`, skip this side effect, or return stale data, will an assertion in this test fail?"*
-   - *"Did the test author derive the expected value independently from the spec, or did they recompute/copy-paste the code's actual output into the assertion?"* (Check if the assertion accidentally locks in buggy or redundant output!)
-3. **Audit Test Doubles (Mocks / Fakes / Stubs)**:
-   - Verify that mocks only sit at external boundaries (network, third-party SDKs, clock/randomness) and never mock internal collaborators.
-   - Compare how the Fake/Mock validates inputs and returns outputs against the real external dependency. Flag any unverified assumption in the Fake.
+1. **Read Production & Spec First**:
+   - In diff mode, inspect production diffs excluding tests first (`git diff -- . ':!*test*' ':!*spec*'`).
+   - If the user passed a test file directly, locate and read its corresponding production module, `GLOSSARY.md`, and relevant specs/ADRs before reading the test assertions.
+2. **List Public Seams**: Public functions/classes, HTTP/RPC endpoints, CLI argv/exit/stdout, persisted filesystem/DB state, and external API calls.
+3. **Number Must-Hold Invariants (`INV-1`, `INV-2`, …)**:
+   - **Safety & Security Guards**: Authn/authz, tenant/organization isolation, path traversal / symlink escapes (`realpath`), destructive action gates (`--apply`, `--production`).
+   - **State & Lifecycle Transitions**: Empty vs partial failure/retry vs existing state (idempotency, deduplication, stale cleanup, rollback).
+   - **Feature Interactions**: Combined flags or configuration modes (`A + B`) that interact non-trivially.
+   - **External Contract Boundaries**: Third-party API schemas, DB constraints, subprocess CLI flags, serialization formats.
+4. **Negative Calibration (No Fault-Invention)**: Do not demand tests for guarantees already enforced by the compiler/type system, static schema validators, or branchless pass-through glue.
+
+### Step 2: Run Mutation Probes (Mental First, Targeted Atomic Physical When Ambiguous) & Audit Boundaries
+
+1. **Run Scoped Tests Once (Read-Only)**: When a local test runner is available and fast, execute the target test suite once to observe actual pass/skip counts and verify the test files are wired into the runner's file glob.
+2. **Identify the Seam & Apply the Mutation Probe**:
+   - **Default — Mental Probe (Static Tracing)**: Point to 1–3 concrete lines (`file:line`) in production code and check whether deleting a guard, inverting `<` to `<=`, or skipping a side effect turns an assertion red, and whether expected values come independently from the spec rather than copying/recomputing code output.
+   - **Escalation — Targeted Atomic Physical Probe (Max 1–3 Ambiguous `P0`/`P1` Sites)**: When indirect multi-layer calls, complex regexes, or boundary math make static tracing uncertain, verify via a physical probe **only if the working tree has no uncommitted changes (`git status --porcelain` is empty)**. If uncommitted edits exist, stay strictly in Mental Probe mode and **explicitly inform the user in the report why physical mutation was skipped** (e.g., working tree has uncommitted changes—commit or stash first to enable physical mutation probes). When clean:
+     1. **Write-Ahead Audit Log (`$(git rev-parse --git-dir)/test-review-mutations.jsonl`)**: Before modifying any file on disk, append a JSON line recording `{ timestamp, status: "MUTATING", file, line, originalSnippet, mutatedSnippet, testCommand }` inside the repo's git dir (so it persists for forensics without polluting `git status`).
+     2. **Atomic Probe & Restore**: Run `try { mutate 1 line; run focused test via -t/--test-name-pattern; } finally { restore exact original bytes; verify git diff is empty; append status: "RESTORED" and testExitCode to the audit log }`.
+3. **Audit Test Doubles Against Grounded Contract Evidence**:
+   - Verify mocks/fakes sit only at external boundaries, never internal collaborators.
+   - Check fake input validation and fallback behavior against primary sources in order: (a) repo schemas / OpenAPI / SDK types, (b) real binary/CLI `--help` output, (c) live E2E assertions. Flag permissive catch-all fallbacks (e.g., returning `200 OK` or `{ id: "fake-id" }` for unknown subcommands/flags). If the real contract cannot be verified locally, mark it `UNVERIFIED`—never guess.
 4. **Audit E2E & Integration Execution Status**:
-   - Explicitly distinguish **Offline Seam Verification** (run against fakes/in-memory doubles) from **Live Contract Verification** (actually executed against a real database, binary, or test environment). Never count a skipped or fake-backed test as real contract verification.
+   - Distinguish **Offline Seam Verification** (run against fakes/in-memory doubles) from **Live Contract Verification** (executed against a real dependency). Explicitly flag tests gated by unset environment variables (`skip`) as unexecuted in the current run.
 
 ### Step 3: Probe Production Code at Untested Boundaries
 
-Whenever Step 1 reveals a high-risk boundary or feature combination that Step 2 shows is untested, **trace the production code through that exact scenario**. Untested boundaries frequently conceal real implementation bugs.
+For every `INV-*` boundary or option combination left uncovered in Step 2, **trace the production code path line-by-line**. Untested boundaries frequently conceal real implementation bugs.
 
-### Step 4: Assign a Verdict to Every Test & Gap
+### Step 4: Classify Actionable Verdicts & Prune Low-Value Tests (宁缺毋滥)
 
-Classify every existing test into one of four actions:
-- **`KEEP`**: High-signal, tests a public seam, catches realistic mutants, no redundancy.
-- **`STRENGTHEN`**: Tests a valid scenario at the right seam, but assertions are weak, tautological, or miss key side effects.
-- **`MERGE`**: Redundant equivalence class that duplicates another test's setup; fold into a single parameterized or cohesive behavioral check.
-- **`DELETE`**: Tests implementation details, internal mocks, static prose, or tautologies that add maintenance drag without catching bugs.
-
-Classify every missing high-risk scenario as:
-- **`MUST-ADD (Offline Seam)`**: Missing boundary, negative path, or state/option combination testable deterministically offline.
-- **`MUST-ADD (Live E2E / Contract)`**: External contract or cross-system behavior that can only be proven against the real dependency.
+1. **Zero Marginal Value Rule (零边际价值即淘汰)**: For every existing test, ask: *"If we delete this test today, what realistic business bug could slip through that is not already caught by the type system or an upper-level integration test?"* If the answer is "none", **never mark it `KEEP`**—classify as **`DELETE` (`删除冗余`)** or **`MERGE` (`合并重复`, fold $N$ fragmented setup-heavy tests into $1$)**.
+2. **Dead-Code Symbiosis Check (测试与生产死代码共生识别)**: When a test exercises a legacy or compatibility branch, check whether any real production entrypoint or current domain spec (`GLOSSARY.md` / `ADR`) still uses that branch. If the test is the only caller keeping obsolete production code alive, classify as **`DELETE TEST + DEAD CODE` (`连同生产死代码下线`)**.
+3. **Missing Boundaries**: Classify each uncovered high-risk scenario as **`MUST-ADD (Offline Seam)` (`新增用例（本地）`)** or **`MUST-ADD (Live E2E / Contract)` (`新增用例（真实环境）`)**.
 
 ---
 
-## Output Format
+## Output Format & Writing Style
 
-Unless the user asks you to immediately modify the tests, review only and output the report in the user's language using this structure:
+Write in **plain, direct engineering language** (in the user's language).
+- **Ban literal translationese & academic jargon**: Never output terms like "公共接缝 (Seam)", "核心不变量 (Invariant)", "变异体存活 / 杀死变异体", or "Offline Seam Coverage". Say "对外入口", "核心业务规则", "删掉这行代码测试依然通过", and "本地离线测试 vs 真实环境测试".
+- **Self-contained tags over lookup IDs**: In findings, use direct tags (`[漏测边界]`, `[弱断言]`, `[Mock 失真]`, `[绑定内部实现]`, `[历史僵尸/死代码]`, `[重复碎片]`) instead of forcing the reader to look up `(违反维度 4，关联 INV-2)`.
+- **Consequence first, code second**: Lead every finding with what breaks in plain language before citing function names or line numbers.
 
-1. **`核心不变量与高危边界清单`**
-   - Brief bullet list of the public seams and critical invariants derived from the production code/spec.
-2. **`总体评估结论`**
-   - Verdict: `高信噪比` / `存在局部盲区` / `存在明显虚假安全感`
-   - Summary of **Offline Seam Coverage** vs **Live E2E / Contract Verification** status (explicitly call out if E2E/integration tests are skipped or only run against fakes).
-3. **`高优问题与虚假安全感诊断（按 P0–P3 排序）`**
-   - `P0`: Test masks a real production bug (e.g., tautological assertion locking in buggy output) or misses a critical security / data-integrity / money-loss guard.
-   - `P1`: False confidence at an external contract boundary (fake/mock divergence, unexecuted E2E, or missing state-transition / option-combination test).
-   - `P2`: Weak assertions (`status === 200` / no-throw only) or missing negative/edge-case validation.
-   - `P3`: Implementation-coupled / brittle assertions or redundant happy-path bloat to delete/merge.
-   - *For each finding, cite `file:line`, name the violated dimension, show the specific mutant/bug that slips through, and give the concrete fix.*
-4. **`存量用例处置矩阵（Keep / Strengthen / Merge / Delete）与必补用例（Must-Add）`**
-   - Concise table mapping each test (and missing gap) to its action.
+Unless the user asks to modify files, output the review using this structure:
+
+1. **`核心业务规则与高危边界`**
+   - Concise bullet list of public entrypoints ("对外入口": CLI/API/functions) and the must-hold business rules (`INV-1 … INV-N`).
+2. **`总体结论与测试运行概况`**
+   - **结论**：`高信噪比` / `存在局部盲区` / `存在明显虚假安全感` (if high-signal, state `高信噪比` directly without padding).
+   - **运行与验证概况**：
+     - 实跑结果（通过数 / 跳过数）；
+     - 变异实证情况（说明对哪些代码做了物理删改验证，并附上取证日志路径 `<git-dir>/test-review-mutations.jsonl`；若未做物理变异，必须写明原因：如“工作区存在未提交改动，为防冲突仅做静态推演，如需物理验证请先 commit/stash”或“静态推演已全部确认”）；
+     - 真实环境覆盖（区分哪些走了真实外部依赖，哪些只测了本地假对象/Mock，以及未核实的外部契约 `UNVERIFIED`）。
+3. **`重点问题诊断（按 P0–P3 排序）`**
+   - Severity: `P0` (漏掉真实 Bug 或高危安全/数据损坏守卫), `P1` (Mock 与真实接口不符、未跑真实 E2E 或关键状态流转漏测), `P2` (断言过弱只测不报错，或缺少负向校验), `P3` (绑定内部实现或重复用例).
+   - Format each item as 3 short lines (no dense walls of text):
+     - **`P0/P1/P2/P3` `[分类标签]` 一句话大白话讲清什么场景下会出什么问题**（标题不堆砌函数名和行号）
+     - **出问题场景**：用户或系统怎么操作会触发这个问题，实际后果是什么。
+     - **为什么测试没拦住**：指向具体代码行（`file:line`）和测试行（`test:line`），说明哪段逻辑没测到，或实测删掉某行代码后测试为什么依然全绿。
+     - **怎么改**：一句话给出补测试或修代码的具体动作。
+4. **`测试用例修改清单`**
+   - Table of **actionable items only** using plain verbs (**`补强断言`** / **`合并重复`** / **`删除冗余`** / **`连同生产死代码下线`** / **`新增用例（本地）`** / **`新增用例（真实环境）`**). Summarize untouched good tests as a single count per file (e.g., `其余 8 个用例覆盖有效，保持不变`).
