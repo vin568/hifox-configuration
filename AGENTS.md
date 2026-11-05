@@ -38,3 +38,12 @@
 
 - `hifox` CLI 没有 `organization create` / `space create`；测试组织与 Space 必须在 HiFox 应用里创建。
 - 选项必须写在命令后；只有 `--root` 可以放在任意位置。文档不要声称支持其他前置选项。
+
+<!-- hifox-deploy:start -->
+
+## HiFox Declarative Configuration
+
+本项目的 HiFox Crew / Agent / Skill 声明式配置位于 `.`（初始配置集合：`config/apifox`，默认环境：`staging`）。
+目录结构、通过 `@/` 引用项目内 Skills 与 Prompts、编译期模板变量（`{{agents.<key>.name}}`、`{{crews.<key>.name}}`、`{{skills.<key>.name}}`、`{{crew.name}}`、`{{environment}}` 及 `\{{...}}` 转义）以及部署/备份恢复工作流详见 [`HIFOX.md`](HIFOX.md)。
+
+<!-- hifox-deploy:end -->
