@@ -82,7 +82,7 @@ git commit -m "chore(deps): bump hifox-deploy"
 ./hifox-deploy pull
 ```
 
-`backup` 会先拉取最新远端状态，再保存整个 `config/` 树（含所有配置集合）、环境 state、远端快照和 manifest：
+`backup` 会先拉取最新远端状态，再保存该环境绑定的配置集合（`configRoot`，例如 `config/apifox`）、环境 state、远端快照和 manifest。`config/` 下的其他配置集合属于别的环境，不会被打包：
 
 ```bash
 ./hifox-deploy backup
@@ -90,7 +90,7 @@ git commit -m "chore(deps): bump hifox-deploy"
 ./hifox-deploy backup --output-dir /path/to/private-backups
 ```
 
-默认备份位置为 `backups/<UTC timestamp>/<environment>/`。仓库内的 `snapshots/` 和 `backups/` 都不会提交 Git；重要备份应复制到私有对象存储或其他持久化位置。
+默认备份位置为 `backups/<UTC timestamp>/<environment>/`。仓库内的 `snapshots/` 和 `backups/` 都不会提交 Git；重要备份应复制到私有对象存储或其他持久化位置。`pull` 会先清空 `snapshots/<env>/`，因此远端已删除的资源不会残留在快照里。
 
 恢复备份（支持原地恢复到原位置，或通过 `--to` 恢复到新的空目录并物化外部引用）：
 
@@ -109,7 +109,7 @@ git commit -m "chore(deps): bump hifox-deploy"
 ./hifox-deploy prune snapshots --apply
 ```
 
-`restore` 保留备份中的 `configRoot` 和 state UUID，恢复后仍需 `validate` / `plan` / `apply` 才能与远端对齐。`prune` 不迁移备份内容，只按保留策略删除。
+`restore` 只覆盖备份记录的 `configRoot` 与环境目录（不会动 `config/` 下的其他配置集合），保留备份中的 `configRoot` 和 state UUID，恢复后仍需 `validate` / `plan` / `apply` 才能与远端对齐。`prune` 不迁移备份内容，只按保留策略删除。
 
 ## 克隆新实例
 
