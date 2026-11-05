@@ -38,7 +38,7 @@
 2. `HIFOX_ORGANIZATION_ID` 环境变量；
 3. profile 默认组织（`hifox config show` / `hifox organization switch`）。
 
-解析结果会与 `environment.organizationId` 比较。`environment.organizationId` 缺失、有效组织不匹配、或 `spaceId` 不属于声明组织时，远程命令立即失败；`validate` 仍保持离线，不触发该 guard。e2e 测试仍先要求有效组织等于 `HIFOX_E2E_ORG_ID`，避免测试误指向其他组织。
+解析结果会与 `environment.organizationId` 比较。`environment.organizationId` 缺失、有效组织不匹配、或 `spaceId` 不属于声明组织时，远程命令立即失败；`validate` 仍保持离线，不触发该 guard。e2e 测试通过 `.env.e2e` 或环境变量注入 `HIFOX_ORGANIZATION_ID` 并校验测试 Space 归属，避免依赖全局配置或误指向其他组织。
 
 **决策：Fail fast，不自动切换组织。**
 

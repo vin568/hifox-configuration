@@ -29,7 +29,7 @@
 - 远程命令前校验 effective organization 与 `environment.organizationId`，并校验 `spaceId` 归属；不自动切换组织。`validate` 不触发该 guard。
 - `restore` 传 `--to` 时不覆盖非空目录并将外部引用物化进 `config/`，省略 `--to` 时按原位置恢复；`prune` 不改写备份内容。
 - 对 `--environment current` 执行 `--apply` 必须同时传 `--production`。
-- 改 CLI 后，在子模块运行 `npm test`；真实 API 测试只在专用测试组织上跑，见子模块 README 的 `HIFOX_E2E_*`。
+- 改 CLI 后，在子模块运行 `npm test`；真实 API 测试只在专用测试组织上跑，见子模块 README 的 `.env.e2e` / `HIFOX_ORGANIZATION_ID` 与 `HIFOX_E2E_*`。
 - 提交顺序：先子模块，再根仓库指针。根仓库的提交只包含配置/文档/壳脚本/指针变化。
 
 ## 已知约束
