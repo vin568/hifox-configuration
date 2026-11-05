@@ -43,7 +43,7 @@ git submodule update --init --recursive
 
 `vendor/hifox-deploy` 是独立仓库；首次克隆前需要该子模块仓库的读取权限。SSH/HTTPS 的本地 Git 配置按团队环境处理，不在本文档中固化。
 
-升级 CLI 版本：先在 `hifox-deploy` 仓库提交并推送，再让本仓库指向新提交：
+升级 CLI 版本：先在 `hifox-deploy` 仓库提交并推送，再让本仓库指向新提交（也可以直接重跑 `sh vendor/hifox-deploy/init.sh .`，它会自动把子模块前进到远端默认分支最新提交并刷新受管物料 `HIFOX.md`、`AGENTS.md` 章节、`.gitignore`，之后同样需要提交新的子模块指针）：
 
 ```bash
 git -C vendor/hifox-deploy fetch
