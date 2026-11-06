@@ -132,8 +132,8 @@ visibility:
   agents: personal
 target:
   computer: <computer-lease-id>
-  runtime: <runtime-id>
-```
+  runtime: <runtime-id>           # 二选一：直接写 Runtime ID
+  # runtimeProvider: oh-my-pi     # 或写 provider 名，plan/apply 时自动解析
 
 预览并创建：
 

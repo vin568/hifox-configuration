@@ -1,0 +1,17 @@
+version: 1
+nameSuffix: ""
+crew:
+agents:
+  luke:
+    id: bd6bf6a6-5191-422d-acfd-5b7cbaa38900
+    deployedName: "卢克 Luke"
+skills:
+  architecture-fit-review:
+    id: bff2006f-ea49-4c00-afef-423ca379b9d9
+    deployedName: "Architecture Fit Review"
+  autopilot-grilling:
+    id: 05a24d21-da2b-4804-9093-02f625b7eb2c
+    deployedName: "Autopilot Grilling"
+  luke/xwing-task-kit:
+    id: 727bb705-8696-4ebf-acb4-6b6b49851ee7
+    deployedName: "xwing Task Kit"

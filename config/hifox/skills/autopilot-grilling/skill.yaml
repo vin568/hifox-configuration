@@ -1,0 +1,8 @@
+key: autopilot-grilling
+name: Autopilot Grilling
+description: "Settle a plan's open design decisions with minimal user interaction: exhaust lookup first, auto-decide what the facts support and log each decision with its basis, ask only what cannot be safely decided, batch remaining questions into few rounds with conditional follow-ups, and propagate overrides to downstream decisions."
+dir: "@/vendor/v-skills/skills/autopilot-grilling"
+config: {}
+namingPattern: "{{name}}"
+assignTo:
+  - luke

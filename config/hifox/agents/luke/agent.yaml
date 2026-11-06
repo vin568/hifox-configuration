@@ -6,11 +6,11 @@ instructionsFile: instructions.md
 repositories:
   - https://cnb.cool/tars-lab/xwing
 runtime:
-  model: claude-opus-4-7
+  model: hifox/glm-5.3
   customArguments: []
 target:
-  computer: fc2b7c00-a3d0-4ffd-b9e9-736036b66f5a
-  runtime: 16bac72a-28f1-4e89-9d34-1a307f936741
+  computer: 0e541e32-2186-4651-9120-21ff2cb909b4
+  runtimeProvider: oh-my-pi
 permissions:
   taskAssignment: true
   directMessage: true
