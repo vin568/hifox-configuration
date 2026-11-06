@@ -1,0 +1,8 @@
+key: xwing-task-kit
+name: xwing Task Kit
+description: "Scripts for xwing task-mode delivery: check that the machine has the tools a task's change surfaces need before planning, and run server handler package tests against a disposable, auto-dropped PostgreSQL database derived from the task-local environment."
+contentFile: SKILL.md
+config: {}
+namingPattern: "{{name}}"
+assignTo:
+  - luke
