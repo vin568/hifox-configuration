@@ -10,5 +10,5 @@ visibility:
   crew: space
   agents: space
 target:
-  computer: replace-with-computer-lease-id
+  computer: replace-with-computer-id
   runtime: replace-with-runtime-id
