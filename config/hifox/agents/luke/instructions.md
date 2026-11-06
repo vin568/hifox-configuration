@@ -65,7 +65,7 @@
 
 - 创建任务 worktree 与功能分支、在功能分支上提交、push 功能分支。
 - `pnpm workspace:init` 等仓库规定的工作区初始化（按现有 lockfile 安装依赖）。
-- 启动和停止本任务的 task-local 运行时（`make agent-task-*`），包括其对 task-local 数据库自动执行的 migration；用 `{{skills.xwing-task-kit.name}}` 的 `handler-test.sh` 创建、迁移并删除一次性 handler 测试库（见 9.4）。
+- 启动和停止本任务的 task-local 运行时（`make agent-task-*`），包括其对 task-local 数据库自动执行的 migration，以及默认随 `agent-task-start-web` 提供的 task-local CLI daemon（把本机注册为 computer，见 13.5）；用 `{{skills.xwing-task-kit.name}}` 的 `handler-test.sh` 创建、迁移并删除一次性 handler 测试库（见 9.4）。
 - 在已通过【执行】的方案范围内删除文件（简单任务按 8.1 不涉及删除文件）。
 - 在当前 HiFox 任务中读取信息、发表评论、上传验收证据，按“任务存档”（第 4 节）写入存档字段；任务状态变更属于【提测】。
 
@@ -479,17 +479,30 @@ ffmpeg -v error -sseof -0.5 -i <recording>.webm -frames:v 1 -update 1 "$frames/l
 ### 13.4 服务端与非 UI 改动
 
 - 服务端专属改动在 task-local 环境通过 Web 触发对应 API，或直接调用本地 API；保留请求、响应、状态与日志证据。
-- CLI 改动用构建出的 CLI 在 task-local 环境实际执行命令并保留输出。
+- CLI 改动用构建出的 CLI 在 task-local 环境实际执行命令并保留输出；涉及 computer 注册、daemon、runtime 调度时按 13.5 用 task-local daemon 验收。
 - iOS 改动按 iOS 指南提供模拟器 / 真机证据。
 
-### 13.5 共享渠道部署（仅在用户明确要求时）
+### 13.5 Computer / Runtime 验收（task-local daemon）
+
+改动涉及 computer 注册、daemon、runtime 调度、agent 任务本地执行，或 CLI 本身时，用 task-local daemon 链路验收，不要手工注册：
+
+- `make agent-task-start-web TASK_ID=<task-key>` 默认完成整条链路：从当前 worktree 构建 CLI（干净树写入 / 复用 content-addressed 共享 cli-cache；脏树含未提交 CLI 改动时走任务本地构建，绝不写共享缓存）、把二进制复制成任务端口编号身份（`<cli-base>-<task-port>`，对应独立 config root，如 `~/.hifox-dev-<task-port>`）、用自动登录换取的一次性 install token 把本机作为 computer 注册到 task-local 后端，再启动 daemon 并上报发现的 runtime。机制见 `docs/agents/task-local-environment.md` 与 `scripts/task-env-daemon.sh`。
+- 禁止手工 `cargo build` 后用默认 config root（无 `-<port>` 后缀的 `~/.hifox*` / `~/.sharkly*`）执行 `computer register` 或 `daemon start`：每个产品 / 渠道 config root 只有一个共享 daemon，会与真实 daemon 和其他 worktree 冲突。
+- 注册成功判据：`.task-env/<task-id>/manifest.json` 的 `capabilityStates.computerSession` 已离开 `needs-install-token`（daemon 拉起后为 `starting`），且 `resources.daemon` 记录了进程与日志；用 daemon 日志或其健康端口确认注册结果，需要 API 证据时 source `runtime/auth.env` 后查询 computer 与 runtime 状态。install token 是机器凭据，不打印、不写进报告或证据。
+- 验证 runtime 执行：在 task-local 环境派发一个最小 agent 任务，确认路由到该 computer 并由 runtime 执行完成，保留任务输出与 daemon 日志证据；数据只落在 task-local 数据库。
+- 不要设置 `TASK_ENV_ENABLE_DAEMON=false`（跳过 daemon）或 `TASK_ENV_RUNTIME_PROFILE=none`（上报无 runtime）；`none` 只用于复现“无 Runtime”状态。
+- Desktop 启动不走 daemon；Windows 上 web 模式 daemon 已知不可用。需要 daemon 验收时用 macOS / Linux 的 `agent-task-start-web`。
+- 多 worktree 并存时依赖既有隔离，不要自建：每任务独享七端口布局（机器级 registry 预约）、编号 CLI 身份与 config root、task-owned 进程组。一任务一个 `TASK_ID`；不跨任务复用 CLI 二进制、config root 或 daemon；不用 `make stop`、`make dev-daemon-*` 或全局 daemon 清理代替 `make agent-task-stop`；停止会移除编号 CLI root 与运行时并保留证据。
+- 绝不把本机注册到共享或远端环境（staging / production / 他人服务器）；那属于外部系统变更，需要用户单独授权。
+
+### 13.6 共享渠道部署（仅在用户明确要求时）
 
 - 【提测】只合入 `develop` 并修改任务状态，不包含任何部署；部署必须由用户另行明确要求。
 - 合入共享分支后，HiFox develop 渠道独立部署在 `develop` 分支执行 `pnpm release --hi-deploy=develop:server,web`；staging 渠道部署与正式发版（`pnpm release`、`--hi-staging`、`--sha-staging`）必须由用户明确授权。规则以 `docs/operations/release.md` 为准，`pnpm release:preview` 只预览不发布。
 - 触发后跟踪 CNB 构建结果；失败时查看失败步骤日志并总结原因，不擅自重新触发。
 - 生产发布永远需要单独明确授权，不继承任何其他授权。
 
-### 13.6 验收结论与缺陷回流
+### 13.7 验收结论与缺陷回流
 
 - 逐场景给出通过或失败结论；失败时提供复现步骤、实际结果、预期结果和影响范围。
 - 存在影响核心需求的缺陷时结论必须为不通过。
