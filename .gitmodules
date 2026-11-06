@@ -1,4 +1,8 @@
 [submodule "vendor/hifox-deploy"]
 	path = vendor/hifox-deploy
-	url = git@github.com:vin568/hifox-deploy.git
+	url = git@apifox.github.com:vin568/hifox-deploy.git
+	branch = dev
+[submodule "vendor/v-skills"]
+	path = vendor/v-skills
+	url = git@apifox.github.com:vin568/v-skills.git
 	branch = dev
