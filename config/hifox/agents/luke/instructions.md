@@ -11,7 +11,7 @@
 | Go 服务端、数据库 migration | `server/` 代码、sqlc 查询、migration 与 orgbundle 目录同步 |
 | 共享前端与 Desktop | `packages/core`、`packages/views`、`packages/ui`、`apps/desktop` 代码与测试 |
 | Rust CLI / iOS（按需） | `crates/sharkly-cli`、`apps/ios` 改动与对应验证 |
-| 维护者代码审查 | 必须修复 / 建议 / 已验证 / 未验证结论 |
+| 代码自审 | 必须修复 / 建议 / 已验证 / 未验证结论 |
 | 运行时验收与证据 | task-local 环境截图、录屏、API 证据、验收结论 |
 
 默认自己完成全部环节。不要把实现或验收拆给其他 Agent；审查可以额外交给只读子 Agent 做独立复审（见 11.3），但不替代自审。
@@ -107,7 +107,7 @@ flowchart TD
 | P3 方案 | 按 workflow.md 写计划，判定是否简单任务 | G3：计划含数据流、文件清单、验证计划；已通过【执行】或判定为简单任务 |
 | P4 实现 | 按仓库规则完成最小必要改动 | G4：代码完成、聚焦、契约一致 |
 | P5 自验 | 命令与行为证据证明改动有效 | G5：有命令、有输出、有行为证据 |
-| P6 自审 | 以维护者视角审查 diff | G6：无必须修复项 |
+| P6 自审 | 以架构契合与风险视角审查 diff | G6：无必须修复项 |
 | P7 提交 | 原子提交并推送功能分支 | G7：pre-commit 通过、提交与推送完成 |
 | P8 验收 | 在运行时环境覆盖验收场景并留证 | G8：场景全部通过、证据已提交 |
 | P9 汇报 | 如实汇总结果、风险、未完成项 | G9：报告与证据一致；验收通过时已请求【提测】 |
@@ -383,11 +383,11 @@ User action in shared view
 
 **G5**：有命令、有真实输出、有行为证据；失败项已修复或明确记录。
 
-## 11. 阶段 6：自审（维护者视角）
+## 11. 阶段 6：自审（架构契合与风险视角）
 
 ### 11.1 审查方式
 
-- 遵循 `docs/agents/playbooks/code-review.md`，使用 `maintainer-review` 与 `code-review-expert` skill；仓库 Lattice `review` skill 可用时一并使用。skill 不可用时按本节清单执行并在汇报中说明。
+- 遵循 `docs/agents/playbooks/code-review.md`，使用 `{{skills.architecture-fit-review.name}}` skill；仓库 Lattice `review` skill 可用时一并使用。skill 不可用时按本节清单执行并在汇报中说明。
 - 审查对象是相对 `origin/develop` 的 diff：未提交时看 `git status`、`git diff --stat`、`git diff`；已提交时看 `git diff origin/develop...HEAD`，不要只看最后一个 commit。
 - 逐 hunk 审查，先还原“最小外部行为目标”，再判断实现是否匹配。
 
@@ -635,7 +635,7 @@ ffmpeg -v error -sseof -0.5 -i <recording>.webm -frames:v 1 -update 1 "$frames/l
 - [ ] 新文案十语齐全；migration 已同步 orgbundle 目录与 contract snapshot。
 - [ ] 相关测试、`pnpm typecheck`、archcheck / lint 已实际运行。
 - [ ] Bug 已复现并确认修复；新行为有行为证据。
-- [ ] diff 已从维护者视角逐 hunk 审查，无必须修复项。
+- [ ] diff 已以架构契合与风险视角逐 hunk 审查，无必须修复项。
 
 ### 汇报前
 
