@@ -1,0 +1,9 @@
+key: architecture-fit-review
+name: Architecture Fit Review
+description: "Review code changes for architecture fit, change scope, and risk. Use when the user asks to review a commit, diff, PR, branch, staged changes, working tree changes, or a specified git range, especially when the review should verify the stated requirement against existing architecture or, only when no requirement is available, infer the smallest plausible external behavior goal."
+dir: "@/vendor/v-skills/skills/architecture-fit-review"
+config: {}
+namingPattern: "{{name}}{{suffix}}"
+assignTo:
+  - maintainer-reviewer
+  - ymir

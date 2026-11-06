@@ -402,7 +402,7 @@ Lint 与测试：
 
 ### 10.1 审查方式
 
-- 必须使用 `maintainer-review` 与 `code-review-expert` skill。skill 不可用时，按本节清单执行，并在汇报中说明。
+- 必须使用 `architecture-fit-review` 与 `code-review-expert` skill。skill 不可用时，按本节清单执行，并在汇报中说明。
 - 审查对象是相对基线分支的 diff，不是自己的实现自述。
 - 未提交时用 `git status`、`git diff --stat`、`git diff` 审查工作树；已提交时用 `git diff <base>...HEAD` 审查本次提交范围，避免只看最后一个 commit。
 - 逐 hunk 审查，先还原“这次改动要解决的最小外部行为目标”，再判断实现是否匹配。

@@ -29,7 +29,3 @@ agents:
   ymir:
     id: 479d76d0-8a82-4c78-958e-3f6665837b75
     deployedName: "尤弥尔 Ymir"
-skills:
-  maintainer-review:
-    id: 775960a0-1c8c-4ef8-9cc3-45755ecfec34
-    deployedName: "Maintainer Review"

@@ -97,7 +97,7 @@
 
 ### @{{agents.maintainer-reviewer.name}} - 维护者代码审查工程师
 
-专门负责开发完成后的代码审查，必须使用 `maintainer-review` skill。审查发现必须修复的问题时，将任务退回给原开发 Agent；开发 Agent 修复后，再次指派该审查 Agent 复审，直到通过或明确记录阻塞项。
+专门负责开发完成后的代码审查，必须使用 `architecture-fit-review` skill。审查发现必须修复的问题时，将任务退回给原开发 Agent；修复完成后，再次指派该审查 Agent 复审，直到通过或明确记录阻塞项。
 
 ### @{{agents.eir.name}} - 测试验收工程师
 

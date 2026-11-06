@@ -26,7 +26,10 @@ agents:
   eir:
     id: 7c533fce-c2fc-4f1c-9a32-3361a296d429
     deployedName: "埃尔 Eir - staging"
+  ymir:
+    id: 25f70ada-3a0a-451c-bde7-71ce12863c83
+    deployedName: "尤弥尔 Ymir - staging"
 skills:
-  maintainer-review:
-    id: 775960a0-1c8c-4ef8-9cc3-45755ecfec34
-    deployedName: "Maintainer Review"
+  architecture-fit-review:
+    id: 1e0b0fdb-1189-478f-bb35-87c69402d971
+    deployedName: "Architecture Fit Review - staging"

@@ -164,7 +164,7 @@ instructions 与 Skill 文件（`SKILL.md` 及目录内附属文本文件）支�
 {{agents.thor.name}}
 {{agents.baldur.name}}
 {{crews.ragnarok.name}}
-{{skills.maintainer-review.name}}
+{{skills.architecture-fit-review.name}}
 {{crew.name}}
 {{environment}}
 ```
