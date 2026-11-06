@@ -4,5 +4,3 @@ description: "Scripts for xwing task-mode delivery: check that the machine has t
 contentFile: SKILL.md
 config: {}
 namingPattern: "{{name}}"
-assignTo:
-  - luke

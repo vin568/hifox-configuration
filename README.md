@@ -236,8 +236,8 @@ cp -R config/apifox/. config/<config-set>/
 
 - `state.yaml` 必须按环境分开；不要把同一份 state 用于不同 Space。
 - 不要在已有环境上直接修改 `spaceId`；`state.yaml` 中的 Agent/Skill ID 属于原 Space，应该新建环境并重新 clone 一套。
-- 空间级 Skill 由 `ensureSkills` 在 `spaceId` 指定的 Space 创建，并在该环境 state 中记录 ID。`skill edit` 不能把 Skill 移到另一个 Space；更换 `spaceId` 后需要删除旧 Skill 并重新创建。
-- `inherited-copy` 依赖 `agent copy`，`agent copy` 没有 `--space` 参数，只适合同一 Space 内的环境克隆。跨 Space 时请在目标 Space 准备源 Agent/Skill，或改用不带 `binding` 的普通 Skill 配置，让 `ensureSkills` 在目标 Space 创建并分配给 Agent。
+- 空间级 Skill（`skills/<key>/`）由 `ensureSkills` 在 `spaceId` 指定的 Space 创建，并在该环境 state 中记录 ID。`skill edit` 不能把 Skill 移到另一个 Space；更换 `spaceId` 后需要删除旧 Skill 并重新创建。
+- Agent 专属 Skill（`agents/<key>/skills/<skill-key>/`）由归属位置表达（无 `assignTo`），部署时以 `skill create --agent` 创建为该 Agent 私有；完整 key 为 `<agent-key>/<skill-key>`。`inherited-copy` 依赖 `agent copy`，`agent copy` 没有 `--space` 参数，只适合同一 Space 内的环境克隆；副本共享源 Agent 的实例（归属不转移）。跨 Space 时请在目标 Space 准备源 Agent/Skill，或改用不带 `binding` 的普通 Skill 配置。
 - 每个环境的 `state.yaml` 仍然只记录该环境的 UUID；`plan`/`apply`/`pull` 都要带 `--environment`。
 
 ## 多 Crew
@@ -270,8 +270,8 @@ config/apifox/crews/
 - 更新始终依据 state 中的 UUID，不通过名称猜测目标。
 - 中途创建失败时会保留已成功创建的 UUID，便于排查并避免重复创建。
 - generated avatar、在线状态、时间戳等服务端字段不会写回模板。
-- Skill ID 必须在目标组织中有效；跨组织克隆前需要确认 Skill 可见性。不在 `config/<config-set>/skills/` 中的外部 skill 不会被创建或校验，必须由目标 Space 预先提供。
-- Agent 专属 Skill 使用 `inherited-copy`：同一 Space 内通过复制源 Agent 保留绑定，Skill 正文由 `config/<config-set>/skills/` 统一维护；跨 Space 见“多空间维护”。
+- Skill ID 必须在目标组织中有效；跨组织克隆前需要确认 Skill 可见性。不在配置集合中的外部 skill 不会被创建或校验，必须由目标 Space 预先提供。
+- Agent 专属 Skill：需要跨环境共享同一实例时用 `inherited-copy`（同一 Space 内通过复制源 Agent 保留绑定）；单个环境独立交付时直接放在 `agents/<key>/skills/` 下，每环境各建一份。配置在 `skills/` 与 `agents/<key>/skills/` 之间移动会使 state 中的 UUID 失效，apply 会对账远端 scope 并报错。
 - 新建 Agent 需要成对配置 Computer Lease ID 与 Runtime ID，可通过 `hifox agent target list` 查询。
 
 ## 依赖

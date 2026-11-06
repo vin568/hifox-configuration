@@ -9,7 +9,8 @@
   - `config/apifox/`：与 Organization / Space 解耦的配置集合（`ConfigRoot`）。
     - `crews/<key>/crew.yaml` + 指令文件
     - `agents/<key>/agent.yaml` + 指令文件
-    - `skills/<key>/skill.yaml` + `SKILL.md`（及可选附属文件）
+    - `skills/<key>/skill.yaml` + `SKILL.md`（及可选附属文件）：Space Skill，创建在 Space 中，可挂载给多个 Agent
+    - `agents/<key>/skills/<skill-key>/skill.yaml` + `SKILL.md`：Agent Skill，归属由所在 agent 目录表达（无 `assignTo`），部署时以 `hifox skill create --agent` 创建为该 Agent 专属技能
   - `environments/staging/environment.yaml`：部署绑定（`organizationId`、`spaceId`、`configRoot`、`nameSuffix`、`target`）。
   - `environments/staging/state.yaml`：已部署远端资源的权威 UUID 映射（需提交 Git，勿手改 UUID）。
   - `snapshots/`、`backups/`：本地只读快照与时间点归档产物（已由 `.gitignore` 忽略）。
@@ -47,7 +48,7 @@ Crew 指令、Agent 指令、Skill 的 `SKILL.md` 以及 Skill 目录下的附�
 | --- | --- |
 | `{{agents.<key>.name}}` | 当前环境下渲染后的 Agent 名称（含环境后缀） |
 | `{{crews.<key>.name}}` | 当前环境下渲染后的 Crew 名称 |
-| `{{skills.<key>.name}}` | 当前环境下渲染后的 Skill 名称 |
+| `{{skills.<key>.name}}` | 当前环境下渲染后的 Skill 名称（Agent Skill 的 key 为 `<agent-key>/<skill-key>`） |
 | `{{crew.name}}` | 单 Crew 配置集合下的当前 Crew 名称（多 Crew 时请用 `{{crews.<key>.name}}`） |
 | `{{environment}}` | 当前环境名（如 `staging`、`current`） |
 
