@@ -1,6 +1,6 @@
-[submodule "vendor/hifox-deploy"]
-	path = vendor/hifox-deploy
-	url = git@apifox.github.com:vin568/hifox-deploy.git
+[submodule "vendor/xwing-deploy"]
+	path = vendor/xwing-deploy
+	url = git@apifox.github.com:vin568/xwing-deploy.git
 	branch = dev
 [submodule "vendor/v-skills"]
 	path = vendor/v-skills

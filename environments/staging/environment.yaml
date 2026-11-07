@@ -1,6 +1,8 @@
 organizationId: 86555f76-3f5b-4f7a-93c6-406074110a59
 spaceId: fcb74b8e-d801-42f5-b3e9-787c13577112
 configRoot: config/apifox
+cli:
+  app: hifox
 nameSuffix: " - staging"
 namingPattern: "{{name}}{{suffix}}"
 visibility:
