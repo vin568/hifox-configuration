@@ -1,6 +1,6 @@
-# HiFox Agent Crew Configuration
+# Xwing Agent Crew Configuration
 
-“诸神的黄昏 Ragnarok”小队的声明式本地配置。本仓库只保存配置与运行环境：部署逻辑位于 git 子模块 `vendor/hifox-deploy`，由根目录的 `hifox-deploy` 壳脚本调用。
+“诸神的黄昏 Ragnarok”小队的声明式本地配置，面向 xwing 家族部署实例（`hifox`、`sharkly`），每个环境经 `cli.app` 声明目标实例。本仓库只保存配置与运行环境：部署逻辑位于 git 子模块 `vendor/xwing-deploy`，由根目录的 `xwing-deploy` 壳脚本调用。
 
 ## 目录
 
@@ -12,17 +12,17 @@
 - `environments/<name>/state.yaml`：部署后由工具记录的远端 UUID。
 - `snapshots/<environment>/`：可再生成的远端状态缓存，已被 Git 忽略。
 - `backups/<timestamp>/<environment>/`：带时间戳的完整本地备份，已被 Git 忽略。
-- `vendor/hifox-deploy/`：部署 CLI 子模块。普通配置使用者不需要修改；维护部署逻辑时在该子模块内开发、测试并提交，再在根仓库更新子模块指针（见 `AGENTS.md`）。
-- `hifox-deploy`：同步入口，固定把本仓库根目录作为 `--root` 传给 CLI。
+- `vendor/xwing-deploy/`：部署 CLI 子模块。普通配置使用者不需要修改；维护部署逻辑时在该子模块内开发、测试并提交，再在根仓库更新子模块指针（见 `AGENTS.md`）。
+- `xwing-deploy`：同步入口，固定把本仓库根目录作为 `--root` 传给 CLI。
 - `mise.toml`：Node 版本。
 
-CLI 的命令、选项以及 `environment.yaml` / `state.yaml` 字段说明见 [`vendor/hifox-deploy/README.md`](vendor/hifox-deploy/README.md)。领域词汇见 [`vendor/hifox-deploy/GLOSSARY.md`](vendor/hifox-deploy/GLOSSARY.md)，关键决策见 [`vendor/hifox-deploy/docs/adr/`](vendor/hifox-deploy/docs/adr/)。
+CLI 的命令、选项以及 `environment.yaml` / `state.yaml` 字段说明见 [`vendor/xwing-deploy/README.md`](vendor/xwing-deploy/README.md)。领域词汇见 [`vendor/xwing-deploy/GLOSSARY.md`](vendor/xwing-deploy/GLOSSARY.md)，关键决策见 [`vendor/xwing-deploy/docs/adr/`](vendor/xwing-deploy/docs/adr/)。
 
 ## 文档边界
 
-- `vendor/hifox-deploy/GLOSSARY.md`：领域词汇表，定义平台、配置、部署与产物的核心概念。
-- `vendor/hifox-deploy/docs/adr/`：关键设计决策及其取舍。
-- `vendor/hifox-deploy/README.md`：CLI 契约，包括命令、选项、`environment.yaml` / `state.yaml` 字段和 manifest 规则。
+- `vendor/xwing-deploy/GLOSSARY.md`：领域词汇表，定义平台、配置、部署与产物的核心概念。
+- `vendor/xwing-deploy/docs/adr/`：关键设计决策及其取舍。
+- `vendor/xwing-deploy/README.md`：CLI 契约，包括命令、选项、`environment.yaml` / `state.yaml` 字段和 manifest 规则。
 - 本 README：配置集合、环境绑定和日常操作说明；CLI 细节以上面的契约为准，不在本文重复维护。
 
 ## 子模块
@@ -39,28 +39,28 @@ git clone --recurse-submodules git@apifox.github.com:vin568/hifox-configuration.
 git submodule update --init --recursive
 ```
 
-`vendor/hifox-deploy` 是独立仓库；首次克隆前需要该子模块仓库的读取权限。SSH/HTTPS 的本地 Git 配置按团队环境处理，不在本文档中固化。
+`vendor/xwing-deploy` 是独立仓库；首次克隆前需要该子模块仓库的读取权限。SSH/HTTPS 的本地 Git 配置按团队环境处理，不在本文档中固化。
 
-本仓库的子模块跟踪 `hifox-deploy` 的 `dev` 开发分支（`.gitmodules` 中 `branch = dev`），`main` 为稳定分支。`./hifox-deploy update` 在本仓库会直接报错：CLI 只管理复制安装（copy install），检测到 git 子模块（开发布局）即拒绝并提示 git 命令。升级到 `dev` 最新提交：
+本仓库的子模块跟踪 `xwing-deploy` 的 `dev` 开发分支（`.gitmodules` 中 `branch = dev`），`main` 为稳定分支。`./xwing-deploy update` 在本仓库会直接报错：CLI 只管理复制安装（copy install），检测到 git 子模块（开发布局）即拒绝并提示 git 命令。升级到 `dev` 最新提交：
 
 ```bash
-git submodule update --remote --rebase vendor/hifox-deploy
-./hifox-deploy init
-git add vendor/hifox-deploy
-git commit -m "chore(deps): bump hifox-deploy"
+git submodule update --remote --rebase vendor/xwing-deploy
+./xwing-deploy init
+git add vendor/xwing-deploy
+git commit -m "chore(deps): bump xwing-deploy"
 ```
 
-`init` / `init.sh` 重跑不升级依赖。需要固定已验证版本时，用 `git -C vendor/hifox-deploy checkout <commit>` 代替第一步。
+`init` / `init.sh` 重跑不升级依赖。需要固定已验证版本时，用 `git -C vendor/xwing-deploy checkout <commit>` 代替第一步。
 
-开发 CLI 时不需要等上游发布：`git submodule update --init` 后子模块处于 detached HEAD，先执行 `git -C vendor/hifox-deploy switch dev`，再在 `vendor/hifox-deploy` 内修改、运行 `npm test`，在该子模块仓库提交并推送到 `origin/dev`，然后 `git add vendor/hifox-deploy` 提交本仓库指针。拆分、测试与提交边界见根 [`AGENTS.md`](AGENTS.md) 和子模块 `AGENTS.md`。
+开发 CLI 时不需要等上游发布：`git submodule update --init` 后子模块处于 detached HEAD，先执行 `git -C vendor/xwing-deploy switch dev`，再在 `vendor/xwing-deploy` 内修改、运行 `npm test`，在该子模块仓库提交并推送到 `origin/dev`，然后 `git add vendor/xwing-deploy` 提交本仓库指针。拆分、测试与提交边界见根 [`AGENTS.md`](AGENTS.md) 和子模块 `AGENTS.md`。
 
 ## 默认 Staging 实例
 
 ```bash
-./hifox-deploy validate
-./hifox-deploy plan
-./hifox-deploy apply --apply
-./hifox-deploy pull
+./xwing-deploy validate
+./xwing-deploy plan
+./xwing-deploy apply --apply
+./xwing-deploy pull
 ```
 
 `staging` 是默认环境，小队和全部 Agent 均为 `personal`，名称追加 ` - staging`。
@@ -69,7 +69,7 @@ git commit -m "chore(deps): bump hifox-deploy"
 原有无后缀实例保留在 `current` 环境：
 
 ```bash
-./hifox-deploy plan --environment current
+./xwing-deploy plan --environment current
 ```
 
 对 `current` 执行 `--apply` 会直接修改线上正在使用的无后缀实例，先用 `plan` 预览。
@@ -79,15 +79,15 @@ git commit -m "chore(deps): bump hifox-deploy"
 `pull` 只刷新可再生成的远端缓存：
 
 ```bash
-./hifox-deploy pull
+./xwing-deploy pull
 ```
 
 `backup` 会先拉取最新远端状态，再保存该环境绑定的配置集合（`configRoot`，例如 `config/apifox`）、环境 state、远端快照和 manifest。`config/` 下的其他配置集合属于别的环境，不会被打包：
 
 ```bash
-./hifox-deploy backup
-./hifox-deploy backup --environment current
-./hifox-deploy backup --output-dir /path/to/private-backups
+./xwing-deploy backup
+./xwing-deploy backup --environment current
+./xwing-deploy backup --output-dir /path/to/private-backups
 ```
 
 默认备份位置为 `backups/<UTC timestamp>/<environment>/`。仓库内的 `snapshots/` 和 `backups/` 都不会提交 Git；重要备份应复制到私有对象存储或其他持久化位置。`pull` 会先清空 `snapshots/<env>/`，因此远端已删除的资源不会残留在快照里。
@@ -95,18 +95,18 @@ git commit -m "chore(deps): bump hifox-deploy"
 恢复备份（支持原地恢复到原位置，或通过 `--to` 恢复到新的空目录并物化外部引用）：
 
 ```bash
-./hifox-deploy restore --from backups/2026-11-04T04-06-12Z/current --apply
-./hifox-deploy restore --from backups/2026-11-04T04-06-12Z/current --to /tmp/restored
-./hifox-deploy restore --from backups/2026-11-04T04-06-12Z/current --to /tmp/restored --apply
+./xwing-deploy restore --from backups/2026-11-04T04-06-12Z/current --apply
+./xwing-deploy restore --from backups/2026-11-04T04-06-12Z/current --to /tmp/restored
+./xwing-deploy restore --from backups/2026-11-04T04-06-12Z/current --to /tmp/restored --apply
 ```
 
 清理旧备份和孤儿快照：
 
 ```bash
-./hifox-deploy prune backups --keep 10          # 预览
-./hifox-deploy prune backups --keep 10 --apply  # 删除更旧的备份
-./hifox-deploy prune snapshots                  # 预览孤儿快照
-./hifox-deploy prune snapshots --apply
+./xwing-deploy prune backups --keep 10          # 预览
+./xwing-deploy prune backups --keep 10 --apply  # 删除更旧的备份
+./xwing-deploy prune snapshots                  # 预览孤儿快照
+./xwing-deploy prune snapshots --apply
 ```
 
 `restore` 只覆盖备份记录的 `configRoot` 与环境目录（不会动 `config/` 下的其他配置集合），保留备份中的 `configRoot` 和 state UUID，恢复后仍需 `validate` / `plan` / `apply` 才能与远端对齐。`prune` 不迁移备份内容，只按保留策略删除。
@@ -125,6 +125,8 @@ cp -R environments/example environments/my-environment
 organizationId: <organization-id>
 spaceId: <space-id>
 configRoot: config/apifox
+cli:
+  app: hifox # 目标部署实例：hifox | sharkly
 nameSuffix: " - staging"
 namingPattern: "{{name}}{{suffix}}"
 visibility:
@@ -138,22 +140,22 @@ target:
 预览并创建：
 
 ```bash
-./hifox-deploy clone --environment my-environment
-./hifox-deploy clone --environment my-environment --apply
+./xwing-deploy clone --environment my-environment
+./xwing-deploy clone --environment my-environment --apply
 ```
 
 创建成功后会生成对应环境的 `state.yaml`。此后使用：
 
 ```bash
-./hifox-deploy plan --environment my-environment
-./hifox-deploy apply --environment my-environment --apply
-./hifox-deploy pull --environment my-environment
+./xwing-deploy plan --environment my-environment
+./xwing-deploy apply --environment my-environment --apply
+./xwing-deploy pull --environment my-environment
 ```
 
 也可以临时覆盖环境后缀：
 
 ```bash
-./hifox-deploy clone --environment my-environment --suffix " - Vin Test"
+./xwing-deploy clone --environment my-environment --suffix " - Vin Test"
 ```
 
 ## 名称变量
@@ -181,7 +183,7 @@ instructions 与 Skill 文件（`SKILL.md` 及目录内附属文本文件）支�
 ignoreAgentModels: true
 ```
 
-设置后，CLI 不再向 `hifox agent create/edit` 传递 `--model`，已有 Agent 的模型保持不变，新建 Agent 使用 runtime 默认模型。该开关只影响 `runtime.model`；`runtime.customArguments` 仍按配置传递。
+设置后，CLI 不再向 `<cli> agent create/edit` 传递 `--model`，已有 Agent 的模型保持不变，新建 Agent 使用 runtime 默认模型。该开关只影响 `runtime.model`；`runtime.customArguments` 仍按配置传递。
 
 ## 多配置集合与多 Space
 
@@ -215,6 +217,8 @@ environments/
 organizationId: <organization-id>
 spaceId: <目标 Space ID>
 configRoot: config/apifox
+cli:
+  app: hifox
 nameSuffix: " - apifox"
 ```
 
@@ -264,7 +268,7 @@ config/apifox/crews/
 ## 安全约束
 
 - 新建实例必须使用非空后缀。
-- 远程命令要求 `environment.organizationId`；effective organization 优先级为 `--organization-id` > `HIFOX_ORGANIZATION_ID` > profile 默认组织。不一致、缺少组织或 Space 不属于该组织时立即失败，不自动切换组织；`validate` 保持离线。
+- 远程命令要求 `environment.organizationId`；effective organization 优先级为 `--organization-id` > `<APP>_ORGANIZATION_ID`（按 `cli.app` 派生：hifox → `HIFOX_ORGANIZATION_ID`，sharkly → `SHARKLY_ORGANIZATION_ID`）> profile 默认组织。不一致、缺少组织或 Space 不属于该组织时立即失败，不自动切换组织；`validate` 保持离线。
 - 创建前会检查远端 crew 与 Agent 是否重名。
 - 已存在 crew UUID 的环境不能再次执行 create/clone；首次创建中断后用 `apply` 继续，state 中已成功的 Agent/Crew 会保留，缺失的会补建。
 - 更新始终依据 state 中的 UUID，不通过名称猜测目标。
@@ -272,11 +276,11 @@ config/apifox/crews/
 - generated avatar、在线状态、时间戳等服务端字段不会写回模板。
 - Skill ID 必须在目标组织中有效；跨组织克隆前需要确认 Skill 可见性。不在配置集合中的外部 skill 不会被创建或校验，必须由目标 Space 预先提供。
 - Agent 专属 Skill：需要跨环境共享同一实例时用 `inherited-copy`（同一 Space 内通过复制源 Agent 保留绑定）；单个环境独立交付时直接放在 `agents/<key>/skills/` 下，每环境各建一份。配置在 `skills/` 与 `agents/<key>/skills/` 之间移动会使 state 中的 UUID 失效，apply 会对账远端 scope 并报错。
-- 新建 Agent 需要成对配置 Computer Lease ID 与 Runtime ID，可通过 `hifox agent target list` 查询。
+- 新建 Agent 需要成对配置 Computer Lease ID 与 Runtime ID，可通过 `<cli> agent target list` 查询。
 
 ## 依赖
 
-- `hifox`
+- 目标部署实例的 CLI（`cli.app` 对应：`hifox` / `sharkly`，测试构建可经 `cli.path` 指定）
 - `node >= 18`（使用 mise 时执行 `mise install` 按 `mise.toml` 安装固定版本）
 - `yq`
-- `hifox-deploy` 子模块的读取权限
+- `xwing-deploy` 子模块的读取权限

@@ -4,6 +4,10 @@ spaceId: fcb74b8e-d801-42f5-b3e9-787c13577112
 # Configuration-set tree, relative to the repo root.
 # Change to config/<config-set> when cloning a different configuration set.
 configRoot: config/apifox
+# Target deployment instance (closed set): hifox | sharkly.
+# cli.path optionally points at a specific build of that instance (e.g. a test CLI).
+cli:
+  app: hifox
 nameSuffix: " - example"
 namingPattern: "{{name}}{{suffix}}"
 visibility:
