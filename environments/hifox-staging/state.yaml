@@ -1,0 +1,12 @@
+version: 1
+nameSuffix: " (staging)"
+crew:
+agents:
+  luke:
+    id: 1bb5f895-01c8-4915-a495-4ad6c6368523
+    deployedName: "卢克 Luke (staging)"
+skills:
+workflows:
+  webhook-echo:
+    id: 95e04916-7cab-4867-951c-9db41e9c4766
+    deployedName: "Webhook Echo (staging)"

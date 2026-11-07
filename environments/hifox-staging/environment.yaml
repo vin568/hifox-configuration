@@ -1,0 +1,5 @@
+organizationId: 86555f76-3f5b-4f7a-93c6-406074110a59
+spaceId: 7d609bf8-5f68-41cb-b5ec-4f9f8f9161c2
+configRoot: config/hifox
+nameSuffix: " (staging)"
+namingPattern: "{{name}}{{suffix}}"

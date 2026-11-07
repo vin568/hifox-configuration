@@ -1,0 +1,5 @@
+key: webhook-echo
+name: Webhook Echo
+description: "测试用例：webhook 触发 + function 回显，验证 workflow 声明式链路"
+deployed: true
+source: ui

@@ -1,6 +1,6 @@
 # HiFox Declarative Configuration Guide
 
-本项目使用 `hifox-deploy` 管理 HiFox 小队（Crew）、智能体（Agent）与技能（Skill）的声明式配置。
+本项目使用 `hifox-deploy` 管理 HiFox 小队（Crew）、智能体（Agent）、技能（Skill）与工作流（Workflow）的声明式配置。
 
 ## 1. 目录结构
 
@@ -11,6 +11,7 @@
     - `agents/<key>/agent.yaml` + 指令文件
     - `skills/<key>/skill.yaml` + `SKILL.md`（及可选附属文件）：Space Skill，创建在 Space 中，可挂载给多个 Agent
     - `agents/<key>/skills/<skill-key>/skill.yaml` + `SKILL.md`：Agent Skill，归属由所在 agent 目录表达（无 `assignTo`），部署时以 `hifox skill create --agent` 创建为该 Agent 专属技能
+    - `workflows/<key>/workflow.yaml` + `graph.json`：工作流（ADR 0008）。`workflow.yaml` 声明名称、folder、`deployed` 与 `source`；`graph.json` 是规范化 SavedGraph（全保真块/边图，全环境共享，勿手编——用 `capture` 从远端生成）。写侧部署（create / state edit / deploy）尚未实现，`apply` 遇到待变更工作流会显式报错。
   - `environments/staging/environment.yaml`：部署绑定（`organizationId`、`spaceId`、`configRoot`、`nameSuffix`、`target`）。
   - `environments/staging/state.yaml`：已部署远端资源的权威 UUID 映射（需提交 Git，勿手改 UUID）。
   - `snapshots/`、`backups/`：本地只读快照与时间点归档产物（已由 `.gitignore` 忽略）。
@@ -68,6 +69,9 @@ Crew 指令、Agent 指令、Skill 的 `SKILL.md` 以及 Skill 目录下的附�
 # 3. 执行远端变更（必须显式传 --apply）
 ./hifox-deploy create --environment staging --suffix " - staging" --apply
 ./hifox-deploy apply --environment staging --apply
+
+# 3b. 把远端已有 workflow 提升为配置（规范化写入 config/，并登记 state.yaml）
+./hifox-deploy capture --environment staging --kind workflow --id <workflow-uuid> --key <kebab-key>
 
 # 4. 拉取快照、创建备份与恢复
 ./hifox-deploy pull --environment staging

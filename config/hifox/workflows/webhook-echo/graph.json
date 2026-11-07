@@ -1,0 +1,192 @@
+{
+  "blocks": {
+    "43e69814-dc42-4dd2-9804-1ba502c949bb": {
+      "id": "43e69814-dc42-4dd2-9804-1ba502c949bb",
+      "type": "function",
+      "name": "Function",
+      "position": {
+        "x": -289,
+        "y": 66
+      },
+      "enabled": true,
+      "errorEnabled": false,
+      "triggerMode": false,
+      "subBlocks": {
+        "code": {
+          "id": "code",
+          "type": "code",
+          "value": "console.log(<webhooktrigger>)"
+        },
+        "language": {
+          "id": "language",
+          "type": "dropdown",
+          "value": "javascript"
+        },
+        "sandboxId": {
+          "id": "sandboxId",
+          "type": "combobox",
+          "value": null
+        },
+        "secretScope": {
+          "id": "secretScope",
+          "type": "dropdown",
+          "value": "all"
+        },
+        "mountedSecrets": {
+          "id": "mountedSecrets",
+          "type": "dropdown",
+          "value": null
+        }
+      },
+      "outputs": {
+        "result": {
+          "type": "json",
+          "description": "Structured result emitted by the executed code"
+        },
+        "stdout": {
+          "type": "string",
+          "description": "Console log output and debug messages from function execution"
+        }
+      },
+      "data": {}
+    },
+    "ee92408b-41b7-4dc1-b93f-94891c908f14": {
+      "id": "ee92408b-41b7-4dc1-b93f-94891c908f14",
+      "type": "generic_webhook",
+      "name": "Webhook Trigger",
+      "position": {
+        "x": -712,
+        "y": -55
+      },
+      "enabled": true,
+      "errorEnabled": false,
+      "triggerMode": true,
+      "subBlocks": {
+        "token": {
+          "id": "token",
+          "type": "short-input",
+          "value": "89b049d0-5f1f-490e-93c6-b74340679826"
+        },
+        "webhookId": {
+          "id": "webhookId",
+          "type": "short-input",
+          "value": null
+        },
+        "inputFormat": {
+          "id": "inputFormat",
+          "type": "input-format",
+          "value": [
+            {
+              "id": "6545d18f-70cd-4af9-8f0d-4dafbae35f47",
+              "name": "",
+              "type": "string",
+              "value": "",
+              "collapsed": true
+            }
+          ]
+        },
+        "requireAuth": {
+          "id": "requireAuth",
+          "type": "switch",
+          "value": false
+        },
+        "triggerPath": {
+          "id": "triggerPath",
+          "type": "short-input",
+          "value": null
+        },
+        "responseBody": {
+          "id": "responseBody",
+          "type": "code",
+          "value": "{\"challenge\": \"\"}"
+        },
+        "responseMode": {
+          "id": "responseMode",
+          "type": "dropdown",
+          "value": "default"
+        },
+        "webSubSecret": {
+          "id": "webSubSecret",
+          "type": "short-input",
+          "value": null
+        },
+        "webSubTopics": {
+          "id": "webSubTopics",
+          "type": "long-input",
+          "value": null
+        },
+        "triggerConfig": {
+          "id": "triggerConfig",
+          "type": "short-input",
+          "value": null
+        },
+        "webSubEnabled": {
+          "id": "webSubEnabled",
+          "type": "switch",
+          "value": false
+        },
+        "idempotencyField": {
+          "id": "idempotencyField",
+          "type": "short-input",
+          "value": null
+        },
+        "secretHeaderName": {
+          "id": "secretHeaderName",
+          "type": "short-input",
+          "value": null
+        },
+        "verifyTestEvents": {
+          "id": "verifyTestEvents",
+          "type": "switch",
+          "value": false
+        },
+        "webhookUrlDisplay": {
+          "id": "webhookUrlDisplay",
+          "type": "short-input",
+          "value": null
+        },
+        "acceptOtherMethods": {
+          "id": "acceptOtherMethods",
+          "type": "switch",
+          "value": false
+        },
+        "responseStatusCode": {
+          "id": "responseStatusCode",
+          "type": "short-input",
+          "value": "200"
+        },
+        "triggerInstructions": {
+          "id": "triggerInstructions",
+          "type": "text",
+          "value": "<div class=\"mb-3\"><strong>1.</strong> Copy the webhook URL and use it in your external service or API.</div><div class=\"mb-3\"><strong>2.</strong> Configure your service to send webhooks to this URL.</div><div class=\"mb-3\"><strong>3.</strong> The webhook accepts POST. Turn on \"Accept Other HTTP Methods\" to also accept GET, PUT, PATCH and DELETE — for example to trigger the workflow from a link in an email.</div><div class=\"mb-3\"><strong>4.</strong> Body fields are available in your workflow, and URL query parameters under \"query\" (for example \"query.id\"). Turn on \"Expose Request Headers\" to also get \"headers\" (for example \"headers.x-event-name\"), and \"Accept Other HTTP Methods\" to also get \"method\".</div><div class=\"mb-3\"><strong>5.</strong> Authentication is header-based, so it cannot be used with a plain link. If authentication is enabled, include the token in the Secret Header Name you configured, or in \"Authorization: Bearer TOKEN\" if you left it blank — only the configured one is accepted, not either.</div><div class=\"mb-3\"><strong>6.</strong> To deduplicate incoming events, set the Deduplication Field to the dot-notation path of a unique identifier in the payload (e.g. \"event.id\"). Duplicate values within 7 days will be skipped.</div><div class=\"mb-3\"><strong>7.</strong> Enable \"Verify Test Events\" only if the sending service needs a temporary 200 response while validating the webhook URL.</div><div class=\"mb-3\"><strong>8.</strong> For WebSub (including YouTube), enable \"WebSub Verification\" and \"Accept Other HTTP Methods\", set the exact topic URLs and shared secret, and disable \"Require Authentication\" if the hub cannot send bearer tokens. Subscribe with the same hub.secret. Verification GETs only return the challenge; signed POSTs run the workflow.</div><div class=\"mb-3\"><strong>9.</strong> XML bodies (application/xml, text/xml, application/atom+xml) are parsed into lowercase tag names, with attributes under \"$\". For YouTube, read \"feed.entry\"; repeated entries are an array.</div>"
+        },
+        "exposeRequestHeaders": {
+          "id": "exposeRequestHeaders",
+          "type": "switch",
+          "value": false
+        },
+        "samplePayload_generic_webhook": {
+          "id": "samplePayload_generic_webhook",
+          "type": "code",
+          "value": "{}"
+        }
+      },
+      "outputs": {},
+      "data": {}
+    }
+  },
+  "edges": [
+    {
+      "id": "ab2435bd-5b43-4b52-8c10-374e862618b6",
+      "source": "ee92408b-41b7-4dc1-b93f-94891c908f14",
+      "target": "43e69814-dc42-4dd2-9804-1ba502c949bb",
+      "sourceHandle": "source",
+      "targetHandle": "target",
+      "type": "default",
+      "data": {}
+    }
+  ],
+  "loops": {},
+  "parallels": {},
+  "variables": {}
+}

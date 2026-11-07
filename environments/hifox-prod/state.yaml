@@ -15,3 +15,7 @@ skills:
   luke/xwing-task-kit:
     id: 727bb705-8696-4ebf-acb4-6b6b49851ee7
     deployedName: "xwing Task Kit"
+workflows:
+  webhook-echo:
+    id: 080a0a05-d67f-4394-8664-da0a15b66f76
+    deployedName: "Webhook Echo"
