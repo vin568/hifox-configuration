@@ -12,7 +12,7 @@
 2. 在子模块仓库内提交并推送到 `origin/dev`。
 3. 回到根仓库更新子模块指针：`git add vendor/hifox-deploy && git commit`。
 
-拉取子模块上游更新用 `git submodule update --remote --rebase vendor/hifox-deploy`。不要在本仓库执行 `./hifox-deploy update --apply`：它前进到 origin 默认分支（`main`）tip，会回退子模块指针。
+拉取子模块上游更新用 `git submodule update --remote --rebase vendor/hifox-deploy`。`./hifox-deploy update` 在本仓库会直接报错：CLI 只管理复制安装（copy install），对 git 子模块（开发布局）一律拒绝并提示 git 命令；升级一律走上面的 git 流程。
 
 不要把子模块当只读依赖，也不要绕开它把部署逻辑复制到根仓库或壳脚本。
 

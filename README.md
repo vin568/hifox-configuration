@@ -41,7 +41,7 @@ git submodule update --init --recursive
 
 `vendor/hifox-deploy` 是独立仓库；首次克隆前需要该子模块仓库的读取权限。SSH/HTTPS 的本地 Git 配置按团队环境处理，不在本文档中固化。
 
-本仓库的子模块跟踪 `hifox-deploy` 的 `dev` 开发分支（`.gitmodules` 中 `branch = dev`），`main` 为稳定分支。不要在本仓库执行 `./hifox-deploy update --apply`：它升级到 origin 默认分支（`main`）tip，会让子模块回退到稳定版。升级到 `dev` 最新提交：
+本仓库的子模块跟踪 `hifox-deploy` 的 `dev` 开发分支（`.gitmodules` 中 `branch = dev`），`main` 为稳定分支。`./hifox-deploy update` 在本仓库会直接报错：CLI 只管理复制安装（copy install），检测到 git 子模块（开发布局）即拒绝并提示 git 命令。升级到 `dev` 最新提交：
 
 ```bash
 git submodule update --remote --rebase vendor/hifox-deploy
