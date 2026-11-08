@@ -27,12 +27,12 @@
 
 ## Xwing Declarative Configuration
 
-本项目的 Crew / Agent / Skill / Workflow 声明式配置位于 `.`（`config/<config-set>/` 配置集合 + `environments/<env>/` 部署绑定）。部署工具 xwing-deploy 自描述其操作面，使用方法与配置结构语义以 CLI 为准、不在本仓库其他文档复述：
+本项目的 Crew / Agent / Skill / Workflow / Automation 声明式配置位于 `.`（`config/<config-set>/` 配置集合 + `environments/<env>/` 部署绑定）。部署工具 xwing-deploy 自描述其操作面，使用方法与配置结构语义以 CLI 为准、不在本仓库其他文档复述：
 
 - 不变量：`state.yaml` 的 UUID 是已部署资源的唯一权威，勿手改；变更命令默认预览，必须显式 `--apply` 才执行（各命令的变更分级见 `./xwing-deploy --help`）。
 - 预检：`./xwing-deploy doctor`（node / yq / CLI 可执行 / state 盖章 / configRoot，全离线，先跑它）。
 - 命令目录：`./xwing-deploy --help`；逐命令 `./xwing-deploy <command> --help`。
-- 过程手册：`./xwing-deploy guide <topic>`（restore / troubleshooting / upgrade / workflows，随 CLI 版本发布）。
+- 过程手册：`./xwing-deploy guide <topic>`（automations / restore / troubleshooting / upgrade / workflows，随 CLI 版本发布）。
 - 完整契约：`./xwing-deploy guide contract`（CLI 按自身位置解析随包 README，任意包管理器/安装布局可用）；copy/子模块安装亦可直接读 `vendor/xwing-deploy/README.md`。
 
 <!-- xwing-deploy:end -->
