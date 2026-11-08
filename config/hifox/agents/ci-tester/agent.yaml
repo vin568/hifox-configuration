@@ -1,0 +1,19 @@
+key: ci-tester
+name: CI Tester
+jobTitle: xwing-deploy 发布验收执行器
+description: 无人值守的 xwing-deploy 发布验收执行器：按 workflow 传入的被测 commit，在 task-local dev 服务上运行本仓持有的黑盒验收套件（消费方契约），截图取证、按 state 归档清理、向常驻报告任务汇报，并以严格 JSON verdict 交回 workflow。不修复代码、不重试门禁、不做任何发布 git 操作。
+instructionsFile: instructions.md
+repositories:
+  - https://cnb.cool/tars-lab/xwing
+  - https://cnb.cool/tars-lab/x-deploy
+runtime:
+  model: hifox/glm-5.3
+  customArguments: []
+target:
+  computer: 0e541e32-2186-4651-9120-21ff2cb909b4
+  runtimeProvider: oh-my-pi
+permissions:
+  taskAssignment: true
+concurrency:
+  mode: manual
+  maxTasks: 1

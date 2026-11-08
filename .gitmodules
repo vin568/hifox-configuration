@@ -1,6 +1,6 @@
 [submodule "vendor/xwing-deploy"]
 	path = vendor/xwing-deploy
-	url = git@apifox.github.com:vin568/xwing-deploy.git
+	url = https://cnb.cool/tars-lab/x-deploy
 	branch = dev
 [submodule "vendor/v-skills"]
 	path = vendor/v-skills

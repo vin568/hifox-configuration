@@ -1,12 +1,31 @@
 version: 1
+cliApp: hifox
 nameSuffix: " (staging)"
 crew:
 agents:
   luke:
     id: 1bb5f895-01c8-4915-a495-4ad6c6368523
     deployedName: "卢克 Luke (staging)"
+  ci-tester:
+    id: f07f9479-8c94-42f7-9127-a2f7bbee0a71
+    deployedName: "CI Tester (staging)"
 skills:
+  architecture-fit-review:
+    id: bff2006f-ea49-4c00-afef-423ca379b9d9
+    deployedName: "Architecture Fit Review"
+  autopilot-grilling:
+    id: 05a24d21-da2b-4804-9093-02f625b7eb2c
+    deployedName: "Autopilot Grilling"
+  ci-tester/acceptance:
+    id: ab9cbde8-341b-40d6-89db-4524d4088a14
+    deployedName: "xwing-deploy Acceptance Suite"
+  luke/xwing-task-kit:
+    id: 05c47f88-fffd-41e7-9838-31a5c818dc46
+    deployedName: "xwing Task Kit"
 workflows:
   webhook-echo:
     id: 95e04916-7cab-4867-951c-9db41e9c4766
     deployedName: "Webhook Echo (staging)"
+  xwing-deploy-release-gate:
+    id: 028baac5-c6e0-44af-836a-473a7dcbc977
+    deployedName: "xwing-deploy Release Gate (staging)"

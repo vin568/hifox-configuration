@@ -4,4 +4,9 @@ snapshots/
 # Timestamped local backup bundles. Copy these to durable private storage.
 backups/
 
+
+# mise per-machine secrets: hand-maintained [env] store, never commit.
+# (NOTE: `mise set` writes the committed mise.toml — do not use it for secrets.)
+mise.local.toml
+mise.toml.local
 .DS_Store

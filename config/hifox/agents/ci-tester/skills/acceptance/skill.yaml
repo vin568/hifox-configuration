@@ -1,0 +1,6 @@
+key: acceptance
+name: xwing-deploy Acceptance Suite
+description: "本仓持有的 xwing-deploy 黑盒验收套件（消费方契约钉子）：对 task-local dev 后端跑全生命周期场景（validate / create / plan / apply 漂移收敛 / pull / backup / restore / prune workflows / doctor），产出 report.json 与退出码；支持 --keep 推迟远端清理供截图，--cleanup-report 按 report 事后清理。"
+contentFile: SKILL.md
+config: {}
+namingPattern: "{{name}}"

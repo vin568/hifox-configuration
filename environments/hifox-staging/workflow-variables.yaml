@@ -1,0 +1,11 @@
+# Space 变量声明（ADR 0008）：字面值进仓原样同步；$NAME 在 apply 时从
+# 进程环境读取真值，密钥不落仓。两个环境共用同一 Space，声明在常跑
+# apply 的 hifox-staging 即可（只 upsert，不删除）。
+# XWING_DEPLOY_PUSH_TOKEN：cnb.cool 的访问令牌（HTTPS git 认证，用户名
+# 缺省 x-access-token），仅授予 tars-lab/x-deploy 仓库写权限（发布 merge
+# 与 backmerge 推送）；apply 前从进程环境导出。
+XWING_DEPLOY_PUSH_TOKEN: $XWING_DEPLOY_PUSH_TOKEN
+# 常驻报告任务建好后取消注释并填任务 ID：
+# CI_REPORT_TASK_ID: <任务ID>
+# 若 CNB HTTPS git 认证要求特定用户名（缺省 x-access-token），取消注释：
+# XWING_DEPLOY_GIT_USER: <用户名>
