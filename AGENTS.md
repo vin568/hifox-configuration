@@ -17,11 +17,11 @@
 ## 子模块开发（唯一允许改部署逻辑的地方）
 
 1. `vendor/xwing-deploy` 是完整 git 仓库，不是 vendored 只读代码；`.gitmodules` 固定 `branch = dev`（`main` 为稳定分支）。detached HEAD 时先 `git -C vendor/xwing-deploy switch dev`。
-2. 在子模块内编辑并运行 `npm test`；真实 API 测试按 CLI App 参数化（hifox / sharkly 双套），只在各自专用测试组织上跑，见子模块 README 的 `.env.e2e` / `<APP>_ORGANIZATION_ID` 与 `<APP>_E2E_*` 约定。
+2. 在子模块内编辑并运行 `npm test`；真实 API 测试按 CLI App 参数化（hifox / sharkly 双套），只在各自专用测试组织上跑，见子模块 `AGENTS.md`「测试」节的 `.env.e2e` / `<APP>_ORGANIZATION_ID` 与 `<APP>_E2E_*` 约定。
 3. 在子模块仓库提交并推送 `origin/dev`，再回本仓库 `git add vendor/xwing-deploy && git commit` 更新指针。根仓库的提交只包含配置/文档/壳脚本/指针变化。
 4. 拉上游更新：`git submodule update --remote --rebase vendor/xwing-deploy`，随后 `./xwing-deploy init` 刷新受管物料；`./xwing-deploy update` 对子模块布局一律拒绝（见 `./xwing-deploy guide upgrade`）。
 
-不要把子模块当只读依赖，也不要绕开它把部署逻辑复制进根仓库或壳脚本；`xwing-deploy` 壳脚本的路径与 `--root` 语义属消费方契约，不要改。修改术语或契约前，先读子模块 `GLOSSARY.md` 与 `docs/adr/` 并同步。
+不要把子模块当只读依赖，也不要绕开它把部署逻辑复制进根仓库或壳脚本；`xwing-deploy` 壳脚本的路径与 `--root` 语义属消费方契约，不要改。修改术语或契约前，先读子模块 `GLOSSARY.md` 与 `docs/adr/` 并同步。子模块文档拆分约束见其 `AGENTS.md`「文档职责」节：工具仓 `README.md` 是随包分发的纯消费契约（`guide contract` 原样输出）；维护者内容归子模块 `AGENTS.md`；随包文档（README 与 runbooks）不反向引用不随包的文件（`docs/adr/`、`AGENTS.md`、`GLOSSARY.md` 的编号与链接在安装形态下是死链）；部署实例名只出现在校验闭集处（依赖节、`cli.app` 字段表）；改契约措辞需同步其不变量与 runbook。
 
 <!-- xwing-deploy:start -->
 
