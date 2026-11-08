@@ -1,0 +1,279 @@
+a2a	blocks	A2A
+affinity	tools	Affinity
+agent	blocks	Agent
+agentmail	tools	AgentMail
+agentphone	tools	AgentPhone
+agiloft	tools	Agiloft
+ahrefs	tools	Ahrefs
+airtable	tools	Airtable
+airweave	tools	Airweave
+algolia	tools	Algolia
+amplitude	tools	Amplitude
+api	blocks	API
+apify	tools	Apify
+apollo	tools	Apollo
+appconfig	tools	AWS AppConfig
+arxiv	tools	ArXiv
+asana	tools	Asana
+ashby	tools	Ashby
+athena	tools	Athena
+attio	tools	Attio
+azure_data_explorer	tools	Azure Data Explorer
+azure_devops	tools	Azure DevOps
+box	tools	Box
+brandfetch	tools	Brandfetch
+brex	tools	Brex
+brightdata	tools	Bright Data
+browser_use	tools	Browser Use
+buffer	tools	Buffer
+calcom	tools	Cal.com
+calendly	tools	Calendly
+cbinsights	tools	CB Insights
+circleback	triggers	Circleback
+classifier	blocks	Classifier
+clay	tools	Clay
+clerk	tools	Clerk
+clickhouse	tools	ClickHouse
+clickup	tools	ClickUp
+cloudflare	tools	Cloudflare
+cloudformation	tools	CloudFormation
+cloudwatch	tools	CloudWatch
+codepipeline	tools	CodePipeline
+condition	blocks	Condition
+confluence_v2	tools	Confluence
+context_dev	tools	Context.dev
+convex	tools	Convex
+credential	blocks	Credential
+credential_group	blocks	Credential Groups
+crowdstrike	tools	CrowdStrike
+crunchbase	tools	Crunchbase
+cursor_v2	tools	Cursor
+dagster	tools	Dagster
+databricks	tools	Databricks
+datadog	tools	Datadog
+datagma	tools	Datagma
+daytona	tools	Daytona
+deployments	blocks	Deployments
+devin	tools	Devin
+discord	tools	Discord
+downdetector	tools	Downdetector
+dropcontact	tools	Dropcontact
+dspy	tools	DSPy
+dub	tools	Dub
+duckduckgo	tools	DuckDuckGo
+dynamodb	tools	Amazon DynamoDB
+dynatrace	tools	Dynatrace
+elasticsearch	tools	Elasticsearch
+elevenlabs	tools	ElevenLabs
+emailbison	tools	Email Bison
+embeddings	tools	Embeddings
+enrich	tools	Enrich
+enrichment	blocks	Data Enrichment
+enrow	tools	Enrow
+evaluator	blocks	Evaluator
+exa	tools	Exa
+extend_v2	tools	Extend
+fathom	tools	Fathom
+feishu	tools	Feishu
+file_v5	blocks	File
+findymail	tools	Findymail
+firecrawl	tools	Firecrawl
+fireflies_v2	tools	Fireflies
+flint	tools	Flint
+function	blocks	Function
+gamma	tools	Gamma
+generic_webhook	triggers	Webhook Trigger
+github_v2	tools	GitHub
+gitlab	tools	GitLab
+gmail_v2	tools	Gmail
+gong	tools	Gong
+google_appsheet	tools	Google AppSheet
+google_bigquery	tools	Google BigQuery
+google_books	tools	Google Books
+google_calendar_v2	tools	Google Calendar
+google_contacts	tools	Google Contacts
+google_docs	tools	Google Docs
+google_drive	tools	Google Drive
+google_forms	tools	Google Forms
+google_groups	tools	Google Groups
+google_maps	tools	Google Maps
+google_meet	tools	Google Meet
+google_pagespeed	tools	Google PageSpeed
+google_search	tools	Google Search
+google_sheets_v2	tools	Google Sheets
+google_slides_v2	tools	Google Slides
+google_tasks	tools	Google Tasks
+google_translate	tools	Google Translate
+google_vault	tools	Google Vault
+grafana	tools	Grafana
+grain_v2	tools	Grain
+granola	tools	Granola
+greenhouse	tools	Greenhouse
+greptile	tools	Greptile
+guardrails	blocks	Guardrails
+harmonic	tools	Harmonic
+hex	tools	Hex
+hubspot	tools	HubSpot
+huggingface	tools	Hugging Face
+human_in_the_loop	blocks	Human
+hunter	tools	Hunter.io
+iam	tools	AWS IAM
+icypeas	tools	Icypeas
+identity_center	tools	AWS Identity Center
+image_generator_v2	blocks	Image Generator
+imap	triggers	IMAP Email
+incidentio	tools	incident.io
+infisical	tools	Infisical
+instantly	tools	Instantly
+intercom_v2	tools	Intercom
+jina	tools	Jina
+jira	tools	Jira
+jira_service_management	tools	Jira Service Management
+jotform	tools	Jotform
+jupyter	tools	Jupyter
+kalshi_v2	tools	Kalshi
+ketch	tools	Ketch
+knowledge	blocks	Knowledge
+langsmith	tools	LangSmith
+latex	tools	LaTeX
+launchdarkly	tools	LaunchDarkly
+leadmagic	tools	LeadMagic
+lemlist	tools	Lemlist
+linear_v2	tools	Linear
+linkup	tools	Linkup
+linq	tools	Linq
+logfire	tools	Logfire
+logrocket	tools	LogRocket
+logs_v2	blocks	Logs
+loop	blocks	loop
+loops	tools	Loops
+luma	tools	Luma
+mailchimp	tools	Mailchimp
+mailgun	tools	Mailgun
+managed_agent	tools	Claude Managed Agents
+mcp	blocks	MCP Tool
+mem0	tools	Mem0
+memory	blocks	Memory
+millionverifier	tools	MillionVerifier
+mintlify	tools	Mintlify
+mistral_parse_v3	tools	Mistral Parser
+modal	tools	Modal
+monday	tools	Monday
+mongodb	tools	MongoDB
+mssql	tools	Microsoft SQL Server
+mysql	tools	MySQL
+neo4j	tools	Neo4j
+netsuite	tools	Oracle NetSuite
+neverbounce	tools	NeverBounce
+new_relic	tools	New Relic
+note	blocks	Note
+notion_v2	tools	Notion
+obsidian	tools	Obsidian
+okta	tools	Okta
+onepassword	tools	1Password
+pagerduty	tools	PagerDuty
+parallel	blocks	parallel
+parallel_ai	tools	Parallel AI
+peopledatalabs	tools	People Data Labs
+perplexity	tools	Perplexity
+persona	tools	Persona
+pi	blocks	Pi Coding Agent
+pinecone	tools	Pinecone
+pipedrive	tools	Pipedrive
+pitchbook	tools	PitchBook
+polymarket	tools	Polymarket
+postgresql	tools	PostgreSQL
+posthog	tools	PostHog
+profound	tools	Profound
+prospeo	tools	Prospeo
+pulse_v2	tools	Pulse
+qdrant	tools	Qdrant
+quartr	tools	Quartr
+quiver	tools	Quiver
+rabbitmq	tools	RabbitMQ
+railway	tools	Railway
+rb2b	tools	RB2B
+rds	tools	Amazon RDS
+redis	tools	Redis
+reducto_v2	tools	Reducto
+resend	tools	Resend
+response	blocks	Response
+revenuecat	tools	RevenueCat
+rippling	tools	Rippling
+rocketlane	tools	Rocketlane
+rootly	tools	Rootly
+router_v2	blocks	Router
+rss	triggers	RSS Feed
+run_agent	tools	Run Agent
+s3	tools	S3
+salesforce	tools	Salesforce
+sap_concur	tools	SAP Concur
+sap_s4hana	tools	SAP S4HANA
+schedule	triggers	Schedule
+search	blocks	Search
+secrets_manager	tools	AWS Secrets Manager
+sendblue	tools	Sendblue
+sendgrid	tools	SendGrid
+sentry	tools	Sentry
+serper	tools	Serper
+servicenow	tools	ServiceNow
+ses	tools	AWS SES
+sftp	tools	SFTP
+shopify	tools	Shopify
+sim_workspace_event	triggers	Workspace Events
+similarweb	tools	Similarweb
+sixtyfour	tools	Sixtyfour AI
+slack_v2	tools	Slack
+smartlead	tools	Smartlead
+smtp	tools	SMTP
+snowflake	tools	Snowflake
+splunk	tools	Splunk
+sportmonks	tools	Sportmonks
+sqs	tools	Amazon SQS
+square	tools	Square
+ssh	tools	SSH
+stagehand	tools	Stagehand
+start_trigger	triggers	Start
+stripe	tools	Stripe
+sts	tools	AWS STS
+stt_v2	blocks	Speech-to-Text
+supabase	tools	Supabase
+table	blocks	Table
+tailscale	tools	Tailscale
+tasks	tools	Tasks
+tavily	tools	Tavily
+telegram	tools	Telegram
+temporal	tools	Temporal
+textract_v2	tools	AWS Textract
+thrive	tools	Thrive
+tinybird	tools	Tinybird
+translate	blocks	Translate
+trigger_dev	tools	Trigger.dev
+tts	blocks	Text-to-Speech
+twilio_sms	tools	Twilio SMS
+twilio_voice	tools	Twilio Voice
+typeform	tools	Typeform
+upstash	tools	Upstash
+uptimerobot	tools	UptimeRobot
+vanta	tools	Vanta
+variables	blocks	Variables
+vercel	tools	Vercel
+video_generator_v3	blocks	Video Generator
+wait	blocks	Wait
+wealthbox	tools	Wealthbox
+webflow	tools	Webflow
+webhook_request	blocks	Webhook
+whatsapp	tools	WhatsApp
+wikipedia	tools	Wikipedia
+windchill	tools	Windchill
+wiza	tools	Wiza
+workday	tools	Workday
+workflow_input	blocks	Workflow
+youtube	tools	YouTube
+zendesk	tools	Zendesk
+zep	tools	Zep
+zerobounce	tools	ZeroBounce
+zoho_desk	tools	Zoho Desk
+zoom	tools	Zoom
+zoominfo	tools	ZoomInfo
+# 278 block type(s) — engine contract snapshot (see skills/xwing-workflows/scripts/contract-snapshot.mjs)
