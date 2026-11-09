@@ -14,6 +14,18 @@
 
 原则与取舍见子模块 `docs/adr/0015`；受管章节内的策略句是唯一权威表述，本节只是判定方法。
 
+## 技能目录
+
+本仓有三处技能目录，消费者互斥；新增技能先按消费者判定放置：
+
+| 目录 | 消费者 | 机制与形态 |
+| --- | --- | --- |
+| `skills/` | 部署到远端的 xwing agent | 技能源：由 `config/<集合>/agents/<key>/skills/<skill-key>/skill.yaml` 以 `dir: "@/skills/<名>"` 引用同一源，部署为各 agent 专属实例。`SKILL.md` 是内容体、无 frontmatter（身份在 `skill.yaml`）。当前：`task-runtime`（luke、ci-tester 引用） |
+| `config/<集合>/skills/` | 部署到远端的 xwing agent（Space 内共享） | Space Skill 实例，多 agent 挂载同一份；结构语义见 `./xwing-deploy guide contract`，不在本仓复述 |
+| `.agents/skills/` | 在本仓工作的开发 agent 与人（不部署） | 项目级工具技能（Agent Skills 开放标准位置）：`SKILL.md` 带 `name`/`description` frontmatter。CLI 自带技能（当前 `xwing-workflows`）由 `./xwing-deploy init` 整目录受管重置，定制须复制改名；清单外的自有技能 init 不触碰，当前自有：`worktree-dev`（本仓 git worktree 开发契约 + `worktree.sh` 助手） |
+
+判定一句话：给部署的远端 agent 用 → `skills/`（源 + agent 引用）或 `config/<集合>/skills/`（Space 共享）；给在本仓干活的开发 agent 用 → `.agents/skills/<名>/`。
+
 ## 子模块开发（唯一允许改部署逻辑的地方）
 
 1. `vendor/xwing-deploy` 是完整 git 仓库，不是 vendored 只读代码；`.gitmodules` 固定 `branch = dev`（`main` 为稳定分支）。detached HEAD 时先 `git -C vendor/xwing-deploy switch dev`。

@@ -20,7 +20,7 @@
 
 ## 根级共享技能源
 
-`skills/` 存放跨 agent 复用、但不以 Space Skill 共享实例的技能源目录；各 agent 在自身 `skills/` 目录下用 Agent Skill 引用同一源，部署为各 agent 专属实例（结构语义见 `./xwing-deploy guide contract`）。当前条目：`task-runtime`（task-local 运行时操作契约 + 环境预检 `preflight.sh`，由 luke 与 ci-tester 引用）。
+`skills/` 存放跨 agent 复用、但不以 Space Skill 共享实例的技能源目录；各 agent 在自身 `skills/` 目录下用 Agent Skill 引用同一源，部署为各 agent 专属实例（结构语义见 `./xwing-deploy guide contract`）。当前条目：`task-runtime`（task-local 运行时操作契约 + 环境预检 `preflight.sh`，由 luke 与 ci-tester 引用）。三处技能目录的用途划分见 [`AGENTS.md`](AGENTS.md)。
 
 ## xwing-deploy 发布流水线
 
