@@ -538,7 +538,7 @@ scenario("backup-restore: backup dir forms, in-place and --to restores work", ()
   assert(readFileSync(promptPath, "utf8") === pristine, "in-place restore did not restore the external prompt");
 });
 
-scenario("workflow-lifecycle: apply converges, re-applies in sync, prune archives", () => {
+scenario("workflow-lifecycle: apply converges, re-applies in sync, drift-edits while locked, prune archives", () => {
   workflowFixture = buildWorkflowRoot(main.suffix);
   const deployRoot = workflowFixture.deployRoot;
   mustPass(deployRun(deployRoot, ["validate", "--environment", "e2e"]), "workflow validate");
@@ -556,6 +556,17 @@ scenario("workflow-lifecycle: apply converges, re-applies in sync, prune archive
   const reapply = mustPass(deployRun(deployRoot, ["apply", "--apply", "--environment", "e2e"]), "workflow re-apply");
   assertMatch(reapply.stdout, /workflow demo: in sync/, "re-apply must converge in sync");
   assert(!/SavedGraph differs/.test(reapply.stdout), "engine round-trip must not look like drift");
+
+  writeFileSync(
+    join(deployRoot, "config/test/workflows/demo/workflow.yaml"),
+    ['key: demo', 'name: "Demo Flow"', 'description: "edited while locked"', "deployed: false", "source: ui", ""].join("\n"),
+  );
+  mustPass(deployRun(deployRoot, ["apply", "--apply", "--environment", "e2e"]), "workflow locked drift-edit");
+  const updated = cliJson(["workflow", "view", id, "--space", SPACE_ID]);
+  const updatedRow = updated?.data ?? updated;
+  assertEqual(updatedRow.description, "edited while locked", "metadata edit must land on a locked workflow");
+  assertEqual(updatedRow.isDeployed, false, "deployed: false must undeploy a locked workflow");
+  assertEqual(updatedRow.locked, true, "lockUiEdits default must re-lock after mutating");
 
   rmSync(join(deployRoot, "config/test/workflows/demo"), { recursive: true });
   const pruned = mustPass(deployRun(deployRoot, ["prune", "workflows", "--apply", "--environment", "e2e"]), "prune workflows");

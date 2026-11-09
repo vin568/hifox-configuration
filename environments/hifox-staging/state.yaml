@@ -27,5 +27,6 @@ workflows:
     id: 95e04916-7cab-4867-951c-9db41e9c4766
     deployedName: "Webhook Echo (staging)"
   xwing-deploy-release-gate:
-    id: 028baac5-c6e0-44af-836a-473a7dcbc977
+    id: d44c3f64-6af9-48a3-b94f-4444c7b882d0
     deployedName: "xwing-deploy Release Gate (staging)"
+automations:
