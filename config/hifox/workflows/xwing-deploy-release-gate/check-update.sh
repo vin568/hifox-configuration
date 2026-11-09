@@ -13,7 +13,10 @@
 #   | {"action":"halt","reason":..}
 # - Run-marker guard: the workflow is deployed by BOTH hifox environments
 #   (two instances, two schedules); an atomic noclobber marker with TTL turns
-#   the losing concurrent cycle into "skip". release-merge clears it.
+#   the losing concurrent cycle into "skip". The holder always clears it:
+#   check-update on "skip" classification or its own failure, release-merge
+#   via its EXIT trap on terminal outcomes; a stale marker past the TTL is
+#   reclaimed by an atomic rename-aside, which elects exactly one reclaimer.
 set -eu
 exec 3>&1 1>&2
 
@@ -37,9 +40,36 @@ right() { git --git-dir "$CACHE" rev-list --right-only --cherry-pick --no-merges
 GATE_DIR="$(dirname "$CACHE")"
 MARKER="$GATE_DIR/gate-running"
 if [ -f "$MARKER" ]; then
-  MARKER_TS="$(head -1 "$MARKER" 2>/dev/null || echo 0)"
+  MARKER_TS="$(head -1 "$MARKER" 2>/dev/null | tr -cd '0-9')"
+  MARKER_TS="${MARKER_TS:-0}"
   NOW="$(date +%s)"
   if [ "$((NOW - MARKER_TS))" -lt "${XWING_DEPLOY_GATE_TTL:-10800}" ]; then
+    printf '{"action":"skip"}\n' >&3
+    exit 0
+  fi
+  # Stale marker: its cycle claimed the gate but never reached release-merge
+  # (crash, or a "skip" emitted while still holding it). Election is a rename
+  # aside — atomic, so exactly one reclaimer moves the file; losers' mv hits a
+  # missing file and they skip. The reclaimer then re-reads the MOVED content:
+  # the staleness decision above can race a concurrent claim (we may have
+  # swept away a fresh winner's file, not the stale one we saw), so fresh
+  # content is put back with a create-only copy — never clobbering whoever
+  # claimed in between — and this cycle skips. Residual: a third claimant
+  # landing inside that µs holding window can still double-claim with the
+  # robbed owner; needs ≥3 concurrent cycles (production runs 2), and a
+  # duplicate acceptance run is all it costs — agent dispatch serializes and
+  # merge's superseded guards reject the second release.
+  if mv "$MARKER" "$MARKER.stale.$$" 2>/dev/null; then
+    ASIDE_TS="$(head -1 "$MARKER.stale.$$" 2>/dev/null | tr -cd '0-9')"
+    ASIDE_TS="${ASIDE_TS:-0}"
+    if [ "$((NOW - ASIDE_TS))" -lt "${XWING_DEPLOY_GATE_TTL:-10800}" ]; then
+      ( set -C; cat "$MARKER.stale.$$" > "$MARKER" ) 2>/dev/null || :
+      rm -f "$MARKER.stale.$$"
+      printf '{"action":"skip"}\n' >&3
+      exit 0
+    fi
+    rm -f "$MARKER.stale.$$"
+  else
     printf '{"action":"skip"}\n' >&3
     exit 0
   fi
@@ -49,12 +79,28 @@ fi
   exit 0
 }
 
+# This cycle owns the marker from here. Keep it held only when a downstream
+# block will actually run (test / halt, cleared by release-merge); clear it
+# on failure (a crashed check must not lock the gate for a full TTL) and on
+# the skip classification at the bottom.
+TMP=''
+cleanup() {
+  code=$?
+  if [ -n "$TMP" ]; then
+    git --git-dir "$CACHE" worktree remove --force "$TMP/wt" 2>/dev/null || rm -rf "$TMP"
+    rm -rf "$TMP"
+  fi
+  if [ "$code" -ne 0 ]; then
+    rm -f "$MARKER"
+  fi
+}
+trap cleanup EXIT
+
 # Real divergence (main-only content with no patch-equivalent on dev):
 # auto-backmerge main into dev so the acceptance suite always tests a tree
 # that is a superset of main. Conflicts stop the pipeline for a human.
 if [ -n "$(left)" ]; then
   TMP="$(mktemp -d)"
-  trap 'git --git-dir "$CACHE" worktree remove --force "$TMP/wt" 2>/dev/null || rm -rf "$TMP"; rm -rf "$TMP"' EXIT
   mkdir -p "$TMP/wt"
   git --git-dir "$CACHE" worktree add --detach --quiet "$TMP/wt" refs/remotes/origin/dev
   if ! git -C "$TMP/wt" -c user.name=xwing-ci -c user.email=ci@invalid merge --no-edit --no-ff refs/remotes/origin/main >/dev/null 2>&1; then
@@ -77,6 +123,7 @@ CANDIDATE="$(git --git-dir "$CACHE" rev-parse refs/remotes/origin/dev)"
 MAIN_AT="$(git --git-dir "$CACHE" rev-parse refs/remotes/origin/main)"
 
 if [ -z "$(right)" ]; then
+  rm -f "$MARKER"
   printf '{"action":"skip"}\n' >&3
 else
   printf '{"action":"test","candidate":"%s","main_at":"%s"}\n' "$CANDIDATE" "$MAIN_AT" >&3

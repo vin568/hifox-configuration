@@ -3,11 +3,13 @@
 # Language: shell. Runs after the Tester agent (run_agent block).
 #
 # Engine contract:
-# - '<check.result>' / '<tester.result>' are upstream block outputs inlined
-#   by the engine before execution: check.result is the single-line routing
-#   JSON (shell stdout semantics), tester.result is the agent's final message
-#   (single-line JSON verdict per ci-tester instructions). Neither contains
-#   single quotes by contract, so single-quoted inlining is safe.
+# - '<check.result>' / '<tester.result>' are upstream block outputs: the
+#   engine rewrites each reference into a runtime env-var expansion that is
+#   quote-context aware (single-quoted sites become ''"${var}"''), so values
+#   are never parsed as code and carry no quoting contract. check.result is
+#   the single-line routing JSON (shell stdout semantics); tester.result is
+#   the agent's final message (single-line JSON verdict per ci-tester
+#   instructions).
 # - '{{XWING_DEPLOY_PUSH_TOKEN}}' is a workspace variable bound at execution.
 # - Routing JSON on fd 3 (stdout hygiene, same as check-update):
 #   {"action":"released","merge_commit":..,"candidate":..}

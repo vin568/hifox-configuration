@@ -33,7 +33,7 @@ node scripts/run-acceptance.mjs --cleanup-report <dir>/report.json
 1. `validate`：fixture 根离线校验通过。
 2. `create`：`create --apply` 落地 crew / 两 agent / Space skill / Agent skill，state.yaml 注册 ID，远端名称带后缀，模板变量已渲染，仓库清单 replace-all 语义成立。
 3. `doctor`：自检通过。
-4. `plan-no-mutation`：`plan` 只预览不写 state。
+4. `plan`：`plan` 只预览不写 state。
 5. `apply-drift`：新增 agent、crew 角色变更、skill 附属文件删除、仓库清单收缩后 `apply --apply` 一次收敛。
 6. `apply-idempotent`：二次 apply 幂等（ID 不变、无漂移输出）。
 7. `pull`：快照文件落盘。
