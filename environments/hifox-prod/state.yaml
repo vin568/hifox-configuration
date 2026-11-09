@@ -12,7 +12,7 @@ skills:
   autopilot-grilling:
     id: 05a24d21-da2b-4804-9093-02f625b7eb2c
     deployedName: "Autopilot Grilling"
-  luke/xwing-task-kit:
+  luke/handler-test:
     id: 727bb705-8696-4ebf-acb4-6b6b49851ee7
     deployedName: "xwing Task Kit"
 workflows:

@@ -10,7 +10,7 @@
 
 ## 1. 环境预检（一次性，失败即 verdict fail）
 
-`git`、`node ≥ 18`、`pnpm`、`yq`、`make`、`go`（后端 air 依赖）、`cargo`（任务 CLI 编译）、`lsof`、`python3` 可用；截图依赖的 `playwright` 是可选项，缺失时按第 2 节第 5 步降级（截图跳过并标注）。xwing 与 xwing-deploy 两个仓库的 worktree 可从 daemon 缓存检出。缺工具时直接失败汇报，不自行安装。
+用 `{{skills.ci-tester/task-runtime.name}}` 技能的 `preflight.sh base server cli ci` 一次查全：`git`、`node ≥ 18`、`pnpm`、`make`、`go`（后端 air 依赖）、`cargo`（任务 CLI 编译）、`yq`、`lsof`、`python3`；截图依赖的 `playwright` 是可选项，缺失时按第 2 节第 5 步降级（截图跳过并标注）。xwing 与 xwing-deploy 两个仓库的 worktree 可从 daemon 缓存检出。预检退出码非 0 → verdict `fail` 并在报告中列出缺失工具；缺工具时直接失败汇报，不自行安装。
 
 ## 2. 固定流程（每轮按序执行，不增不减）
 

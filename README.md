@@ -18,6 +18,10 @@
 | `hifox-prod` | `config/hifox` | HiFox 产研 | 无后缀，已部署 |
 | `hifox-staging` | `config/hifox` | HiFox 产研 | 后缀 ` (staging)`，已部署 |
 
+## 根级共享技能源
+
+`skills/` 存放跨 agent 复用、但不以 Space Skill 共享实例的技能源目录；各 agent 在自身 `skills/` 目录下用 Agent Skill 引用同一源，部署为各 agent 专属实例（结构语义见 `./xwing-deploy guide contract`）。当前条目：`task-runtime`（task-local 运行时操作契约 + 环境预检 `preflight.sh`，由 luke 与 ci-tester 引用）。
+
 ## xwing-deploy 发布流水线
 
 `vendor/xwing-deploy` dev → main 的定时发布门禁，全部资源在 `config/hifox` 集合内（与 luke 同仓）：workflow `xwing-deploy-release-gate` 是**编写型**（源形态与迭代回路见工具技能）——**无 GUI 创建**，`workflow import` 一次成型。它每 3 小时用 patch 等价判定 Releasable Delta（真分叉自动 backmerge），指派 `agents/ci-tester` 在 task-local dev 服务上跑该 agent 自带的黑盒验收套件（消费方契约钉子），通过即合并被测 commit 到 main 并推送；结果与截图汇入常驻报告任务。因 `config/hifox` 被 hifox-prod / hifox-staging 双环境部署，workflow 会存在两份实例，check-update 块以运行标记守卫让并发轮退化为 skip。决策依据见 [`docs/adr/0001`](docs/adr/0001-xwing-deploy-release-gate.md)，术语见 [`GLOSSARY.md`](GLOSSARY.md)，workflow 的增删改知识见工具技能（`.agents/skills/xwing-workflows/`，init 受管安装）与 `./xwing-deploy guide workflows`。

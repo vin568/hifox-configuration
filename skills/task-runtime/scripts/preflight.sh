@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Report whether this machine has the tools an xwing task needs.
-# Usage: preflight.sh [base] [hifox] [server] [db] [runtime] [cli]
+# Usage: preflight.sh [base] [hifox] [server] [db] [runtime] [cli] [ci]
 # Exit 1 when a required tool is missing; optional tools never fail the check.
 set -uo pipefail
 
@@ -73,6 +73,20 @@ check_db() {
   fi
 }
 
+# Version check on top of the base presence check: node's presence is already
+# reported by the base block, so only the major-version floor lives here.
+check_node_major() {
+  local minimum=$1 major
+  command -v node > /dev/null 2>&1 || return 0
+  major="$(node -p 'Number(process.versions.node.split(".")[0])' 2> /dev/null || printf 0)"
+  if [ "$major" -ge "$minimum" ] 2> /dev/null; then
+    report OK node "$(node --version) (>= ${minimum})"
+  else
+    report MISSING node "major >= ${minimum} required, found $(node --version)"
+    missing=1
+  fi
+}
+
 surfaces=("$@")
 [ ${#surfaces[@]} -gt 0 ] || surfaces=(base)
 
@@ -88,6 +102,13 @@ for surface in "${surfaces[@]}"; do
     hifox) require hifox ;;
     server) require go ;;
     cli) require cargo ;;
+    ci)
+      require yq
+      require lsof
+      require python3
+      check_node_major 18
+      optional playwright "skip the screenshot step and note it in the report"
+      ;;
     db | runtime)
       if [ "$db_checked" = 0 ]; then
         check_db
@@ -103,7 +124,7 @@ for surface in "${surfaces[@]}"; do
       fi
       ;;
     *)
-      echo "unknown surface: $surface (expected base, hifox, server, db, runtime, cli)" >&2
+      echo "unknown surface: $surface (expected base, hifox, server, db, runtime, cli, ci)" >&2
       exit 2
       ;;
   esac

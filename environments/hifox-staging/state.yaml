@@ -19,7 +19,7 @@ skills:
   ci-tester/acceptance:
     id: ab9cbde8-341b-40d6-89db-4524d4088a14
     deployedName: "xwing-deploy Acceptance Suite"
-  luke/xwing-task-kit:
+  luke/handler-test:
     id: 05c47f88-fffd-41e7-9838-31a5c818dc46
     deployedName: "xwing Task Kit"
 workflows:
