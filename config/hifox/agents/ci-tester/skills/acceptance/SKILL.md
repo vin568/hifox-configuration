@@ -40,6 +40,8 @@ node scripts/run-acceptance.mjs --cleanup-report <dir>/report.json
 8. `backup-restore`：备份目录成形；原地恢复还原被破坏的 prompt；`--to` 异地恢复物化外部引用。
 9. `workflow-lifecycle`：workflows-only 根上 apply 一次成型（in sync）→ 引擎读回名称 / deployed / lock → 二次 apply 幂等 → 删除配置后 `prune workflows` 归档并注销。
 
+10. `automation-lifecycle`：主 fixture 自带 automation——apply 与 agent 同轮首发（state 注册 + 引擎读回 title/status/assignee/trigger）→ 二次 apply 幂等 → cron 漂移经 trigger edit 收敛 → 删除配置后 `prune automations` **硬删**并注销。
+
 ## 维护规则
 
 - 场景与断言钉在本仓：CLI 契约合法演进时，在此处显式更新（这是有意的契约评审点），不要为了“让 dev 过门禁”悄悄放宽。

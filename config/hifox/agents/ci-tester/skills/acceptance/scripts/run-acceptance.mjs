@@ -191,6 +191,20 @@ function buildMainRoot() {
       `# ${mustache("skills.echo.name")}\n\nRepeat the user's request for ${mustache("agents.alpha.name")} with \\${mustache("raw.template")}.\n`,
     "skills/echo/references/guide.md": `Guide for ${mustache("agents.beta.name")} in ${mustache("environment")}.\n`,
     "skills/echo/references/obsolete.md": `Temporary file in ${mustache("environment")}.\n`,
+    ".xwing/config/test/automations/heartbeat/automation.yaml": [
+      "key: heartbeat",
+      "name: Heartbeat",
+      "assignee: agent:alpha",
+      "priority: low",
+      "deployed: true",
+      "triggers:",
+      "  - kind: schedule",
+      '    cron: "0 0 1 1 *"',
+      "    timezone: Asia/Shanghai",
+      "",
+    ].join("\n"),
+    ".xwing/config/test/automations/heartbeat/description.md":
+      `Heartbeat automation for ${mustache("environment")} by ${mustache("agents.alpha.name")}.\n`,
   };
   for (const [path, content] of Object.entries(files)) {
     const target = join(root, path);
@@ -282,6 +296,11 @@ function cleanupRemote(state) {
     cliRun(["workflow", "unlock", workflow, "--space", SPACE_ID, "--yes"], { ok: false });
     if (cliRun(["workflow", "delete", workflow, "--space", SPACE_ID, "--yes"], { ok: false }).status !== 0) {
       problems.push(`workflow ${workflow}`);
+    }
+  }
+  for (const automation of Object.values(state.automations || {})) {
+    if (automation.id && cliRun(["automation", "delete", automation.id, "--yes"], { ok: false }).status !== 0) {
+      problems.push(`automation ${automation.id}`);
     }
   }
   return problems;
@@ -490,6 +509,7 @@ scenario("pull: snapshots land on disk", () => {
     "snapshots/e2e/skills/alpha/relay.json",
     "snapshots/e2e/crews/team/crew.json",
     "snapshots/e2e/crews/team/members.json",
+    "snapshots/e2e/automations/heartbeat/automation.json",
   ];
   for (const path of expected) {
     assert(existsSync(join(main.deployRoot, path)), `missing snapshot ${path}`);
@@ -541,6 +561,39 @@ scenario("workflow-lifecycle: apply converges, re-applies in sync, prune archive
   const pruned = mustPass(deployRun(deployRoot, ["prune", "workflows", "--apply", "--environment", "e2e"]), "prune workflows");
   assertMatch(pruned.stdout, /Archiving demo/, "prune must archive the removed workflow");
   assertEqual(readState(deployRoot).workflows?.demo, undefined, "prune must deregister state");
+});
+
+scenario("automation-lifecycle: created by apply, re-applies in sync, drift-edits, prune hard-deletes", () => {
+  // The automation ships in the main fixture: the first full apply (scenario
+  // apply-drift) must have created it alongside the agents (same-apply 首发).
+  const deployRoot = main.deployRoot;
+  const id = readState(deployRoot).automations?.heartbeat?.id;
+  assert(id, "state.yaml must register the automation");
+  const detail = cliJson(["automation", "view", id, "-y"]);
+  assertEqual(detail?.automation?.title, `Heartbeat${main.suffix}`, "rendered name not adopted");
+  assertEqual(detail?.automation?.status, "active", "deployed: true must reach active");
+  assertEqual(detail?.automation?.assigneeId, readState(deployRoot).agents?.alpha?.id, "agent:<key> must resolve to the state UUID");
+  const trigger = (detail?.triggers || []).find((item) => item.kind === "schedule");
+  assert(trigger, "the schedule trigger must exist");
+  assertEqual(trigger.cronExpression, "0 0 1 1 *", "trigger cron must land");
+
+  const reapply = mustPass(deployRun(deployRoot, ["apply", "--environment", "e2e", "--apply"]), "automation re-apply");
+  assertMatch(reapply.stdout, /automation heartbeat: in sync/, "re-apply must converge in sync");
+
+  const configPath = join(deployRoot, "config/test/automations/heartbeat/automation.yaml");
+  writeFileSync(configPath, readFileSync(configPath, "utf8").replace('"0 0 1 1 *"', '"0 0 2 2 *"'));
+  mustPass(deployRun(deployRoot, ["apply", "--environment", "e2e", "--apply"]), "automation drift apply");
+  const edited = cliJson(["automation", "view", id, "-y"]);
+  assertEqual(
+    (edited?.triggers || []).find((item) => item.kind === "schedule")?.cronExpression,
+    "0 0 2 2 *",
+    "cron drift must converge via trigger edit",
+  );
+
+  rmSync(join(deployRoot, "config/test/automations/heartbeat"), { recursive: true });
+  const pruned = mustPass(deployRun(deployRoot, ["prune", "automations", "--environment", "e2e", "--apply"]), "prune automations");
+  assertMatch(pruned.stdout, /Deleting heartbeat/, "prune must hard-delete the removed automation");
+  assertEqual(readState(deployRoot).automations?.heartbeat, undefined, "prune must deregister state");
 });
 
 
