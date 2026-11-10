@@ -58,8 +58,8 @@ cmd_add() {
   while IFS= read -r path; do
     branch_name=$(sub_branch "$path")
     if [ -n "$branch_name" ]; then
-      info "子模块 $path -> 分支 $branch_name"
-      git -C "$dir/$path" switch "$branch_name"
+      info "子模块 $path -> 特性分支 ${branch}（基于 origin/${branch_name}，WIP 不进 ${branch_name}）"
+      git -C "$dir/$path" switch --no-track -c "$branch" "origin/$branch_name"
     fi
   done < <(sub_paths)
 
@@ -72,6 +72,7 @@ cmd_add() {
 
   dir=$(cd "$dir" && pwd)
   echo "就绪清单：cd $dir && mise install; (cd vendor/xwing-deploy && npm install); ./xwing-deploy doctor"
+  echo "并回 dev（特性完成时）：cd vendor/xwing-deploy && npm test && git fetch origin dev && git merge origin/dev && git push origin HEAD:dev"
 }
 
 cmd_list() {
