@@ -5,10 +5,16 @@ crew:
 agents:
   linchong:
     id: 1bb5f895-01c8-4915-a495-4ad6c6368523
-    deployedName: "卢克 Luke (staging)"
+    deployedName: "林冲 (staging)"
   daizong:
     id: f07f9479-8c94-42f7-9127-a2f7bbee0a71
-    deployedName: "CI Tester (staging)"
+    deployedName: "戴宗 (staging)"
+  wusong:
+    id: 6c7f8068-79a2-4ac9-b5da-5fabe0b6f4bf
+    deployedName: "武松 (staging)"
+  wuyong:
+    id: f736e173-551c-4782-bd89-507c51276b97
+    deployedName: "吴用 (staging)"
 skills:
   architecture-fit-review:
     id: bff2006f-ea49-4c00-afef-423ca379b9d9
@@ -18,15 +24,24 @@ skills:
     deployedName: "Autopilot Grilling"
   daizong/acceptance:
     id: ab9cbde8-341b-40d6-89db-4524d4088a14
-    deployedName: "xwing-deploy Acceptance Suite"
+    deployedName: "x-deploy Acceptance Suite"
   linchong/handler-test:
     id: 05c47f88-fffd-41e7-9838-31a5c818dc46
-    deployedName: "xwing Task Kit"
+    deployedName: "XWing Handler Tests"
+  daizong/task-runtime:
+    id: d08d6414-8d97-4b65-a03d-b36b6595d38b
+    deployedName: "XWing Task Runtime"
+  linchong/task-runtime:
+    id: 86948813-d3f8-4b40-9ed9-b0d7a52ba0cc
+    deployedName: "XWing Task Runtime"
 workflows:
   webhook-echo:
     id: 95e04916-7cab-4867-951c-9db41e9c4766
     deployedName: "Webhook Echo (staging)"
-  xwing-deploy-release-gate:
-    id: d44c3f64-6af9-48a3-b94f-4444c7b882d0
-    deployedName: "xwing-deploy Release Gate (staging)"
+  x-deploy-release-gate:
+    id: 00a87aee-1372-4d36-9896-3f68578f18b5
+    deployedName: "x-deploy Release Gate (staging)"
+  zhongyitang:
+    id: a41398c6-8d59-43bd-9968-7a36ef586787
+    deployedName: "忠义堂 (staging)"
 automations:

@@ -1,5 +1,7 @@
 # Agent key 统一用中文名拼音，已部署实例的身份以重建而非手改 state 迁移
 
+> **部分推翻（2026-11-10，0690473）**：第 8 条否决的「手改 state 迁移键（同 UUID 换 key）」被用户决策推翻并已在 staging 执行——linchong / daizong 以原 UUID 重绑（实例身份与会话历史随改名保留，免去重建 + 归档的切换窗口）；prod 已重绑待 apply。第 13 条「旧 state 条目留存无害」同步失效：x-deploy 9b8363c 起 validate 对 agent/crew/skill 的「失绑 + 无绑定新 key」组合 fail-fast（look-renamed 门禁，改名=搬 key 保 UUID，真增删=删陈旧条目），陈旧 agent/skill 条目必须消歧后 plan 才放行；workflow/automation 仍走 prune（本 ADR 的 workflow key 改建即按此收敛：`xwing-deploy-release-gate` → `x-deploy-release-gate` 另建新实例，旧实例 `prune workflows` 归档）。
+
 `config/hifox` 集合的 agent key 与 workflow key 统一为中文名拼音（`linchong` / `wusong` / `daizong` / `wuyong` / `zhongyitang`）：key 是跨资源引用锚点（workflow `run_agent` 的 `agent:<key>`、Space Skill `assignTo`、Agent Skill 目录与 `{{skills.<key>/…}}` 模板变量、`state.yaml` 身份表），中文名与拼音的一一对应让「显示名 ⇄ key」可互相推导，后续命名方案再变也不动 key。
 
 ## Considered Options
