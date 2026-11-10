@@ -1,4 +1,5 @@
 version: 1
+cliApp: hifox
 nameSuffix: " - staging"
 crew:
   ragnarok:
@@ -26,10 +27,15 @@ agents:
   eir:
     id: 7c533fce-c2fc-4f1c-9a32-3361a296d429
     deployedName: "埃尔 Eir - staging"
-  ymir:
+  yanqing:
     id: 25f70ada-3a0a-451c-bde7-71ce12863c83
-    deployedName: "尤弥尔 Ymir - staging"
+    deployedName: "燕青 - staging"
 skills:
   architecture-fit-review:
     id: 1e0b0fdb-1189-478f-bb35-87c69402d971
     deployedName: "Architecture Fit Review - staging"
+workflows:
+  erlongshan:
+    id: 4094d2e8-5b8c-4631-825c-b2a3211dce07
+    deployedName: "二龙山 - staging"
+automations:

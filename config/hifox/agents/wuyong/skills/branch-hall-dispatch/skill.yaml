@@ -1,0 +1,6 @@
+key: branch-hall-dispatch
+name: XWing Branch Hall Dispatch
+description: "吴用跨 Space 调度分舵的允许面与操作契约：舵登记表、同层级实例挑选、二龙山触发 / 进度查询 / 任务委派命令模板与禁区。"
+contentFile: SKILL.md
+config: {}
+namingPattern: "{{name}}"

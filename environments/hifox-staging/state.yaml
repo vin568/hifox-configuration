@@ -34,6 +34,9 @@ skills:
   linchong/task-runtime:
     id: 86948813-d3f8-4b40-9ed9-b0d7a52ba0cc
     deployedName: "XWing Task Runtime"
+  wuyong/branch-hall-dispatch:
+    id: 01265780-8bff-4499-a140-a8069638b3ad
+    deployedName: "XWing Branch Hall Dispatch"
 workflows:
   webhook-echo:
     id: 95e04916-7cab-4867-951c-9db41e9c4766

@@ -26,6 +26,6 @@ agents:
   eir:
     id: 3e16560f-c5b6-402c-bd27-af8f6ec2ff1d
     deployedName: "埃尔 Eir"
-  ymir:
+  yanqing:
     id: 479d76d0-8a82-4c78-958e-3f6665837b75
-    deployedName: "尤弥尔 Ymir"
+    deployedName: "燕青"

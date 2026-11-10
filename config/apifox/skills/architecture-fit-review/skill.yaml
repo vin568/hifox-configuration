@@ -6,4 +6,4 @@ config: {}
 namingPattern: "{{name}}{{suffix}}"
 assignTo:
   - maintainer-reviewer
-  - ymir
+  - yanqing

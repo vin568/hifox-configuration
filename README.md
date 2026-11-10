@@ -29,7 +29,7 @@
 
 ## 统筹调度
 
-用户统一入口是 `agents/wuyong`（吴用）：飞书私聊或群 @ 进入平台原生持久多轮会话，判定主题后调度——专家主题（xwing 产品 → linchong、x-deploy → wusong）经手动触发的 `workflows/zhongyitang`（忠义堂）单图路由执行，`run_agent` 不挂任务、结果由吴用查询执行进度后转述；杂活自理；完整交付经用户显式要求或确认后建任务委派。key 命名与身份重建决策见 [`docs/adr/0002`](docs/adr/0002-steward-feishu-dispatch.md) / [`0003`](docs/adr/0003-agent-key-pinyin-identity-rebuild.md)，术语见 [`GLOSSARY.md`](GLOSSARY.md)。
+用户统一入口是 `agents/wuyong`（吴用）：飞书私聊或群 @ 进入平台原生持久多轮会话，判定主题后调度——专家主题经手动触发的调度中枢单图路由执行：xwing 产品 → `workflows/zhongyitang`（忠义堂，HiFox 产研）派林冲，x-deploy → 忠义堂派武松，apifox 产品 → Apifox 产研 Space 的分舵 `workflows/erlongshan`（二龙山）派燕青（吴用经 `hifox workflow run --space` 跨 Space 触发，操作面收窄在 `branch-hall-dispatch` skill）；`run_agent` 不挂任务、结果由吴用查询执行进度后转述；杂活自理；完整交付经用户显式要求或确认后建任务委派。key 命名与身份重建决策见 [`docs/adr/0002`](docs/adr/0002-steward-feishu-dispatch.md) / [`0003`](docs/adr/0003-agent-key-pinyin-identity-rebuild.md)，跨 Space 分舵决策见 [`0004`](docs/adr/0004-cross-space-branch-hall.md)，术语见 [`GLOSSARY.md`](GLOSSARY.md)。
 
 ## 子模块（x-deploy）
 
