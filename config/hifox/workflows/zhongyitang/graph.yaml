@@ -1,0 +1,46 @@
+# 忠义堂：吴用（wuyong）的专家调度中枢（编写型，ADR 0002）。
+# 手动触发：hifox workflow run <id> --space <space> --async --input '{"topic":"xwing|x-deploy","message":"…","context":"…"}'
+# 按主题分支派给专家 agent；run_agent 不带 task id → 不产生任务卡；
+# 分支末块的最终输出即执行结果，由吴用查询执行状态后转述给用户。
+# 全部专家能力聚于此图：加主题 = 加分支 + 吴用路由表加行（主题闭集三处同步，见 ADR 0002）。
+blocks:
+  - id: b-start
+    name: Start
+    type: start_trigger
+    trigger: true
+  - id: b-route
+    name: Route
+    condition:
+      # start.input 的运行时形态（字符串/对象）未钉死，typeof 三元式双态兼容（ADR 0002）
+      - id: xwing
+        title: xwing
+        when: "(typeof <start.input> === 'string' ? JSON.parse(<start.input>) : <start.input>).topic === 'xwing'"
+      - id: x-deploy
+        title: x-deploy
+        when: "(typeof <start.input> === 'string' ? JSON.parse(<start.input>) : <start.input>).topic === 'x-deploy'"
+      - id: else
+        title: else
+  - id: b-linchong
+    name: LinChong
+    agent: linchong
+    work: |-
+      吴用（统筹调度）转来的 xwing（hifox / sharkly）主题请求，输入载荷（JSON，字段 topic / message / context）：<start.input>
+      本条消息只做排查、分析、定位或答复：读代码、查事实、给结论与建议；不进入完整交付流程——不改代码、不建分支、不提交。需要完整开发时，在结论中明确「建议建任务」并给出验收要点，由吴用与用户确认后委派。
+      最终消息 = 给用户的答复正文（纯文本，吴用会转述），不要输出 JSON。
+  - id: b-wusong
+    name: WuSong
+    agent: wusong
+    work: |-
+      吴用（统筹调度）转来的 xwing-deploy（部署 CLI / 声明式配置仓库）主题请求，输入载荷（JSON，字段 topic / message / context）：<start.input>
+      本条消息只做排查、分析、定位或答复：读仓库、查契约与测试事实、给结论与建议；不进入完整交付流程——不改代码、不提交、不推送。需要完整开发时，在结论中明确「建议建任务」并给出验收要点，由吴用与用户确认后委派。
+      最终消息 = 给用户的答复正文（纯文本，吴用会转述），不要输出 JSON。
+  - id: b-reject
+    name: Reject
+    shell: reject.sh
+    timeout: 60000
+
+edges:
+  - { from: b-start, to: b-route }
+  - { from: b-route, to: b-linchong, branch: xwing }
+  - { from: b-route, to: b-wusong, branch: x-deploy }
+  - { from: b-route, to: b-reject, branch: else }

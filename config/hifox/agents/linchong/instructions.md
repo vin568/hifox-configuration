@@ -65,7 +65,7 @@
 
 - 创建任务 worktree 与功能分支、在功能分支上提交、push 功能分支。
 - `pnpm workspace:init` 等仓库规定的工作区初始化（按现有 lockfile 安装依赖）。
-- 启动和停止本任务的 task-local 运行时（`make agent-task-*`），包括其对 task-local 数据库自动执行的 migration，以及默认随 `agent-task-start-web` 提供的 task-local CLI daemon（把本机注册为 computer，见 13.5）；用 `{{skills.luke/handler-test.name}}` 的 `handler-test.sh` 创建、迁移并删除一次性 handler 测试库（见 9.4）。
+- 启动和停止本任务的 task-local 运行时（`make agent-task-*`），包括其对 task-local 数据库自动执行的 migration，以及默认随 `agent-task-start-web` 提供的 task-local CLI daemon（把本机注册为 computer，见 13.5）；用 `{{skills.linchong/handler-test.name}}` 的 `handler-test.sh` 创建、迁移并删除一次性 handler 测试库（见 9.4）。
 - 在已通过【执行】的方案范围内删除文件（简单任务按 8.1 不涉及删除文件）。
 - 在当前 HiFox 任务中读取信息、发表评论、上传验收证据，按“任务存档”（第 4 节）写入存档字段；任务状态变更属于【提测】。
 
@@ -151,7 +151,7 @@ Agent 段落规则：
 4. **改动类型**（对应 workflow.md）：docs-only、frontend UI、shared frontend logic、backend/runtime、database migration、desktop、iOS、Rust CLI、product/release、CI/infra、multi-surface。
 5. **产品面**：xwing 是多产品仓库（Sharkly、HiFox；渠道 production / staging / develop，develop 仅 HiFox）。判断改动是否影响非默认产品行为、`products/*.json` 或发布契约。
 6. **风险等级**：只读分析、纯文档、单面小改、跨面改动、DB migration、认证 / 权限 / 组织隔离、Desktop 版本耦合、发布 / CI。
-7. **环境预检**（任务模式）：用 `{{skills.luke/task-runtime.name}}` 的 `preflight.sh` 按改动面检查本机工具，不自行安装。必需工具缺失时，非简单任务写进【执行】报告的阻塞项，简单任务直接停下询问；可选工具缺失时按脚本提示降级，并在汇报中写明。
+7. **环境预检**（任务模式）：用 `{{skills.linchong/task-runtime.name}}` 的 `preflight.sh` 按改动面检查本机工具，不自行安装。必需工具缺失时，非简单任务写进【执行】报告的阻塞项，简单任务直接停下询问；可选工具缺失时按脚本提示降级，并在汇报中写明。
 8. **内部任务卡**：
 
 ```markdown
@@ -328,7 +328,7 @@ User action in shared view
 - **共享原语**：事务用 `dbtx.WithinTx`，副作用（realtime、事件、缓存失效、外部调用）放 `tx.AfterCommit`；事务内可选查询用 `tx.WithinSavepoint`；Redis 热路径用 `redisx.CloneClientWithHotBudget` / `redisx.WithTimeout`，多 key 操作共享 `{hashTag}` 槽或用 `redisx.CacheInvalidateMany`；缓存用 `redisx.NewBoundedTTLCache`，不加无界 map；新服务只在 `service.NewContainer` 中装配一次。
 - handler 输出 camelCase DTO，强制认证与组织范围。
 - 守护：`cd server && go test ./internal/archcheck`（R1–R12，`architecture-baseline.json` 只减不增）。
-- handler 包测试的 `TestMain` 会写 schema 与 fixture（固定身份，每次先清理），要求显式 `DATABASE_URL` 指向跑完 migration 的专用库。多个任务共用一个库会互相删数据，也不能用 `.env`、`.env.worktree` 或 task-local 运行时库。统一用 `{{skills.luke/handler-test.name}}` 的 `handler-test.sh`：每次运行建一次性库、migrate、跑测试、结束时自动删除；需要先执行 `make agent-task-prepare`。不要手动建库，也不要在交接时留下测试库。
+- handler 包测试的 `TestMain` 会写 schema 与 fixture（固定身份，每次先清理），要求显式 `DATABASE_URL` 指向跑完 migration 的专用库。多个任务共用一个库会互相删数据，也不能用 `.env`、`.env.worktree` 或 task-local 运行时库。统一用 `{{skills.linchong/handler-test.name}}` 的 `handler-test.sh`：每次运行建一次性库、migrate、跑测试、结束时自动删除；需要先执行 `make agent-task-prepare`。不要手动建库，也不要在交接时留下测试库。
 - 整包 Go 测试受产品 ldflags 约束：按产品运行或只跑改动面（`LDFLAGS="$(node scripts/product-build.js --go-product-ldflags <product> production)"`），skip 不等于通过；红色先在基线版本复现再归因，不通过放宽断言“修复”。
 
 ### 9.5 前端：`packages/*` 与 `apps/desktop`

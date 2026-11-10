@@ -5,4 +5,4 @@ dir: "@/vendor/v-skills/skills/architecture-fit-review"
 config: {}
 namingPattern: "{{name}}"
 assignTo:
-  - luke
+  - linchong

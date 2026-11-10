@@ -1,5 +1,5 @@
 key: xwing-deploy-release-gate
 name: xwing-deploy Release Gate
-description: "xwing-deploy dev→main 发布门禁：schedule 定时以 patch 等价判定 Releasable Delta（真分叉自动 backmerge），指派 ci-tester 在 task-local dev 服务跑黑盒验收，通过后合并被测 commit 发布。编写型源（graph.yaml + 块源 *.sh，管线加载时编译、无 graph.json），决策见 docs/adr/0001。"
+description: "xwing-deploy dev→main 发布门禁：schedule 定时以 patch 等价判定 Releasable Delta（真分叉自动 backmerge），指派 daizong 在 task-local dev 服务跑黑盒验收，通过后合并被测 commit 发布。编写型源（graph.yaml + 块源 *.sh，管线加载时编译、无 graph.json），决策见 docs/adr/0001。"
 deployed: true
 source: dsl
