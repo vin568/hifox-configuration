@@ -11,8 +11,8 @@ cli:
 nameSuffix: " - example"
 namingPattern: "{{name}}{{suffix}}"
 visibility:
-  crew: space
-  agents: space
+  crew: personal
+  agents: personal
 target:
   computer: replace-with-computer-id
   runtime: replace-with-runtime-id

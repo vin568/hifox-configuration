@@ -6,3 +6,6 @@ cli:
 ignoreAgentModels: true
 nameSuffix: ""
 namingPattern: "{{name}}{{suffix}}"
+visibility:
+  crew: personal
+  agents: personal
