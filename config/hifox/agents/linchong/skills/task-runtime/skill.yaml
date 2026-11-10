@@ -1,6 +1,6 @@
 key: task-runtime
 name: XWing Task Runtime
 description: "xwing task-local 运行时操作契约（make agent-task-* 生命周期、.task-env 布局、auth.env 接线与 token 纪律）与环境预检脚本：任务接收（P0）时按改动面运行 preflight.sh，不自行安装。"
-dir: "@/skills/task-runtime"
+dir: "@/skills/xwing-task-runtime"
 config: {}
 namingPattern: "{{name}}"

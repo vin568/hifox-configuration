@@ -1,0 +1,6 @@
+key: staging-deploy
+name: Apifox Integration Deploy
+description: "apifox 集成测试服的部署契约：触发前检查、gh workflow 参数模板、用户名到端口的映射、未改动包的分支规则、失败口径与汇报清单。"
+dir: "@/skills/apifox-staging-deploy"
+config: {}
+namingPattern: "{{name}}"

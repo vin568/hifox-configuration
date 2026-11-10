@@ -465,57 +465,16 @@ Lint 与测试：
 
 ### 11.3 触发 staging 部署
 
-在当前包含 `.github/workflows/apifox-integration.yaml` 的 Git 仓库中执行：
+部署操作面以 `{{skills.yanqing/staging-deploy.name}}` skill 为准：触发前检查、`gh workflow run` 参数模板、用户名到端口的映射、未改动包的分支规则、失败口径与汇报清单都在那里——按它执行，不要凭记忆重写命令或端口表。
 
-```bash
-gh auth status
-gh repo view
-```
+本 Agent 的包面（该 skill 模板里 `PACKAGES` 的取值）：
 
-通过用户名和端口映射确定 `SERVER_PORT`：
+- `explorer-v2`：文档站分支（`main` 或本次任务分支）
+- `tars-server`：服务端分支（无改动时 `master`）
+- `tarslib-web`：前端分支
+- `ws-entry`：无分支参数
 
-| 用户名 | 端口号 |
-|---|---|
-| vin | 5672 |
-| johann | 5674 |
-| vano | 5679 |
-
-用户名不在表中时，停止并报告阻塞，不要猜测端口。
-
-触发命令模板：
-
-```bash
-gh workflow run .github/workflows/apifox-integration.yaml \
-  -f IMAGE_VERSION=ci-test \
-  -f IMAGE_IDENTIFIER=<username> \
-  -f 'PACKAGES=explorer-v2:<docs-site-branch|main> tars-server:<server-branch|master> tarslib-web:<frontend-branch> ws-entry' \
-  -f SERVER_HOST=192.168.10.208 \
-  -f SERVER_PORT=<port> \
-  -f SERVER_PROTOCOL=http \
-  -f MYSQL_DATABASE=apifox_<username> \
-  -f APP_REGION_LOWER=cn \
-  -f PDV=0 \
-  -f BUILD_ALL=0 \
-  -f GIT_BUILD_REF=feature/explorer-v2
-```
-
-要求：
-
-- `LARK_WEBHOOK_URL` 使用 workflow 默认值，不要在命令或回复中输出 Webhook 地址。
-- 触发后获取新创建的 workflow run，输出运行 URL。
-- 持续查看运行状态，直到构建完成。
-- 构建失败时查看失败步骤日志并总结原因，不要擅自重新触发。
-- 没有某一端改动时，在 `PACKAGES` 中明确使用默认分支，并在汇报中说明。
-- staging 部署属于任务模式已授权流程；生产部署必须单独获得明确授权。
-
-### 11.4 部署输出
-
-汇报中必须包含：
-
-- 测试服务器地址。
-- 前端分支、后端分支、文档站分支。
-- workflow run URL 和最终状态。
-- 实际部署的包列表。
+没有改动的一端按 skill 规则取默认分支，并在汇报中说明复用来源。staging 部署属于任务模式已授权流程；生产部署必须单独获得明确授权。
 
 **G7**：workflow 成功，测试地址可用，部署范围与改动一致。
 
@@ -527,53 +486,14 @@ gh workflow run .github/workflows/apifox-integration.yaml \
 - 已确认本次需求目标、变更范围、预期行为和必要测试数据。
 - 入口固定为 `<测试服务器地址>/main`，拼接时避免重复斜杠。
 
-### 12.2 浏览器操作
+### 12.2 取证与结论
 
-- 使用 `agent-browser` skill；运行任何命令前先执行 `agent-browser skills get core`。
-- 探索性验收或缺陷排查时，再执行 `agent-browser skills get dogfood`。
-- 覆盖与需求直接相关的正常流程、关键交互、结果状态和必要的异常路径。
-- 不执行与需求无关的破坏性操作，不修改生产数据，不访问生产环境。
-- 需要登录时使用固定测试账号：`vin@apfiox.com` / `a12345678`。优先登录；确认账号不存在且页面支持自助注册时才注册。不要在回复、截图文件名或日志中扩散密码。
+浏览器操作、登录账号、截图与录屏规范、附件提交、验收结论与缺陷回流，一律按 `{{skills.yanqing/web-acceptance.name}}` skill 执行，不在本文件复述。
 
-### 12.3 截图证据
+本 Agent 的验收增量（skill 之外）：
 
-- 每个关键结论保留截图：初始状态、关键操作后的结果、缺陷错误状态。
-- 截图前先确定主要观察对象，通过滚动、展开面板、关闭无关浮层和适度缩放，让对象完整进入可视范围。
-- 优先全页截图，同时保证关键区域可读；必要时补一张包含上下文的视口截图。
-- 截图保存后必须实际打开检查：主体没有被裁切、遮挡、折叠或移出视口，文字和状态清晰可读。
-- 使用含义明确的英文文件名，如 `main-loaded.png`、`request-created.png`、`validation-error.png`。
-- 截图和视频必须作为附件提交到当前任务；没有附件接口时，通过任务评论逐项提交并注明步骤。
-- 截图中出现令牌、隐私或敏感信息时，交付前遮挡或重新截取。
-
-### 12.4 交互视频
-
-- 关键流程必须录制完整交互视频，展示从进入页面、执行操作到结果出现的连续过程。
-- 使用 `agent-browser record start <file>.webm` 开始，`agent-browser record stop` 结束。
-- 每次录制只覆盖一个场景，使用英文文件名，如 `create-request-flow.webm`。
-- 开始前规划观察区域和滚动路径，确保操作控件与结果区域可见。
-- 视频开始时展示测试服务器地址或页面 URL；操作节奏正常，点击、输入、加载和结果反馈可辨认。
-- 结果出现在其他区域时，平稳滚动并停留足够时间，不要在提示或结果尚未完整显示时结束。
-- 保存后回看关键片段，确认操作对象、过程和结果清晰可辨；发现裁切、遮挡、跳帧或关键结果不可见时重新录制。
-- 视频必须作为附件提交到当前任务；没有附件接口时通过任务评论提交并注明场景。
-- 录制前关闭无关窗口、通知和敏感页面；不得暴露密码、令牌或隐私。
-
-### 12.5 验收结论
-
-- 逐场景给出通过或失败结论。
-- 失败时提供复现步骤、实际结果、预期结果和影响范围。
-- 记录未覆盖项、阻塞项和残余风险。
 - 服务端专属改动也要部署，并通过 Web 触发对应 API 或直接调用测试服 API 验证；保留请求、响应和状态证据。
-- 存在影响核心需求的缺陷时，结论必须为不通过。
-
-### 12.6 缺陷回流
-
-1. 切回 P4 实现阶段修复。
-2. 执行 P5 自验。
-3. 执行 P6 自审。
-4. 重新部署 staging。
-5. 重新执行相关验收场景。
-
-不得仅根据修复说明、代码审查结论或“已重新构建”直接通过验收。
+- 存在影响核心需求的缺陷时，结论必须为不通过，并回流到 P4。
 
 **G8**：所有验收场景通过；截图和视频已提交；没有未解决的必须修复缺陷。
 
