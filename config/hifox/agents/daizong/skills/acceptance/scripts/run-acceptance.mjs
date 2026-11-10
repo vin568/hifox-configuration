@@ -196,7 +196,8 @@ function buildMainRoot() {
       "name: Heartbeat",
       "assignee: agent:alpha",
       "priority: low",
-      "deployed: true",
+      // deployed intentionally omitted: the default (true) is the contract
+      // under test (scenario automation-lifecycle asserts status "active").
       "triggers:",
       "  - kind: schedule",
       '    cron: "0 0 1 1 *"',
@@ -268,6 +269,38 @@ function buildWorkflowRoot(suffix) {
       "",
     ].join("\n"),
     ".xwing/config/test/workflows/demo/graph.json": `${JSON.stringify(graph, null, 2)}\n`,
+    ".xwing/config/test/agents/alpha/agent.yaml": [
+      "key: alpha",
+      "name: Alpha",
+      "jobTitle: Probe",
+      "instructionsFile: instructions.md",
+      "",
+    ].join("\n"),
+    ".xwing/config/test/agents/alpha/instructions.md": "Workflow fixture agent for executor resolution.\n",
+    ".xwing/config/test/workflows/demo-dsl/workflow.yaml": [
+      "key: demo-dsl",
+      'name: "Demo DSL Flow"',
+      'description: ""',
+      "deployed: true",
+      "source: dsl",
+      "",
+    ].join("\n"),
+    ".xwing/config/test/workflows/demo-dsl/graph.yaml": [
+      "# Authored form (编写型): graph.yaml compiles at load time. The run_agent",
+      "# block pins the executor config-key resolution contract.",
+      "blocks:",
+      "  - id: b-start",
+      "    name: Start",
+      "    type: start_trigger",
+      "    trigger: true",
+      "  - id: b-worker",
+      "    name: Worker",
+      "    agent: alpha",
+      "    work: Executor resolution probe.",
+      "edges:",
+      "  - { from: b-start, to: b-worker }",
+      "",
+    ].join("\n"),
   };
   for (const [path, content] of Object.entries(files)) {
     const target = join(root, path);
@@ -291,11 +324,12 @@ function cleanupRemote(state) {
   for (const skill of Object.values(state.skills || {})) {
     if (skill.id && cliRun(["skill", "delete", skill.id, "-y"], { ok: false }).status !== 0) problems.push(`skill ${skill.id}`);
   }
-  const workflow = state.workflows?.demo?.id;
-  if (workflow) {
-    cliRun(["workflow", "unlock", workflow, "--space", SPACE_ID, "--yes"], { ok: false });
-    if (cliRun(["workflow", "delete", workflow, "--space", SPACE_ID, "--yes"], { ok: false }).status !== 0) {
-      problems.push(`workflow ${workflow}`);
+  for (const workflow of Object.values(state.workflows || {})) {
+    if (workflow.id) {
+      cliRun(["workflow", "unlock", workflow.id, "--space", SPACE_ID, "--yes"], { ok: false });
+      if (cliRun(["workflow", "delete", workflow.id, "--space", SPACE_ID, "--yes"], { ok: false }).status !== 0) {
+        problems.push(`workflow ${workflow.id}`);
+      }
     }
   }
   for (const automation of Object.values(state.automations || {})) {
@@ -364,7 +398,10 @@ function assertEqual(actual, expected, message) {
   assert(Object.is(actual, expected), `${message} (got ${JSON.stringify(actual)}, want ${JSON.stringify(expected)})`);
 }
 function assertMatch(text, pattern, message) {
-  assert(pattern.test(text), `${message} (output did not match ${pattern})`);
+  assert(
+    pattern.test(text),
+    `${message} (output did not match ${pattern}; got: ${JSON.stringify(String(text).slice(0, 400))})`,
+  );
 }
 function mustPass(result, label) {
   assertEqual(result.status, 0, `${label} exited ${result.status}: ${(result.stderr || result.stdout || "").trim().slice(0, 2000)}`);
@@ -376,8 +413,37 @@ let workflowFixture;
 let keepMainState;
 let keepWorkflowState;
 
-scenario("validate: fixture root passes offline validation", () => {
+scenario("validate: fixture root passes offline validation, bad config is rejected", () => {
   mustPass(deployRun(main.deployRoot, ["validate", "--environment", "e2e"]), "validate");
+  // Negative: an unknown template variable must fail validation — guards the
+  // validator against being hollowed out (every check deleted still passes).
+  const badRoot = mkdtempSync(join(tmpdir(), "xwd-acc-bad-"));
+  const badFiles = {
+    ".xwing/environments/e2e/environment.yaml": [
+      `organizationId: ${ORG_ID}`,
+      `spaceId: ${SPACE_ID}`,
+      "configRoot: config/test",
+      "cli:",
+      "  app: hifox",
+      'nameSuffix: " - bad"',
+      `namingPattern: ${JSON.stringify(NAMING_PATTERN)}`,
+      "",
+    ].join("\n"),
+    ".xwing/config/test/agents/bad/agent.yaml": [
+      "key: bad",
+      "name: Bad",
+      "instructionsFile: instructions.md",
+      "",
+    ].join("\n"),
+    ".xwing/config/test/agents/bad/instructions.md": `Unresolved ${mustache("agents.missing.name")}.\n`,
+  };
+  for (const [path, content] of Object.entries(badFiles)) {
+    const target = join(badRoot, path);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, content);
+  }
+  const bad = deployRun(join(badRoot, ".xwing"), ["validate", "--environment", "e2e"]);
+  assert(bad.status !== 0, "validate must reject unknown template variables");
 });
 
 let state;
@@ -422,6 +488,7 @@ scenario("create: full provisioning lands and state registers ids", () => {
   assert(skill.content.includes(`${LB}${LB}raw.template${RB}${RB}`), "escaped literal braces in SKILL.md not preserved");
 
   const relay = cliJson(["skill", "view", relaySkillId]);
+  assertEqual(relay?.name, `Relay${main.suffix}`, "agent skill deployed name mismatch");
   assertEqual(relay.scope, "agent", "colocated skill must be agent-scoped");
   assertEqual(relay.agentId, alphaId, "colocated skill must belong to Alpha");
   assertEqual(relay.spaceId, null, "agent skill must not live in a Space");
@@ -431,15 +498,26 @@ scenario("create: full provisioning lands and state registers ids", () => {
 
   const agentSkills = cliJson(["agent", "skill", "list", alphaId]) || [];
   assert(agentSkills.some((item) => item.id === skillId), "skill not attached to Alpha");
-
   const crew = cliJson(["crew", "view", crewId]);
   assertEqual(crew.name, `Team e2e${main.suffix}`, "crew name mismatch");
+  assert(crew?.instructions?.includes(`Team e2e${main.suffix}`), "crew instructions not rendered");
+  assert(crew?.instructions?.includes(`Alpha${main.suffix}`), "crew leader name not rendered into crew instructions");
   const members = cliJson(["crew", "member", "list", crewId]) || [];
   assert(members.some((m) => m.member.id === betaId && m.role === "Reviewer"), "reviewer role not applied");
 });
 
-scenario("doctor: self-check passes", () => {
+scenario("doctor: self-check passes, broken environment fails", () => {
   mustPass(deployRun(main.deployRoot, ["doctor", "--environment", "e2e"]), "doctor");
+  // Negative: an unknown cli.app must fail the doctor check, not pass silently.
+  const badApp = mkdtempSync(join(tmpdir(), "xwd-acc-doctor-"));
+  const envPath = join(badApp, ".xwing/environments/e2e/environment.yaml");
+  mkdirSync(dirname(envPath), { recursive: true });
+  writeFileSync(
+    envPath,
+    [`organizationId: ${ORG_ID}`, `spaceId: ${SPACE_ID}`, "configRoot: config/test", "cli:", "  app: nosuchapp", ""].join("\n"),
+  );
+  const bad = deployRun(join(badApp, ".xwing"), ["doctor", "--environment", "e2e"]);
+  assert(bad.status !== 0, "doctor must fail on an unknown cli.app");
 });
 
 scenario("plan: previews without writing state", () => {
@@ -453,7 +531,15 @@ scenario("plan: previews without writing state", () => {
   ].join("\n"));
   writeFileSync(join(main.root, ".xwing/config/test/agents/gamma/instructions.md"), `Gamma runs in ${mustache("environment")}.\n`);
   const planned = mustPass(deployRun(main.deployRoot, ["plan", "--environment", "e2e"]), "plan");
-  assertMatch(planned.stdout, new RegExp(`agent create .*--name "Gamma${main.suffix.replace(/[-\s]/g, "\\$&")}"`), "plan must preview the gamma provision");
+  // ADR 0021 change-set view: pending creates render as
+  // `+ agent <key> "<name>" (id known after apply)` plus a summary line.
+  const suffixEsc = main.suffix.replace(/[-\s]/g, "\\$&");
+  assertMatch(
+    planned.stdout,
+    new RegExp(`\\+ agent gamma "Gamma${suffixEsc}" \\(id known after apply\\)`),
+    "plan must preview the gamma provision in the change-set view",
+  );
+  assertMatch(planned.stdout, /Plan: [0-9]+ to create/, "plan summary must count pending creates");
   assertEqual(readState(main.deployRoot).agents.gamma, undefined, "plan must not write state.yaml");
 });
 
@@ -464,6 +550,12 @@ scenario("apply-drift: additions, role change, file prune and repo shrink conver
   const alphaYaml = join(main.root, ".xwing/config/test/agents/alpha/agent.yaml");
   writeFileSync(alphaYaml, readFileSync(alphaYaml, "utf8").replace("  - https://example.com/auxiliary.git\n", ""));
   mustPass(deployRun(main.deployRoot, ["apply", "--environment", "e2e", "--apply"]), "apply --apply (drift)");
+  // Same-apply 首发契约: the first full apply must provision the automation
+  // alongside the agents (apply reconcile order: agents before automations).
+  assert(
+    readState(main.deployRoot).automations?.heartbeat?.id,
+    "the first full apply must provision the automation in the same run",
+  );
 
   const skillFiles = (cliJson(["skill", "files", "list", skillId]) || []).map((item) => item.path).sort();
   assertEqual(JSON.stringify(skillFiles), JSON.stringify(["references/guide.md"]), "stale skill file not deleted during apply");
@@ -471,6 +563,9 @@ scenario("apply-drift: additions, role change, file prune and repo shrink conver
   assertEqual(JSON.stringify(repoUrls), JSON.stringify(["https://cnb.cool/tars-lab/xwing"]), "apply must replace the repository list, not append");
   const gammaId = readState(main.deployRoot).agents.gamma?.id;
   assert(gammaId, "gamma was not registered by apply");
+  const gamma = cliJson(["agent", "view", gammaId]);
+  assertEqual(gamma?.name, `Gamma${main.suffix}`, "gamma provisioned name mismatch");
+  assert(gamma?.instructions?.includes("Gamma runs in e2e"), "gamma instructions not rendered");
   const members = cliJson(["crew", "member", "list", crewId]) || [];
   assert(members.some((m) => m.member.id === alphaId) && members.some((m) => m.member.id === betaId), "crew missing members after drift");
 
@@ -485,17 +580,31 @@ scenario("apply-drift: additions, role change, file prune and repo shrink conver
   assertEqual(role(), "Reviewer-plus", "an emptied role must not be sent as an empty --role");
 });
 
-scenario("apply-idempotent: second apply keeps ids and reports in sync", () => {
+scenario("apply-idempotent: second apply keeps ids and skips in-sync pushes", () => {
   const reapplied = mustPass(deployRun(main.deployRoot, ["apply", "--environment", "e2e", "--apply"]), "re-apply");
   assertEqual(readState(main.deployRoot).crew.team.id, crewId, "crew id changed on re-apply");
   assertEqual(readState(main.deployRoot).agents.alpha.id, alphaId, "agent id changed on re-apply");
   assertEqual(readState(main.deployRoot).skills.echo.id, skillId, "skill id changed on re-apply");
   const agentSkills = cliJson(["agent", "skill", "list", alphaId]) || [];
   assert(agentSkills.some((item) => item.id === skillId), "skill attachment lost after re-apply");
+  // Drift gating (ADR 0021): in-sync resources are skipped, not re-pushed.
+  // Mutation commands echo as `$ hifox …` on stdout. `crew edit` is exempt by
+  // design (partial read surface, re-pushed each apply); member verbs are
+  // gated and therefore listed.
+  const repush = /\b(agent|skill) (edit|create|delete|upsert)\b|agent repo set\b|agent skill set\b|skill files (upsert|delete)\b|automation (edit|trigger (create|edit|delete))\b|crew member (add|role|remove)\b/;
+  assert(!repush.test(reapplied.stdout), "re-apply must not re-push in-sync resources (mutation echo detected)");
+  const alphaNow = cliJson(["agent", "view", alphaId]);
+  assertEqual(alphaNow?.name, `Alpha${main.suffix}`, "re-apply must not alter the rendered agent name");
 });
 
 scenario("pull: snapshots land on disk", () => {
+  // Stale-entry negative (README 快照与备份): pull clears snapshots/<env>/
+  // before writing, so remote-deleted resources cannot linger in snapshots.
+  const ghostDir = join(main.deployRoot, "snapshots/e2e/agents");
+  mkdirSync(ghostDir, { recursive: true });
+  writeFileSync(join(ghostDir, "ghost.json"), "{}\n");
   mustPass(deployRun(main.deployRoot, ["pull", "--environment", "e2e"]), "pull");
+  assert(!existsSync(join(ghostDir, "ghost.json")), "pull must clear stale snapshot entries first");
   // Layout contract (README 快照与备份): agents/<key>.json, skills/<key>.json
   // (Agent Skill keys nest), crews/<key>/{crew,members}.json, plus root-level
   // crew.json/members.json for the single-crew case.
@@ -544,6 +653,7 @@ scenario("workflow-lifecycle: apply converges, re-applies in sync, drift-edits w
   mustPass(deployRun(deployRoot, ["validate", "--environment", "e2e"]), "workflow validate");
   const applied = mustPass(deployRun(deployRoot, ["apply", "--apply", "--environment", "e2e"]), "workflow apply");
   assertMatch(applied.stdout, /workflow demo: in sync/, "one-shot import must land the full graph");
+  assertMatch(applied.stdout, /workflow demo-dsl: in sync/, "authored (graph.yaml) workflow must land in the same one-shot import");
 
   const id = readState(deployRoot).workflows?.demo?.id;
   assert(id, "state.yaml must register the created workflow");
@@ -553,9 +663,33 @@ scenario("workflow-lifecycle: apply converges, re-applies in sync, drift-edits w
   assertEqual(row.isDeployed, true, "deployed: true must reach the engine");
   assertEqual(row.locked, true, "lockUiEdits default must lock the workflow");
 
+  // Authored form (graph.yaml + agent: sugar) exercises the run_agent executor
+  // config-key resolution: the pushed graph must carry the resolved state UUID.
+  const dslId = readState(deployRoot).workflows?.["demo-dsl"]?.id;
+  assert(dslId, "state.yaml must register the authored workflow");
+  const alphaRef = readState(deployRoot).agents?.alpha?.id;
+  assert(alphaRef, "the workflow fixture agent must land in the same apply");
+  const exported = cliJson(["workflow", "export", dslId, "--space", SPACE_ID]);
+  const executorBlock = Object.values(exported?.blocks ?? exported?.graph?.blocks ?? {}).find(
+    (block) => block?.type === "run_agent",
+  );
+  assert(executorBlock, "exported graph must contain the run_agent block");
+  // The pushed graph stores the resolved executor as `agent:<uuid>`
+  // (workflows.mjs resolveExecutor; vendor workflow e2e pins the same shape).
+  // Accepting the bare uuid too would mask the unresolved `agent:alpha` key
+  // mutation less well than exact match: keep it exact.
+  assertEqual(
+    executorBlock?.subBlocks?.executor?.value ?? executorBlock?.subBlocks?.executor,
+    `agent:${alphaRef}`,
+    "run_agent executor agent:<key> must resolve to agent:<uuid> in the pushed graph",
+  );
+
   const reapply = mustPass(deployRun(deployRoot, ["apply", "--apply", "--environment", "e2e"]), "workflow re-apply");
   assertMatch(reapply.stdout, /workflow demo: in sync/, "re-apply must converge in sync");
-  assert(!/SavedGraph differs/.test(reapply.stdout), "engine round-trip must not look like drift");
+  // Change-set marks are documented (+ create / ~ update / = in sync): no demo
+  // drift may appear. Symbol-anchored, not prose-anchored, so a wording change
+  // cannot silently disable this check.
+  assert(!/^[+~] workflow demo/m.test(reapply.stdout), "re-apply must not report demo drift");
 
   writeFileSync(
     join(deployRoot, "config/test/workflows/demo/workflow.yaml"),
@@ -570,8 +704,18 @@ scenario("workflow-lifecycle: apply converges, re-applies in sync, drift-edits w
 
   rmSync(join(deployRoot, "config/test/workflows/demo"), { recursive: true });
   const pruned = mustPass(deployRun(deployRoot, ["prune", "workflows", "--apply", "--environment", "e2e"]), "prune workflows");
-  assertMatch(pruned.stdout, /Archiving demo/, "prune must archive the removed workflow");
+  assertMatch(pruned.stdout, /demo/, "prune must report the removed workflow");
   assertEqual(readState(deployRoot).workflows?.demo, undefined, "prune must deregister state");
+  // Archive contract (README prune): archived, not deleted or orphaned — the
+  // instance must leave the active list and surface under --status archived.
+  const rowsOf = (payload) => (Array.isArray(payload) ? payload : payload?.rows ?? payload?.data ?? payload?.items ?? []);
+  const activeRows = rowsOf(cliJson(["workflow", "list", "--space", SPACE_ID]));
+  assert(!activeRows.some((row) => row.id === id), "archived workflow must leave the active list");
+  const archivedRows = rowsOf(cliJson(["workflow", "list", "--space", SPACE_ID, "--status", "archived"]));
+  assert(
+    archivedRows.some((row) => row.id === id),
+    "prune workflows must archive (instance must exist under --status archived), not delete or orphan",
+  );
 });
 
 scenario("automation-lifecycle: created by apply, re-applies in sync, drift-edits, prune hard-deletes", () => {
@@ -590,21 +734,41 @@ scenario("automation-lifecycle: created by apply, re-applies in sync, drift-edit
 
   const reapply = mustPass(deployRun(deployRoot, ["apply", "--environment", "e2e", "--apply"]), "automation re-apply");
   assertMatch(reapply.stdout, /automation heartbeat: in sync/, "re-apply must converge in sync");
+  const reread = cliJson(["automation", "view", id, "-y"]);
+  assertEqual(reread?.automation?.title, `Heartbeat${main.suffix}`, "re-apply must not alter the rendered title");
+  assertEqual(
+    reread?.automation?.assigneeId,
+    readState(deployRoot).agents?.alpha?.id,
+    "re-apply must not alter the resolved assignee",
+  );
 
   const configPath = join(deployRoot, "config/test/automations/heartbeat/automation.yaml");
+  const triggerIdBefore = trigger.id;
+  assert(triggerIdBefore, "schedule trigger must expose a stable id");
   writeFileSync(configPath, readFileSync(configPath, "utf8").replace('"0 0 1 1 *"', '"0 0 2 2 *"'));
   mustPass(deployRun(deployRoot, ["apply", "--environment", "e2e", "--apply"]), "automation drift apply");
   const edited = cliJson(["automation", "view", id, "-y"]);
+  const editedTrigger = (edited?.triggers || []).find((item) => item.kind === "schedule");
   assertEqual(
-    (edited?.triggers || []).find((item) => item.kind === "schedule")?.cronExpression,
+    editedTrigger?.cronExpression,
     "0 0 2 2 *",
     "cron drift must converge via trigger edit",
   );
-
+  assertEqual(
+    editedTrigger?.id,
+    triggerIdBefore,
+    "cron drift must edit the trigger in place, not delete+recreate (id rotation would break webhook URLs)",
+  );
   rmSync(join(deployRoot, "config/test/automations/heartbeat"), { recursive: true });
   const pruned = mustPass(deployRun(deployRoot, ["prune", "automations", "--environment", "e2e", "--apply"]), "prune automations");
-  assertMatch(pruned.stdout, /Deleting heartbeat/, "prune must hard-delete the removed automation");
+  assertMatch(pruned.stdout, /heartbeat/, "prune must report the removed automation");
   assertEqual(readState(deployRoot).automations?.heartbeat, undefined, "prune must deregister state");
+  // Hard-delete contract (README prune): the instance must be gone for good —
+  // a later view must fail, distinguishing delete from archive/orphan.
+  assert(
+    cliRun(["automation", "view", id, "-y"], { ok: false }).status !== 0,
+    "prune automations must hard-delete (automation view must fail afterwards)",
+  );
 });
 
 

@@ -5,4 +5,4 @@ dir: "@/vendor/v-skills/skills/autopilot-grilling"
 config: {}
 namingPattern: "{{name}}"
 assignTo:
-  - luke
+  - linchong

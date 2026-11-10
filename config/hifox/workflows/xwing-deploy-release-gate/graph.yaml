@@ -24,7 +24,7 @@ blocks:
         title: else
   - id: b-tester
     name: Tester
-    agent: ci-tester
+    agent: daizong
     work: |-
       xwing-deploy 发布验收轮次。Check 输出：<check.result>。按你的 instructions 执行：action=test 时对 candidate 完整跑验收流程（环境→套件→截图→清理→汇报）；action=halt 时只汇报 reason，不执行验收。最终消息必须是单行 JSON，字段 verdict 取 pass/fail/halt，字段 candidate 填被测 sha（halt 时留空）。
   - id: b-merge

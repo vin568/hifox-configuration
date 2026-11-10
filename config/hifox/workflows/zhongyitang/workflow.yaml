@@ -1,0 +1,5 @@
+key: zhongyitang
+name: 忠义堂
+description: "吴用（wuyong）的专家调度中枢：手动触发（workflow run --input 携 topic/message/context），按主题路由给林冲（xwing）或武松（x-deploy）做单条消息的排查答复；run_agent 不挂任务（零任务增量），结果由吴用查询执行状态后转述。编写型源（graph.yaml + 块源 *.sh），决策见 docs/adr/0002。"
+deployed: true
+source: dsl

@@ -27,10 +27,19 @@ const CODE_SELECTOR = process.env.LOGIN_CODE_SELECTOR || 'input[type="text"], in
 const SUBMIT_SELECTOR = process.env.LOGIN_SUBMIT_SELECTOR || 'button[type="submit"], button:has-text("登录"), button:has-text("Continue"), button:has-text("继续")';
 const ROUTES = (process.env.SHOT_ROUTES || "/,/agents,/crews,/skills,/workflows").split(",");
 
-const { chromium } = await import("playwright");
-
-mkdirSync(OUT_DIR, { recursive: true });
-const browser = await chromium.launch({ headless: true });
+let chromium;
+try {
+  ({ chromium } = await import("playwright"));
+  mkdirSync(OUT_DIR, { recursive: true });
+  browser = await chromium.launch({ headless: true });
+} catch (error) {
+  // Startup failures (playwright missing, chromium binary unavailable, output
+  // dir unwritable) are evidence-tooling problems, not gate results: note and
+  // exit 0 so a chained invocation can never flip the verdict (instructions
+  // §2.5: screenshot failures annotate the report, never change it).
+  console.error(`screenshot: startup failed (not a gate result): ${error.message?.split("\n")[0]}`);
+  process.exit(0);
+}
 const context = await browser.newContext({ viewport: { width: 1600, height: 1000 } });
 const page = await context.newPage();
 const notes = [];

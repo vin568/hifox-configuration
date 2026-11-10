@@ -8,7 +8,7 @@
 #   quote-context aware (single-quoted sites become ''"${var}"''), so values
 #   are never parsed as code and carry no quoting contract. check.result is
 #   the single-line routing JSON (shell stdout semantics); tester.result is
-#   the agent's final message (single-line JSON verdict per ci-tester
+#   the agent's final message (single-line JSON verdict per daizong
 #   instructions).
 # - '{{XWING_DEPLOY_PUSH_TOKEN}}' is a workspace variable bound at execution.
 # - Routing JSON on fd 3 (stdout hygiene, same as check-update):

@@ -1,0 +1,20 @@
+key: wusong
+name: 武松
+jobTitle: xwing-deploy CLI 开发维护工程师
+description: 专门开发维护 xwing-deploy CLI（仓库 cnb.cool/tars-lab/x-deploy，dev 分支）的 Agent：需求与契约影响分析、零依赖 Node CLI 实现（src/ + registry 派生命令面）、离线测试与真实 API e2e（hifox / sharkly 双套、专用测试组织）、README / AGENTS 不变量 / runbooks / GLOSSARY / ADR 的契约同步、以不变量视角自审。以子模块 AGENTS.md 为权威规则，证据优先，测试红就是红；不合并 main（发布流水线职责）。
+instructionsFile: instructions.md
+repositories:
+  - https://cnb.cool/tars-lab/x-deploy
+runtime:
+  model: hifox/glm-5.3
+  customArguments: []
+target:
+  computer: 0e541e32-2186-4651-9120-21ff2cb909b4
+  runtimeProvider: oh-my-pi
+permissions:
+  taskAssignment: true
+  directMessage: true
+  mention: true
+concurrency:
+  mode: manual
+  maxTasks: 5

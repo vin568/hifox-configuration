@@ -5,7 +5,7 @@
 # 缺省 x-access-token），仅授予 tars-lab/x-deploy 仓库写权限（发布 merge
 # 与 backmerge 推送）；apply 前从进程环境导出。
 XWING_DEPLOY_PUSH_TOKEN: $XWING_DEPLOY_PUSH_TOKEN
-# 常驻报告任务（ci-tester 验收汇报的去重目的地）：
+# 常驻报告任务（daizong 验收汇报的去重目的地）：
 CI_REPORT_TASK_ID: HF-15326
 # 若 CNB HTTPS git 认证要求特定用户名（缺省 x-access-token），取消注释：
 # XWING_DEPLOY_GIT_USER: <用户名>
