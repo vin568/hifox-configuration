@@ -6,15 +6,19 @@ agents:
   linchong:
     id: 1bb5f895-01c8-4915-a495-4ad6c6368523
     deployedName: "林冲 (staging)"
+    avatarHash: 8b322c716f855b12b3269190dccff14397258b1d9417bf8755a7004e70310013
   daizong:
     id: f07f9479-8c94-42f7-9127-a2f7bbee0a71
     deployedName: "戴宗 (staging)"
+    avatarHash: 05db5c23eb1f9c439eadf9a129599cf88c29e9c3c5cd3c37020655f29b899f9a
   wusong:
     id: 6c7f8068-79a2-4ac9-b5da-5fabe0b6f4bf
     deployedName: "武松 (staging)"
+    avatarHash: 4e81972054f59a7c06dbe4945de92cebd15172a9da39f92329a492bc5732e665
   wuyong:
     id: f736e173-551c-4782-bd89-507c51276b97
     deployedName: "吴用 (staging)"
+    avatarHash: 5fddc3c64d63ff9c84508fb1a90dd307b8f7d4dd564ba12d484602a57fe1ed30
 skills:
   architecture-fit-review:
     id: bff2006f-ea49-4c00-afef-423ca379b9d9

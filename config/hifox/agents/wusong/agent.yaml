@@ -18,3 +18,4 @@ permissions:
 concurrency:
   mode: manual
   maxTasks: 5
+avatarFile: avatar.png
