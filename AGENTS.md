@@ -41,7 +41,7 @@
 
 本项目的 Crew / Agent / Skill / Workflow / Automation 声明式配置位于 `.`（`config/<config-set>/` 配置集合 + `environments/<env>/` 部署绑定）。部署工具 x-deploy 自描述其操作面，使用方法与配置结构语义以 CLI 为准、不在本仓库其他文档复述：
 
-- 不变量：`state.yaml` 的 UUID 是已部署资源的唯一权威，勿手改；变更命令默认预览，必须显式 `--apply` 才执行（各命令的变更分级见 `./x-deploy --help`）。
+- 不变量：`state.yaml` 的 UUID 是已部署资源的唯一权威，勿手改；key 改名时把对应条目搬到新 key（UUID 不变），validate 的 look-renamed 门禁会拦下未重绑的改名；变更命令默认预览，必须显式 `--apply` 才执行（各命令的变更分级见 `./x-deploy --help`）。
 - 预检：`./x-deploy doctor`（node / yq / CLI 可执行 / state 盖章 / configRoot，全离线，先跑它）。
 - 命令目录：`./x-deploy --help`；逐命令 `./x-deploy <command> --help`。
 - 过程手册：`./x-deploy guide <topic>`（automations / restore / troubleshooting / upgrade / workflows，随 CLI 版本发布）。
