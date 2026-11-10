@@ -1,0 +1,6 @@
+key: ledger
+name: XWing Dispatch Ledger
+description: "吴用跨会话工作记忆协议：文件夹式调度台账（计划 / 等待用户 / 进行中 / 已收口）的定位、读取、写入、状态真值、异常处置与并发 / 容量纪律；含精确命令模板与事项结构。"
+contentFile: SKILL.md
+config: {}
+namingPattern: "{{name}}"

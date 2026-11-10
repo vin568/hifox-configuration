@@ -1,0 +1,10 @@
+key: wuyong-ledger-sweep
+name: 吴用 · 调度台账巡检
+assignee: agent:wuyong
+priority: low
+deployed: true
+triggers:
+  - kind: schedule
+    cron: "*/30 * * * *"
+    timezone: Asia/Shanghai
+    label: 每 30 分钟对账未完结事项
