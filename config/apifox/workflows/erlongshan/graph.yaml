@@ -1,6 +1,6 @@
 # 二龙山：吴用（wuyong）在 Apifox 产研 Space 的专家调度分舵（Branch Hall，ADR 0004）。
-# 手动触发：hifox workflow run <id> --space "Apifox 产研" --async --input '{"topic":"apifox","message":"…","context":"…"}'
-# 按主题分支派给燕青（yanqing）执行；run_agent 不带 task id → 不产生任务卡；
+# 手动触发：hifox workflow run <id> --space "Apifox 产研" --async --input '{"topic":"apifox|docs-site","message":"…","context":"…"}'
+# 按主题分支派给燕青（yanqing，apifox）或萧让（xiaorang，docs-site）执行；run_agent 不带 task id → 不产生任务卡；
 # 分支末块的最终输出即执行结果，由吴用跨 Space 查询执行状态后转述给用户。
 blocks:
   - id: b-start
@@ -14,13 +14,23 @@ blocks:
       - id: apifox
         title: apifox
         when: "(typeof <start.input> === 'string' ? JSON.parse(<start.input>) : <start.input>).topic === 'apifox'"
+      - id: docs-site
+        title: docs-site
+        when: "(typeof <start.input> === 'string' ? JSON.parse(<start.input>) : <start.input>).topic === 'docs-site'"
       - id: else
         title: else
   - id: b-yanqing
     name: YanQing
     agent: yanqing
     work: |-
-      吴用（统筹调度）跨 Space 转来的 apifox（Apifox / Apidog 产品：docs-site / server-apps / tars-app / tars-cli）主题请求，输入载荷（JSON，字段 topic / message / context）：<start.input>
+      吴用（统筹调度）跨 Space 转来的 apifox（Apifox / Apidog 产品：server-apps / tars-app / tars-cli）主题请求，输入载荷（JSON，字段 topic / message / context）：<start.input>
+      本条消息只走聊天模式：只做排查、分析、定位或答复——读仓库、查代码事实、给结论与建议；不进入任务模式——不改代码、不建分支、不提交、不部署 staging、不创建任务。需要完整开发时，在结论中明确「建议建任务」并给出验收要点，由吴用与用户确认后在 Apifox 产研 Space 建任务委派。
+      最终消息 = 给用户的答复正文（纯文本，吴用会转述），不要输出 JSON。
+  - id: b-xiaorang
+    name: XiaoRang
+    agent: xiaorang
+    work: |-
+      吴用（统筹调度）跨 Space 转来的 docs-site（Apifox / Apidog 文档站，仓库 explorer-v2：文档站渲染、api-hub、公开 API hub、文档站私有化形态）主题请求，输入载荷（JSON，字段 topic / message / context）：<start.input>
       本条消息只走聊天模式：只做排查、分析、定位或答复——读仓库、查代码事实、给结论与建议；不进入任务模式——不改代码、不建分支、不提交、不部署 staging、不创建任务。需要完整开发时，在结论中明确「建议建任务」并给出验收要点，由吴用与用户确认后在 Apifox 产研 Space 建任务委派。
       最终消息 = 给用户的答复正文（纯文本，吴用会转述），不要输出 JSON。
   - id: b-reject
@@ -31,4 +41,5 @@ blocks:
 edges:
   - { from: b-start, to: b-route }
   - { from: b-route, to: b-yanqing, branch: apifox }
+  - { from: b-route, to: b-xiaorang, branch: docs-site }
   - { from: b-route, to: b-reject, branch: else }

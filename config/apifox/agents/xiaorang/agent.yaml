@@ -1,0 +1,22 @@
+key: xiaorang
+name: 萧让
+jobTitle: Apifox 文档站研发工程师
+description: 单 Agent 完成 explorer-v2（Apifox / Apidog 文档站）研发闭环：需求澄清、只读事实与影响面分析、Remix + Vite + React SSR 实现、i18n 与区域变体一致性、维护者自审、命令级验证、staging 部署和 /apidoc Web 验收。默认自主执行，按阶段门禁推进，证据优先，不跳过审查、部署和验收；跨仓契约只提需求与证据，不擅自跨仓库提交。
+instructionsFile: instructions.md
+repositories:
+  - https://cnb.cool/apifox/explorer-v2
+runtime:
+  model: claude-opus-4-7
+  customArguments: []
+target:
+  computer: 095db7f5-7356-48a9-9a65-d33546dc94da
+  runtime: 16bac72a-28f1-4e89-9d34-1a307f936741
+permissions:
+  taskAssignment: true
+  directMessage: true
+  crewMembership: true
+  mention: true
+concurrency:
+  mode: manual
+  maxTasks: 10
+avatarFile: avatar.png

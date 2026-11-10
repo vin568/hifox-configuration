@@ -20,7 +20,7 @@
 
 | 目录 | 消费者 | 机制与形态 |
 | --- | --- | --- |
-| `skills/` | 部署到远端的 xwing agent | 技能源：由 `config/<集合>/agents/<key>/skills/<skill-key>/skill.yaml` 以 `dir: "@/skills/<名>"` 引用同一源，部署为各 agent 专属实例。`SKILL.md` 是内容体、无 frontmatter（身份在 `skill.yaml`）。当前：`task-runtime`（linchong、daizong 引用） |
+| `skills/` | 部署到远端的 xwing agent | 技能源：由 `config/<集合>/agents/<key>/skills/<skill-key>/skill.yaml` 以 `dir: "@/skills/<名>"` 引用同一源，部署为各 agent 专属实例。`SKILL.md` 是内容体、无 frontmatter（身份在 `skill.yaml`）。源目录名带产品前缀（`xwing-` / `apifox-`）：根级 `skills/` 是跨配置集合的共享命名空间，裸名会假装通用；agent 实例 `key` 保持裸名（`<agent>/<key>` 已按 agent 命名空间化，改名会动 state 身份）。当前：`xwing-task-runtime`（linchong、daizong 引用）、`apifox-staging-deploy`（yanqing、xiaorang、skadi 引用）、`apifox-web-acceptance`（eir、yanqing、xiaorang 引用） |
 | `config/<集合>/skills/` | 部署到远端的 xwing agent（Space 内共享） | Space Skill 实例，多 agent 挂载同一份；结构语义见 `./x-deploy guide contract`，不在本仓复述 |
 | `.agents/skills/` | 在本仓工作的开发 agent 与人（不部署） | 项目级工具技能（Agent Skills 开放标准位置）：`SKILL.md` 带 `name`/`description` frontmatter。CLI 自带技能（当前 `xwing-workflows`）由 `./x-deploy init` 整目录受管重置，定制须复制改名；清单外的自有技能 init 不触碰，当前自有：`worktree-dev`（本仓 git worktree 开发契约 + `worktree.sh` 助手） |
 

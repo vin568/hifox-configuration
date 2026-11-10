@@ -1,0 +1,6 @@
+key: web-acceptance
+name: Apifox Staging Acceptance
+description: "测试服 Web 验收与取证规范：固定测试账号与登录规则、agent-browser 操作、截图与录屏自查、附件提交、验收结论与缺陷回流。"
+dir: "@/skills/apifox-web-acceptance"
+config: {}
+namingPattern: "{{name}}"
