@@ -58,7 +58,7 @@ _Avoid_: 忠义堂的别名、常驻进程、群聊
 _Avoid_: 同后缀（字面不成立，各 Space 后缀文本不同）
 
 **主题闭集（Topic Closed Set）**:
-调度面接受的主题枚举（当前：xwing 产品、x-deploy、apifox 产品、文档站 `docs-site`）；堂 / 舵分支、统筹入口路由表、任务委派映射共同持有，扩展须同步——漏一处即「派了但堂 / 舵里没人接」或反向。
+调度面接受的主题枚举（当前：xwing 产品、x-deploy、apifox 产品、文档站 `docs-site`、Apifox CLI `apifox-cli`）；堂 / 舵分支、统筹入口路由表、任务委派映射共同持有，扩展须同步——漏一处即「派了但堂 / 舵里没人接」或反向。
 _Avoid_: 标签、分类（不表达多处同步不变量）
 
 **调度台账（Dispatch Ledger）**:

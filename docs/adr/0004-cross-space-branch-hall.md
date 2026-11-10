@@ -20,5 +20,5 @@ Apifox 产研 Space 的交付专家燕青（`yanqing`，原 ymir）不在 HiFox 
 - **双实例**：二龙山随 apifox 环境双份（`二龙山` / `二龙山 - staging`），联调走 staging 后由吴用同层级触发。
 - **落盘状态**：staging 双环境已 apply（二龙山实例、燕青改名、吴用技能）；`environments/current`（prod）只重绑 `yanqing`、**未 apply**，生产实例仍显示「尤弥尔 Ymir」——prod apply 与 `hifox-prod` 缺 wuyong / zhongyitang 条目的收口另开任务。
 - **图迭代受 HF-15237 约束**：改图走「归档 + 重新 import」。
-- **命名**：分舵是类别词，用英文术语 Branch Hall；实例名（二龙山）与人物名（燕青）沿用专名拼音 key（ADR 0003）。**入伙统筹调度面的 agent 取水浒名**，故 apifox 集合内统筹调度面的专家（燕青、萧让，后者见 ADR 0009）非北欧名，其余 agent 改名不动。
+- **命名**：分舵是类别词，用英文术语 Branch Hall；实例名（二龙山）与人物名（燕青）沿用专名拼音 key（ADR 0003）。**入伙统筹调度面的 agent 取水浒名**，故 apifox 集合内统筹调度面的专家（燕青、萧让，见 ADR 0009；汤隆，见 ADR 0011）非北欧名，其余 agent 改名不动。
 - **验证**：CLI help 已确认 `workflow run --space` / `task create --space` 支持；staging 首跑与 else 分支被平台执行器阻断（`sim-runner.cjs bundle` 缺失，计算机 `workflowExecutionEnabled=false`，未改动的忠义堂同错），待环境修复后补验；`task create --space` 尚无真实建卡验证。

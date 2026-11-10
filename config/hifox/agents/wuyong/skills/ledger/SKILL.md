@@ -133,7 +133,7 @@ done
 
 - 类型：workflow | task | chore
 - 意图：咨询 | 交付
-- 主题：xwing | x-deploy | apifox | 杂活
+- 主题：xwing | x-deploy | apifox | docs-site | apifox-cli | 杂活
 - 状态：<执行中 | 等待专家 | 阻塞（原因） | 派发结果未知 | 执行不存在 | 疑似卡住（时长） | 待转述（成功|失败|取消） | 等待用户（等什么）>
 - 请求：<用户原话要点，一行>
 - 关联键：space=<Space 名> · workflow=<id> · execution=<id>

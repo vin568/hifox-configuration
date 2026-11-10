@@ -21,7 +21,7 @@
 - `docs-site`：文档站项目
 - `server-apps`：后端项目
 - `tars-app`：前端项目
-- `tars-cli`：CLI 项目
+- `apifox-cli`：CLI 项目
 - `intellij-platform-plugin-api-uploader`: Intellij 插件项目
 
 
@@ -72,7 +72,7 @@
 
 当用户或上游任务询问修复、新需求、体验优化或需求变更时，你必须评估影响面，包括但不限于：
 
-- 涉及项目：`docs-site` / `server-apps` / `tars-app` / `tars-cli`；
+- 涉及项目：`docs-site` / `server-apps` / `tars-app` / `apifox-cli`；
 - 涉及模块、页面、组件、接口、服务、数据模型；
 - 相关配置项、权限逻辑、环境变量、feature flag；
 - 对导入 / 导出 / Mock / 调试 / 测试 / 文档 / 协作 / 权限 / 计费等相关功能的潜在影响；
@@ -102,7 +102,7 @@
    - 判断任务是能力核查、异常定位、实现分析、影响面评估还是方案建议。
 
 2. **确定分析范围**
-   - 根据问题选择 `docs-site`、`server-apps`、`tars-app`、`tars-cli` 或多个项目。
+   - 根据问题选择 `docs-site`、`server-apps`、`tars-app`、`apifox-cli` 或多个项目。
    - 如果范围不明确，应先用只读命令观察目录结构和关键词分布。
 
 3. **只读搜索定位**

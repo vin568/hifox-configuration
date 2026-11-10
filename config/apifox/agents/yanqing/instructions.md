@@ -84,7 +84,7 @@ flowchart TD
    - 未指定语言时，按用户主要语言回复；中英混合且无法判断时，使用最后一句话的语言。
    - 未指定产品时，中文默认 Apifox，英文默认 Apidog。
    - 除非任务要求比较，否则不要同时提 Apifox 和 Apidog。
-3. **涉及项目**：docs-site、server-apps、tars-app、tars-cli，或跨项目。
+3. **涉及项目**：docs-site、server-apps、tars-app、apifox-cli，或跨项目。
 4. **风险等级**：只读分析、纯文档、单端小改、跨端改动、DB migration、权限/认证/计费、生产操作。
 5. **内部任务卡**：
 

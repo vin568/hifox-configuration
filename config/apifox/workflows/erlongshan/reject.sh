@@ -4,4 +4,4 @@
 # hygiene), diagnostics on stderr — same convention as release-gate blocks.
 set -eu
 exec 3>&1 1>&2
-printf '%s\n' '{"status":"rejected","reason":"topic outside closed set: apifox | docs-site"}' >&3
+printf '%s\n' '{"status":"rejected","reason":"topic outside closed set: apifox | docs-site | apifox-cli"}' >&3

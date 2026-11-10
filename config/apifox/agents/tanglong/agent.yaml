@@ -1,0 +1,22 @@
+key: tanglong
+name: 汤隆
+jobTitle: Apifox CLI 研发工程师
+description: 单 Agent 完成 apifox-cli（Apifox / Apidog 命令行工具）研发闭环：需求澄清、只读事实与影响面分析、TypeScript + webpack 双发行包实现、i18n 与构建期常量一致性、维护者自审、命令级验证、CI 提测留包与提测包回归。默认自主执行，按阶段门禁推进，证据优先；提测只出 pkg 不发布，跨仓契约改动不擅自执行。
+instructionsFile: instructions.md
+repositories:
+  - https://cnb.cool/apifox/apifox-cli
+runtime:
+  model: claude-opus-4-7
+  customArguments: []
+target:
+  computer: 095db7f5-7356-48a9-9a65-d33546dc94da
+  runtime: 16bac72a-28f1-4e89-9d34-1a307f936741
+permissions:
+  taskAssignment: true
+  directMessage: true
+  crewMembership: true
+  mention: true
+concurrency:
+  mode: manual
+  maxTasks: 10
+avatarFile: avatar.png

@@ -4,7 +4,7 @@ Apifox 文档站（仓库 `explorer-v2`）此前由全栈交付专家燕青（`y
 
 主题粒度取「交付物 / 产品面」：既有 `xwing` / `x-deploy` / `apifox` 都已按交付物划分，文档站是与它们并列的一个交付物，不是 `apifox` 内部的二级分类。
 
-**归口规则**：以「主要改动落在哪个仓」为准——只涉及 `explorer-v2` → `docs-site`；涉及 server-apps / tars-app / tars-cli，或文档站改动必须与后端契约一起改而无法切分 → `apifox`（燕青，全栈闭环）。
+**归口规则**：以「主要改动落在哪个仓」为准——只涉及 `explorer-v2` → `docs-site`；涉及 server-apps / tars-app / `apifox-cli`，或文档站改动必须与后端契约一起改而无法切分 → `apifox`（燕青，全栈闭环）。其中 CLI 的独立归口见 ADR 0011（只涉及 `apifox-cli` → `apifox-cli`，汤隆执行）。
 
 ## Considered Options
 
