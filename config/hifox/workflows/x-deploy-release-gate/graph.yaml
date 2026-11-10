@@ -1,4 +1,4 @@
-# xwing-deploy Release Gate 的声明式图源（编写型，ADR 0018）。
+# x-deploy Release Gate 的声明式图源（编写型，ADR 0018）。
 # 管线（validate/plan/apply）加载时确定性编译为 SavedGraph，不产出 graph.json；
 # function 块源是同目录 .sh（代码唯一宿主）。改图 = 改本文件或 .sh → apply
 # （HF-15237 修复前对已部署实例走「归档 + 重新 import」，见工具技能 §5）。
@@ -26,7 +26,7 @@ blocks:
     name: Tester
     agent: daizong
     work: |-
-      xwing-deploy 发布验收轮次。Check 输出：<check.result>。按你的 instructions 执行：action=test 时对 candidate 完整跑验收流程（环境→套件→截图→清理→汇报）；action=halt 时只汇报 reason，不执行验收。最终消息必须是单行 JSON，字段 verdict 取 pass/fail/halt，字段 candidate 填被测 sha（halt 时留空）。
+      x-deploy 发布验收轮次。Check 输出：<check.result>。按你的 instructions 执行：action=test 时对 candidate 完整跑验收流程（环境→套件→截图→清理→汇报）；action=halt 时只汇报 reason，不执行验收。最终消息必须是单行 JSON，字段 verdict 取 pass/fail/halt，字段 candidate 填被测 sha（halt 时留空）。
   - id: b-merge
     name: Merge
     shell: release-merge.sh

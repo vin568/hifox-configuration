@@ -1,5 +1,5 @@
 #!/bin/sh
-# Workflow function block: classify the releasable delta of xwing-deploy.
+# Workflow function block: classify the releasable delta of x-deploy.
 # Language: shell (runs on the workflow computer via the sim runner).
 #
 # Engine contract:
@@ -21,7 +21,7 @@ set -eu
 exec 3>&1 1>&2
 
 REMOTE="${XWING_DEPLOY_REMOTE:-https://cnb.cool/tars-lab/x-deploy}"
-CACHE="${XWING_DEPLOY_CACHE_DIR:-$HOME/.cache/xwing-deploy-ci/repo.git}"
+CACHE="${XWING_DEPLOY_CACHE_DIR:-$HOME/.cache/x-deploy-ci/repo.git}"
 # Cold start: nothing else creates the bare cache, and fetch refuses to
 # initialize it — a missing cache would abort every scheduled run.
 [ -d "$CACHE" ] || git init --quiet --bare "$CACHE"

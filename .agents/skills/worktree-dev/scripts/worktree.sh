@@ -65,14 +65,14 @@ cmd_add() {
 
   local root
   root=$(git rev-parse --show-toplevel)
-  if [ -f "$root/vendor/xwing-deploy/.env.e2e" ] && [ ! -e "$dir/vendor/xwing-deploy/.env.e2e" ]; then
-    cp "$root/vendor/xwing-deploy/.env.e2e" "$dir/vendor/xwing-deploy/.env.e2e"
+  if [ -f "$root/vendor/x-deploy/.env.e2e" ] && [ ! -e "$dir/vendor/x-deploy/.env.e2e" ]; then
+    cp "$root/vendor/x-deploy/.env.e2e" "$dir/vendor/x-deploy/.env.e2e"
     info "已复制 .env.e2e（机器本地，不入库）"
   fi
 
   dir=$(cd "$dir" && pwd)
-  echo "就绪清单：cd $dir && mise install; (cd vendor/xwing-deploy && npm install); ./xwing-deploy doctor"
-  echo "并回 dev（特性完成时）：cd vendor/xwing-deploy && npm test && git fetch origin dev && git merge origin/dev && git push origin HEAD:dev"
+  echo "就绪清单：cd $dir && mise install; (cd vendor/x-deploy && npm install); ./x-deploy doctor"
+  echo "并回 dev（特性完成时）：cd vendor/x-deploy && npm test && git fetch origin dev && git merge origin/dev && git push origin HEAD:dev"
 }
 
 cmd_list() {

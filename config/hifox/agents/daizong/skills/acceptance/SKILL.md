@@ -1,6 +1,6 @@
-# xwing-deploy Acceptance Suite
+# x-deploy Acceptance Suite
 
-本仓（消费方）持有的 xwing-deploy 黑盒验收套件。断言只基于消费方可观察行为：命令退出码、stdout 契约文案、state.yaml 内容、经任务 CLI 读回的远端资源状态。不 import 被测代码，不复用其测试助手。
+本仓（消费方）持有的 x-deploy 黑盒验收套件。断言只基于消费方可观察行为：命令退出码、stdout 契约文案、state.yaml 内容、经任务 CLI 读回的远端资源状态。不 import 被测代码，不复用其测试助手。
 
 ## 运行前提（环境变量）
 
@@ -18,7 +18,7 @@
 
 ```bash
 # 全量验收（--keep 推迟远端清理，供截图；report.json 含清理所需 ID）
-node scripts/run-acceptance.mjs --candidate <sha> --repo <xwing-deploy-worktree> --keep --out <dir>
+node scripts/run-acceptance.mjs --candidate <sha> --repo <x-deploy-worktree> --keep --out <dir>
 
 # 截图完成后按报告清理远端资源
 node scripts/run-acceptance.mjs --cleanup-report <dir>/report.json

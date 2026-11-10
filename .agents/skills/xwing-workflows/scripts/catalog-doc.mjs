@@ -4,7 +4,7 @@
 // types, required flags, defaults, options, bestPractices). Never trust stale
 // snapshots: always query.
 //
-// Usage (inside a repo managed by xwing-deploy):
+// Usage (inside a repo managed by x-deploy):
 //   node catalog-doc.mjs list [filter]            # block types (type/name/category)
 //   node catalog-doc.mjs view <blockType>         # full field detail for one block
 //   node catalog-doc.mjs options <type> <field>   # dynamic options for a field
@@ -41,7 +41,7 @@ const detected = detect();
 const CLI = flag("cli") || detected.cli;
 const SPACE = flag("space") || detected.space;
 if (!SPACE) {
-  console.error("catalog-doc: no spaceId found (pass --space <id> or run inside an xwing-deploy repo)");
+  console.error("catalog-doc: no spaceId found (pass --space <id> or run inside an x-deploy repo)");
   process.exit(2);
 }
 

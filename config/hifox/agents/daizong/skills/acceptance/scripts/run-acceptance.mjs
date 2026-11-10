@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// xwing-deploy acceptance suite — consumer-contract black-box scenarios.
+// x-deploy acceptance suite — consumer-contract black-box scenarios.
 // Self-contained on purpose: never imports anything from the CLI under test;
 // asserts only consumer-observable behavior (exit codes, stdout contract
 // lines, state.yaml registrations, task-CLI reads of remote resources).
@@ -72,7 +72,7 @@ function cliJson(cliArgs) {
 function deployRun(deployRoot, deployArgs) {
   return spawnSync(
     process.execPath,
-    [join(REPO, "bin", "xwing-deploy.mjs"), ...deployArgs, "--root", deployRoot],
+    [join(REPO, "bin", "x-deploy.mjs"), ...deployArgs, "--root", deployRoot],
     { encoding: "utf8", maxBuffer: 128 * 1024 * 1024, timeout: 600_000, env: spawnCliEnv() },
   );
 }
@@ -351,7 +351,7 @@ if (CLEANUP_REPORT) {
 // ---------------------------------------------------------------------------
 // Preflight
 // ---------------------------------------------------------------------------
-if (!REPO) fail("--repo <xwing-deploy worktree> is required");
+if (!REPO) fail("--repo <x-deploy worktree> is required");
 if (!CANDIDATE) fail("--candidate <commit sha> is required");
 for (const name of ["HIFOX_SERVER_URL", "HIFOX_TOKEN", "HIFOX_ORGANIZATION_ID", "HIFOX_E2E_SPACE_ID"]) {
   if (!process.env[name]) fail(`env ${name} is required`);
@@ -791,7 +791,7 @@ if (!KEEP) {
 const verdict =
   aborted || scenarios.some((s) => s.status === "fail") || cleanupProblems.length ? "fail" : "pass";
 const report = {
-  suite: "xwing-deploy-acceptance",
+  suite: "x-deploy-acceptance",
   verdict,
   candidate: candidateFull,
   spaceId: SPACE_ID,

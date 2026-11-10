@@ -1,5 +1,5 @@
-[submodule "vendor/xwing-deploy"]
-	path = vendor/xwing-deploy
+[submodule "vendor/x-deploy"]
+	path = vendor/x-deploy
 	url = https://cnb.cool/tars-lab/x-deploy
 	branch = dev
 [submodule "vendor/v-skills"]

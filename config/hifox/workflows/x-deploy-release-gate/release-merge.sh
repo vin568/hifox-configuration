@@ -18,7 +18,7 @@ set -eu
 exec 3>&1 1>&2
 
 REMOTE="${XWING_DEPLOY_REMOTE:-https://cnb.cool/tars-lab/x-deploy}"
-CACHE="${XWING_DEPLOY_CACHE_DIR:-$HOME/.cache/xwing-deploy-ci/repo.git}"
+CACHE="${XWING_DEPLOY_CACHE_DIR:-$HOME/.cache/x-deploy-ci/repo.git}"
 # Cold start guard, same as check-update: fetch cannot initialize the cache.
 [ -d "$CACHE" ] || git init --quiet --bare "$CACHE"
 TOKEN='{{XWING_DEPLOY_PUSH_TOKEN}}'
@@ -66,7 +66,7 @@ fi
 mkdir -p "$TMP/wt"
 git --git-dir "$CACHE" worktree add --detach --quiet "$TMP/wt" refs/remotes/origin/main
 SHORT="$(printf '%s' "$CANDIDATE" | cut -c1-12)"
-git -C "$TMP/wt" -c user.name=xwing-ci -c user.email=ci@invalid merge --no-edit --no-ff -m "release: xwing-deploy $SHORT" "$CANDIDATE"
+git -C "$TMP/wt" -c user.name=xwing-ci -c user.email=ci@invalid merge --no-edit --no-ff -m "release: x-deploy $SHORT" "$CANDIDATE"
 git -C "$TMP/wt" push --quiet "$AUTHED" HEAD:main
 
 git --git-dir "$CACHE" fetch --quiet "$AUTHED" +refs/heads/main:refs/remotes/origin/main

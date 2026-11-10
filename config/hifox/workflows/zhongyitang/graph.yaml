@@ -31,7 +31,7 @@ blocks:
     name: WuSong
     agent: wusong
     work: |-
-      吴用（统筹调度）转来的 xwing-deploy（部署 CLI / 声明式配置仓库）主题请求，输入载荷（JSON，字段 topic / message / context）：<start.input>
+      吴用（统筹调度）转来的 x-deploy（部署 CLI / 声明式配置仓库）主题请求，输入载荷（JSON，字段 topic / message / context）：<start.input>
       本条消息只做排查、分析、定位或答复：读仓库、查契约与测试事实、给结论与建议；不进入完整交付流程——不改代码、不提交、不推送。需要完整开发时，在结论中明确「建议建任务」并给出验收要点，由吴用与用户确认后委派。
       最终消息 = 给用户的答复正文（纯文本，吴用会转述），不要输出 JSON。
   - id: b-reject

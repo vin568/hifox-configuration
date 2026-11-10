@@ -1,11 +1,11 @@
 ---
 name: xwing-workflows
-description: Create, inspect, update, trigger and delete xwing workflows entirely without the GUI — author workflows as declarative graph.yaml + shell block sources (compiled deterministically by xwing-deploy), adopt existing platform workflows via capture (graph.json or decompile to graph.yaml), discover block types and field structures via the workflow catalog, deploy with apply (workflow import, one-shot), iterate via archive-and-reimport, and operate scheduled runs. Use when authoring or operating workflows in a repository managed by xwing-deploy.
+description: Create, inspect, update, trigger and delete xwing workflows entirely without the GUI — author workflows as declarative graph.yaml + shell block sources (compiled deterministically by x-deploy), adopt existing platform workflows via capture (graph.json or decompile to graph.yaml), discover block types and field structures via the workflow catalog, deploy with apply (workflow import, one-shot), iterate via archive-and-reimport, and operate scheduled runs. Use when authoring or operating workflows in a repository managed by x-deploy.
 ---
 
 # xwing workflows（无 GUI 全生命周期）
 
-本技能让你在命令行完成 workflow 的增、删、改、查、触发。权威契约：`./xwing-deploy guide workflows`（随 CLI 版本分发）；块内部字段真值：`<cli> workflow catalog`。本文只固化跨版本稳定的方法与陷阱。
+本技能让你在命令行完成 workflow 的增、删、改、查、触发。权威契约：`./x-deploy guide workflows`（随 CLI 版本分发）；块内部字段真值：`<cli> workflow catalog`。本文只固化跨版本稳定的方法与陷阱。
 
 ## 0. 源形态怎么选（每个 workflow 二选一、互斥）
 
@@ -24,6 +24,7 @@ description: Create, inspect, update, trigger and delete xwing workflows entirel
 
 ```yaml
 # graph.yaml
+version: 1                        # 可选（缺省 = 1）
 schedule:
   cron: "0 */3 * * *"          # 引擎没有「每 N 小时」类型，一律 cron
   timezone: Asia/Shanghai
@@ -33,6 +34,12 @@ blocks:
     name: Check
     shell: check-update.sh     # 块源引用（与 graph.yaml 同目录的 .sh），不内联
     timeout: 600000            # 可选，默认 600000ms
+    error: true                # 可选：启用错误分支（errorEnabled），允许出站 handle: error 边
+    enabled: false             # 可选：禁用块（缺省 true）
+  - id: gmail-hook
+    type: gmail_v2             # raw 逃生舱：未知/异构块原样透传
+    trigger: true              # 双模工具块当触发器必须声明（引擎按此标志判定）
+    subBlocks: { field: 值 }   # 标量 → short-input 简写；或 {id,type,value} 全形
   - id: route
     name: Route
     condition:                 # 行 id 不得带块 id 前缀（陷阱见 §4）
@@ -42,30 +49,35 @@ blocks:
     name: Tester
     agent: ci-tester           # 配置键：apply 解析为该环境 state 的 UUID；
     work: |                    # 字面 agent:<uuid> 透传（引用非本配置集合的 agent）
-      xwing-deploy 发布验收轮次。Check 输出：<check.result>。
-  - id: anything
-    type: <engine 块类型>      # raw 逃生舱：未知/异构块原样透传
-    subBlocks: { field: 值 }   # 标量 → short-input 简写；或 {id,type,value} 全形
+      x-deploy 发布验收轮次。Check 输出：<check.result>。
 
 edges:
-  - { from: schedule, to: check }
-  - { from: route, to: tester, branch: test }   # branch 对应 condition 行 id
+  - { from: b-schedule, to: check }              # schedule 默认块 id 是 b-schedule
+  - { from: route, to: tester, branch: test }    # branch 对应 condition 行 id
+  - { from: check, to: tester, handle: error }   # 任意其余句柄逐字（router-*/loop-*/error）
+
+# 状态透传：variables 与未知状态键（state edit 全量替换，不声明即清空）。
+# loops/parallels 是引擎派生态——编译器拒绝声明；loop 语义写在块 subBlocks
+# （如 type: loop + subBlocks: { loopType: for, iterations: 3 }），
+# 子图归属写在子块 extra: { data: { parentId: <loop块id> } }。
+state:
+  variables: { v1: { value: "1" } }
 ```
 
 ```bash
-./xwing-deploy validate --environment <env>      # 编译 + 全部校验（无需 graph.json）
-./xwing-deploy plan --environment <env>
-./xwing-deploy apply --environment <env> --apply # import 一次成型（无 UI）
-./xwing-deploy build <key> --out /tmp/g.json     # 调试转储编译产物（别提交、别写进 config 目录）
+./x-deploy validate --environment <env>      # 编译 + 全部校验（无需 graph.json）
+./x-deploy plan --environment <env>
+./x-deploy apply --environment <env> --apply # import 一次成型（无 UI）
+./x-deploy build <key> --out /tmp/g.json     # 调试转储编译产物（别提交、别写进 config 目录）
 ```
 
 ## 2. 捕获型与收编
 
 ```bash
 # 捕获型（graph.json 为源，编辑器是 UI）
-./xwing-deploy capture --kind workflow --id <uuid> --key <key>
+./x-deploy capture --kind workflow --id <uuid> --key <key>
 # 语义反编译为编写型：schedule→cron、code→*.sh、行 id 净化、executor 反解配置键、未知块 raw
-./xwing-deploy capture --kind workflow --id <uuid> --key <key> --form yaml
+./x-deploy capture --kind workflow --id <uuid> --key <key> --form yaml
 ```
 
 捕获型要 UI 可编辑：`workflow.yaml` 写 `lockUiEdits: false`（per-workflow 覆盖环境默认；UI 建的实例不受 HF-15237 影响，apply 可增量推送）。
@@ -80,26 +92,33 @@ node scripts/catalog-doc.mjs options <type> <字段> # 动态选项
 
 脚本自动从 `environments/*/environment.yaml` 解析 cli.app 与 spaceId（可用 `--cli`/`--space` 覆盖）。**不要凭记忆写块字段**——先 `view`。
 
+```
+node .agents/skills/xwing-workflows/scripts/contract-snapshot.mjs [--update]   # 引擎块类型表快照（消费仓根目录运行）
+```
+
 ## 4. 关键不变式（踩过坑的实证）
 
 - **canonical 块 id**：graph 里的块 id 是规范身份，import 在每个环境重新分配；部署器按 `(type, name)` 翻译。块名不要重复（重名会被自动改名 N）。
-- **condition 行 id 不得带块 id 前缀**（如块 `b-route` 的行 `b-route-test`）：引擎 import 重映射 `{blockId}-` 前缀行 id（连同 edge 句柄），部署器翻译不回 → 恒假漂移。无前缀行 id 原样幸存；`capture --form yaml` 会自动净化。
+- **行 id 前缀禁令覆盖两种行族**：condition 行与 router_v2 的 routes 行（JSON 字符串）都不得带 `{blockId}-` 前缀——引擎 import 重映射前缀行 id（连同 `condition-`/`router-` 句柄），部署器翻译不回 → 恒假漂移。无前缀行 id 原样幸存；`capture --form yaml` 会自动净化。
 - **条件路由三件套**：行数组 + 分支边句柄 `condition-<行id>` 严格配对；兜底行 `title: else` 空值。
 - **function(Shell) 输出语义**：块 `result` = 整个 stdout。脚本做 stdout 卫生：`exec 3>&1 1>&2` 后诊断走 stderr、结构化 JSON `printf … >&3`。
+- **块级开关与句柄**：`trigger:`/`enabled:`/`error:` 对语义与 raw 块统一生效；`branch:`（condition 糖）与 `handle:`（其余句柄逐字，如 `router-<行id>`/`error`/`loop-start-source`）互斥。双模工具块（gmail/jira/airtable 等有触发变体的）当触发器用必须 `trigger: true`。
+- **loop/parallel 与状态键**：loop 语义声明在块 subBlocks（catalog 字段），子图归属在子块 `extra.data.parentId`；`state.loops`/`state.parallels` 是引擎派生态（每次落库从块配置重派生，实测声明会被默认值覆盖），编译器拒绝声明。`state:` 只收 variables 与未知状态键（state edit 全量替换）。`data` 的漂移比对按引擎排除表折叠（parentId/canonicalModes 等派生冗余不比对、仍随推送保形）。触发器块的入边会被引擎 import 丢弃——触发器只作起点出边。
+- **往返神谕**：`capture --form yaml` 自证往返恒等；残差（引擎新维度）会拒绝捕获并列出——补糖/透传覆盖后再收编，或 `--allow-lossy` 显式接受。
 - **引用语法**：`{{VAR}}` = workspace 变量（执行期绑定，graph 只存占位符，密钥不落仓）；`<block.field>` = 上游块输出（块名 normalize：小写去空白）。secret 类字段只准整串 `{{VAR}}` 引用。
 - **引擎自管字段**（`webhookId`/`triggerPath`/`triggerConfig`/`triggerId`、`webhookUrlDisplay_*`、`*-tool-N-*`）不参与漂移对比，声明侧写值无效（raw 块里会被剥除）。
 
 ## 5. 生命周期操作
 
 ```bash
-./xwing-deploy validate --environment <env>          # 离线校验（含密钥扫描；编写型含编译）
-./xwing-deploy plan --environment <env>              # 漂移预览
-./xwing-deploy apply --environment <env> --apply     # 创建/收敛（import 一次成型 + deploy + lock）
+./x-deploy validate --environment <env>          # 离线校验（含密钥扫描；编写型含编译）
+./x-deploy plan --environment <env>              # 漂移预览
+./x-deploy apply --environment <env> --apply     # 创建/收敛（import 一次成型 + deploy + lock）
 <cli> workflow run <id> --space <space> --async      # 无 GUI 手动触发（id 见 state.yaml）
 <cli> workflow runs view <wf-id> <execution-id> --space <space>   # 执行状态
 <cli> workflow logs list --space <space> --workflow <wf-id>       # 运行日志
-./xwing-deploy capture …                             # 收编（§2）
-./xwing-deploy prune workflows --environment <env> --apply        # 归档配置中已删除的 workflow
+./x-deploy capture …                             # 收编（§2）
+./x-deploy prune workflows --environment <env> --apply        # 归档配置中已删除的 workflow
 ```
 
 **改图迭代（HF-15237 修复前，针对 API 创建的实例）**：移出 workflow 目录 → `prune workflows --apply`（归档+注销）→ 改源 → 移回 → `apply --apply`（重新 import）。UI 创建的历史实例可直接增量推送。修复后统一为「改源 → apply」。
