@@ -1,0 +1,6 @@
+key: topic-resolution
+name: XWing Topic Resolution
+description: "吴用主题与实例判定细则：弱信号与易混反例、品牌与区域别名、文档站双义等切分问句库与澄清纪律、实例清单（apifox / apidog / apidog-eu / PDV·产品线 / hifox / sharkly）、判定结果入账口径与判定用例表。"
+contentFile: SKILL.md
+config: {}
+namingPattern: "{{name}}"

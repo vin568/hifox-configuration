@@ -41,6 +41,12 @@ skills:
   wuyong/branch-hall-dispatch:
     id: 01265780-8bff-4499-a140-a8069638b3ad
     deployedName: "XWing Branch Hall Dispatch"
+  wuyong/ledger:
+    id: 29800f34-ad9d-44d1-89e1-e8932a705133
+    deployedName: "XWing Dispatch Ledger"
+  wuyong/topic-resolution:
+    id: 0ee75ca2-6d38-4a3e-bf5d-57434c497203
+    deployedName: "XWing Topic Resolution"
 workflows:
   webhook-echo:
     id: 95e04916-7cab-4867-951c-9db41e9c4766
@@ -52,3 +58,6 @@ workflows:
     id: a41398c6-8d59-43bd-9968-7a36ef586787
     deployedName: "忠义堂 (staging)"
 automations:
+  wuyong-ledger-sweep:
+    id: 39d24a1e-5def-43fa-bfb1-13e76dfea3c4
+    deployedName: "吴用 · 调度台账巡检 (staging)"

@@ -2,7 +2,7 @@
 # 手动触发：hifox workflow run <id> --space <space> --async --input '{"topic":"xwing|x-deploy","message":"…","context":"…"}'
 # 按主题分支派给专家 agent；run_agent 不带 task id → 不产生任务卡；
 # 分支末块的最终输出即执行结果，由吴用查询执行状态后转述给用户。
-# 全部专家能力聚于此图：加主题 = 加分支 + 吴用路由表加行（主题闭集三处同步，见 ADR 0002）。
+# 全部专家能力聚于此图：加主题 = 加分支 + 吴用路由表与判定词表各加一行（主题闭集多处同步，见 ADR 0002 / 0012）。
 blocks:
   - id: b-start
     name: Start

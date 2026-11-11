@@ -11,7 +11,7 @@ Schedule: `*/30 * * * *`（Asia/Shanghai）
 
 ## 执行步骤（只读平台 + 只写台账）
 
-1. 加载并遵守 agent skill `ledger`（§2 状态真值与异常处置、§7 写入、§8 并发、§9 容量）。
+1. 加载并遵守 agent skill `{{skills.wuyong/ledger.name}}`（§2 状态真值与异常处置、§7 写入、§8 并发、§9 容量）。
 2. 解析台账：文档集 `Agents`（`hifox docs shared list --space "HiFox 产研"`）→ 实例文件夹 `{{agents.wuyong.name}}` → `进行中`。任一层不存在 → 直接结束（`{"swept":0,"reason":"no-ledger"}`），**不创建任何东西**。
 3. 列 `进行中` 并逐项 `hifox docs document view <事项 id> --shared <文档集 id> --output text`；对每项按类型查真值（**Space 取正文 `关联键` 的 `space=<Space 名>`**，跨 Space 事项必须带对应 Space）：
    - workflow：`hifox workflow runs view <workflow-id> <execution-id> --space "<Space>" --output json`
