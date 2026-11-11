@@ -1,0 +1,6 @@
+key: reflection
+name: XWing Nightly Reflection
+description: "裴宣夜间自省协议：数据源与取证分层、指标口径、改进项判定与去重、生命周期与采纳同步、日记/总览写入、失败降级与安全边界。"
+contentFile: SKILL.md
+config: {}
+namingPattern: "{{name}}"

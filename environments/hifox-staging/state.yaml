@@ -19,6 +19,10 @@ agents:
     id: f736e173-551c-4782-bd89-507c51276b97
     deployedName: "吴用 (staging)"
     avatarHash: 5fddc3c64d63ff9c84508fb1a90dd307b8f7d4dd564ba12d484602a57fe1ed30
+  peixuan:
+    id: 98c1a017-9754-45f2-80ff-286217d0acbb
+    deployedName: "裴宣 (staging)"
+    avatarHash: 28a7b3974ad5bce0f298418d9de0b3542dcce2955424081a389b18485c77ec38
 skills:
   architecture-fit-review:
     id: bff2006f-ea49-4c00-afef-423ca379b9d9
@@ -47,6 +51,9 @@ skills:
   wuyong/topic-resolution:
     id: 0ee75ca2-6d38-4a3e-bf5d-57434c497203
     deployedName: "XWing Topic Resolution"
+  peixuan/reflection:
+    id: 373de2fe-3bf5-4c87-85f9-2af8912159b7
+    deployedName: "XWing Nightly Reflection"
 workflows:
   webhook-echo:
     id: 95e04916-7cab-4867-951c-9db41e9c4766
@@ -61,3 +68,6 @@ automations:
   wuyong-ledger-sweep:
     id: 39d24a1e-5def-43fa-bfb1-13e76dfea3c4
     deployedName: "吴用 · 调度台账巡检 (staging)"
+  peixuan-nightly-reflection:
+    id: 75264152-9da7-4a4e-86d2-190bfa16f5d5
+    deployedName: "裴宣 · 夜间自省 (staging)"

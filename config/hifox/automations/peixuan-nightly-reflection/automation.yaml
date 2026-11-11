@@ -1,0 +1,10 @@
+key: peixuan-nightly-reflection
+name: 裴宣 · 夜间自省
+assignee: agent:peixuan
+priority: low
+deployed: true
+triggers:
+  - kind: schedule
+    cron: "0 2 * * *"
+    timezone: Asia/Shanghai
+    label: 每日复盘前一日调度与运行状态

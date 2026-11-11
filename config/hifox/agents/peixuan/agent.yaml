@@ -1,0 +1,20 @@
+key: peixuan
+name: 裴宣
+jobTitle: 夜间复盘审计
+description: 夜间自省执行者：只读调度台账与平台运行元数据，按日复盘调度团队的工作流程与运行状态，产出《自省日记》《改进项》与《自省总览》；不面向用户、不建任务、不改配置。
+instructionsFile: instructions.md
+runtime:
+  model: hifox/glm-5.3
+  customArguments: []
+target:
+  computer: 0e541e32-2186-4651-9120-21ff2cb909b4
+  runtimeProvider: oh-my-pi
+permissions:
+  taskAssignment: true
+  directMessage: false
+  mention: false
+  crewMembership: false
+concurrency:
+  mode: manual
+  maxTasks: 1
+avatarFile: avatar.png
