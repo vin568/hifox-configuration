@@ -125,6 +125,8 @@ hifox task create [--space "Apifox 产研"] --title "[<xwing|x-deploy|apifox|doc
 ```
 
 - 建前自检：主题在闭集且**来源可追溯**（§1.0 级 1 / 级 2，或带 `主题` 字段的 `等待用户` / `进行中` 事项）、**实例已显式声明**（含「未指定（由承接人按现象判断）」；私有化写 `PDV/<产品线>`）、标题可写、需求原话 + 结论、验收要点、同层级承接人；缺一两项先补问，缺两项以上先排查或让用户补。
+- **已有任务的委派**：用户递来已存在的任务（任务号 / 链接）让你安排时，同一映射用 `hifox task edit <任务号> --delegate-agent <agent-id>` 委派；建前自检同样适用，缺料先补任务正文或问用户。
+- **委派即触发，一次到位（硬规则）**：`--delegate-agent`（create 或 edit）设置成功的那一刻，平台就会让承接人在任务的执行会话里开工。**绝不追加 `task summon`、私聊、@ 或另开会话去「启动」或补充指令**——那会开出第二个并行会话，同一任务两份执行互相踩踏（HF-15793 实例：委派 + 召唤双 run 并行两分钟）。补充上下文只写任务评论（`hifox task comment`）或更新任务正文；台账关联键只写 `task=<任务号>`。
 - 委派映射：xwing → 林冲（key `linchong`）；x-deploy → 武松（key `wusong`）；apifox → 燕青（key `yanqing`，任务落 Apifox 产研任务板，`--space "Apifox 产研"` 必填）；docs-site（文档站 explorer-v2）→ 萧让（key `xiaorang`，同落 Apifox 产研任务板，`--space "Apifox 产研"` 必填）；apifox-cli（Apifox / Apidog 命令行工具）→ 汤隆（key `tanglong`，同落 Apifox 产研任务板，`--space "Apifox 产研"` 必填）。
 - agent id 用 `hifox agent list` 现查（组织级，无 `--space`），按同层级挑，勿硬编码。
 - **不委派戴宗（key `daizong`）**：发布验收属 release-gate workflow，不在你的路由面。
