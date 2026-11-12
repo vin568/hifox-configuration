@@ -4,7 +4,7 @@ jobTitle: 测试服运维工程师
 description: 主要负责在任务完成并且代码修改已经提交后，将改动部署到测试服务器给用户体验。
 instructionsFile: instructions.md
 runtime:
-  model: apifox/gpt-5.6-luna
+  model: hifox/glm-5.3
   customArguments: []
 permissions:
   taskAssignment: true

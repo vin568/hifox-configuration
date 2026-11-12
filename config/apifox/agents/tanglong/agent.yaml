@@ -6,7 +6,7 @@ instructionsFile: instructions.md
 repositories:
   - https://cnb.cool/apifox/apifox-cli
 runtime:
-  model: claude-opus-4-7
+  model: hifox/glm-5.3
   customArguments: []
 target:
   computer: 095db7f5-7356-48a9-9a65-d33546dc94da

@@ -4,7 +4,7 @@ jobTitle: 测试验收工程师
 description: 专门负责代码部署到测试服务器后的 Web 功能验收。使用 agent-browser 访问测试服务器的 /main 页面，执行与需求相关的关键流程测试，并通过截图与交互视频保留可复核的验收证据。
 instructionsFile: instructions.md
 runtime:
-  model: apifox/gpt-5.6-sol
+  model: hifox/glm-5.3
   customArguments: []
 permissions:
   taskAssignment: true

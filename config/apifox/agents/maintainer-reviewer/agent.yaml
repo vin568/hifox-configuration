@@ -4,7 +4,7 @@ jobTitle: Senior Code Maintainer
 description: 专门负责在 specialist agent 完成开发后，使用 architecture-fit-review skill 审查代码变更。发现问题时给出明确、可执行的修复意见并退回原开发 agent；修复完成后必须再次审查，直到通过或明确记录阻塞项。
 instructionsFile: instructions.md
 runtime:
-  model: apifox/gpt-5.6-sol
+  model: hifox/glm-5.3
   customArguments: []
 permissions:
   taskAssignment: true

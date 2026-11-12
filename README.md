@@ -13,10 +13,14 @@
 | 环境 | configRoot | 目标 Space | 说明 |
 | --- | --- | --- | --- |
 | `staging`（默认） | `config/apifox` | Apifox 产研 | 后缀 ` - staging`，Ragnarok 日常迭代环境，已部署 |
-| `current` | `config/apifox` | Apifox 产研 | 无后缀，线上正在使用的实例；`ignoreAgentModels: true` |
+| `current` | `config/apifox` | Apifox 产研 | 无后缀，线上正在使用的实例 |
 | `example` | `config/apifox` | Apifox 产研 | 后缀 ` - example`，未部署，新环境复制模板（`cp -R environments/example environments/<name>`） |
 | `hifox-prod` | `config/hifox` | HiFox 产研 | 无后缀，已部署 |
 | `hifox-staging` | `config/hifox` | HiFox 产研 | 后缀 ` (staging)`，已部署 |
+
+## 模型策略
+
+模型的**生命周期**不进声明面：`runtime.model` 只作出生播种——agent **create** 时传递一次，之后 edit 不再传 `--model`（`ignoreAgentModels` 缺省 `true`，x-deploy 契约），平台侧的模型变更不会被下一次 apply 回滚。批量设置 / 切换受控 agent 的模型：`./x-deploy model <model> --apply [--environment <env>]`（子模块内置运维命令：按 state 锚定、默认预览变更集、读当前值跳过已在目标的 agent、幂等；`default` 清除选择、跟随 Runtime 默认模型）。存量会话自愈口径与完整应急顺序见 [`docs/adr/0014`](docs/adr/0014-models-leave-the-declarative-layer.md)。
 
 ## 根级共享技能源
 

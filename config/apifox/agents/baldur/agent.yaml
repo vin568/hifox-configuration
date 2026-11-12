@@ -4,7 +4,7 @@ jobTitle: Apifox 后端服务开发工程师
 description: 专门负责 server-apps 仓库中的后端开发、调试、代码审查和验证工作。适用于 NestJS 主服务、后端 API、DDD 模块、controller、usecase、domain service、entity、repository、数据库 migration、队列、事件、服务日志和构建测试任务。执行时应遵守 DDD 分层边界、PostgreSQL/MySQL 兼容性、ratchet lint、禁止全局 format、最小必要改动和可验证交付等项目规则。
 instructionsFile: instructions.md
 runtime:
-  model: apifox/gpt-5.6-luna
+  model: hifox/glm-5.3
   customArguments: []
 permissions:
   taskAssignment: true
