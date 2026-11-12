@@ -71,3 +71,6 @@ automations:
   peixuan-nightly-reflection:
     id: 75264152-9da7-4a4e-86d2-190bfa16f5d5
     deployedName: "裴宣 · 夜间自省 (staging)"
+  wuyong-reflection-briefing:
+    id: 1067472b-7496-4a58-959a-2cb85c729486
+    deployedName: "吴用 · 晨间自省播报 (staging)"

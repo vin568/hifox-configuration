@@ -1,0 +1,10 @@
+key: wuyong-reflection-briefing
+name: 吴用 · 晨间自省播报
+assignee: agent:wuyong
+priority: low
+deployed: true
+triggers:
+  - kind: schedule
+    cron: "0 9 * * *"
+    timezone: Asia/Shanghai
+    label: 每日晨间播报自省摘要
