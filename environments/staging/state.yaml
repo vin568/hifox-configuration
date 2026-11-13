@@ -30,10 +30,37 @@ agents:
   yanqing:
     id: 25f70ada-3a0a-451c-bde7-71ce12863c83
     deployedName: "燕青 - staging"
+    avatarHash: a022c2e0963c38d80aa8186e51e15b3f9b8273898e7c6c0824242dc0cd8cb357
+  tanglong:
+    id: 49f9caef-c409-4f1c-91a2-fdebd8d362f8
+    deployedName: "汤隆 - staging"
+    avatarHash: 712a4051aeb504a91dfbcbd02d6faa1260dd7b142e8173713404014f0648571d
+  xiaorang:
+    id: 56fbc249-57f4-4cb0-aa48-5325d499a82f
+    deployedName: "萧让 - staging"
+    avatarHash: b054c95f086ef5ca6cd87f1519e478a8ffc47d5eac18129ac5e2cdb21bf7aec5
 skills:
   architecture-fit-review:
     id: 1e0b0fdb-1189-478f-bb35-87c69402d971
     deployedName: "Architecture Fit Review - staging"
+  eir/web-acceptance:
+    id: 591e88b3-0d0c-480e-a349-71a45aa1d6c0
+    deployedName: "Apifox Staging Acceptance"
+  skadi/staging-deploy:
+    id: 398ec01a-f73d-4c68-8407-5d4acb0163b8
+    deployedName: "Apifox Integration Deploy"
+  xiaorang/staging-deploy:
+    id: fd6dde07-3b12-467f-85e2-8dfb544d3b35
+    deployedName: "Apifox Integration Deploy"
+  xiaorang/web-acceptance:
+    id: c667b067-fc5a-4835-b01a-db89bcdaaaf2
+    deployedName: "Apifox Staging Acceptance"
+  yanqing/staging-deploy:
+    id: 8bc874ac-54c5-4cdb-bd17-6203a7870b0d
+    deployedName: "Apifox Integration Deploy"
+  yanqing/web-acceptance:
+    id: 4499e2b0-c256-4a2a-951a-8d3d443ba567
+    deployedName: "Apifox Staging Acceptance"
 workflows:
   erlongshan:
     id: 4094d2e8-5b8c-4631-825c-b2a3211dce07
