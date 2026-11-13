@@ -98,7 +98,7 @@ node .agents/skills/xwing-workflows/scripts/contract-snapshot.mjs [--update]   #
 
 ## 4. 关键不变式（踩过坑的实证）
 
-- **canonical 块 id**：graph 里的块 id 是规范身份，import 在每个环境重新分配；部署器按 `(type, name)` 翻译。块名不要重复（重名会被自动改名 N）。
+- **canonical 块 id**：graph 里的块 id 是规范身份，import 在每个环境重新分配；部署器把每个块的身份铸定为 `logicalId`（缺省即规范块 id），并据此解析各环境自己的远端块 id——块 id 稳定是 webhook URL 不换新的前提（引擎的 webhook 路径 = 声明的 `triggerPath` ?? 触发块 id）。块名不要重复（重名会被自动改名 N）。
 - **行 id 前缀禁令覆盖两种行族**：condition 行与 router_v2 的 routes 行（JSON 字符串）都不得带 `{blockId}-` 前缀——引擎 import 重映射前缀行 id（连同 `condition-`/`router-` 句柄），部署器翻译不回 → 恒假漂移。无前缀行 id 原样幸存；`capture --form yaml` 会自动净化。
 - **条件路由三件套**：行数组 + 分支边句柄 `condition-<行id>` 严格配对；兜底行 `title: else` 空值。
 - **function(Shell) 输出语义**：块 `result` = 整个 stdout。脚本做 stdout 卫生：`exec 3>&1 1>&2` 后诊断走 stderr、结构化 JSON `printf … >&3`。
