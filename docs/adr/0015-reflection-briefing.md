@@ -10,6 +10,7 @@ ADR 0013 把夜间自省的出口定为「反思者不碰飞书，吴用在下�
   - 播报侧：`最近成功` 之后已有同层级吴用已完成的前台 chat 会话 run → 该版本已在前台转述过，跳过；只认用户消息触发的 run，排除 automation run（含自身与巡检），查询失败或触发类型不可辨时照播（宁重勿漏）。
   - 前台侧（instructions §0 会话第一件事（续））：`最近成功` 晚于今日 09:00、或当前还没到今日 09:00 → 给 5 行摘要；当前已到 09:00 且 `最近成功` 不晚于 09:00 → 视为已被播报覆盖，一句话确认（不断言用户已收到，带重发入口）。
 - **09:00 是三处同步不变量**：automation.yaml 的 cron、吴用 instructions 的前台时间界、automation description 的去重说明；改时间三处同改。
+- **投递走飞书会话，不走 `--to` 直聊**：agent 运行主体 `--to` 直聊 owner 命中平台 400 `self-conversation not allowed`，且 automation run 的 `auth status` 无 `email`、`triggerHuman` 为空（2026-11-13 staging 首跑实证，首跑曾自作主张发进 run 自身绑定会话并误报 `notified=true`，已明令禁止改道）。正确路径：从自己的 run 列表解析最近 `chat` 面 run 的 `chatSession.id`，`chat message send <会话 id>` 发进与用户的飞书直聊；解析不到会话或发送失败 → `notified=false`。巡检 `wuyong-ledger-sweep` 的上报路径同源同修。
 
 **Considered Options：**
 

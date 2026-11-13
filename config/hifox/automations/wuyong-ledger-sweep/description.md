@@ -27,12 +27,12 @@ Schedule: `*/30 * * * *`（Asia/Shanghai）
    - 每项更新 `最近核对：<ISO>（<status>）`。
 5. 只统计不移动：`等待用户` 超过 7 天、`计划` 超过 90 天的项，列入摘要提醒（**只随本条摘要附带，不单独触发消息**）。
 6. 汇总与通知（**状态迁移 / 新终态 / 异常变化**才发，最多一条；仅 `最近核对` 刷新不算变更，保持零打扰）：
-   收件人按顺序解析：`hifox auth status --output json` 的 `email` → `hifox run view $HIFOX_RUN_ID --output json` 的 `triggerHuman.id`（非空且 type 为 human/member）→ 都没有则跳过。
+   收件人解析（agent 运行主体无法 `--to` 直聊 owner，平台返回 400 `self-conversation not allowed`；automation run 的 `auth status` 无 `email`、`triggerHuman` 为空）：`hifox run list --agent <同层级自己 id> --limit 100 --output json` 取**最近一条** `chatSession.surface="chat"` 的 `chatSession.id`（当前飞书直聊会话；`/new` 换会话后最新 run 自然携带新 id）；没有 chat 会话则跳过通知。
 
    ```bash
    BODY="$(mktemp /tmp/wuyong-sweep.XXXXXX.md)"   # 并发 run 共享 /tmp，必须独立文件
    # 写入摘要到 "$BODY"
-   hifox chat message send --to <收件人> --body-file "$BODY"
+   hifox chat message send <飞书会话 id> --body-file "$BODY"
    ```
    摘要格式：
 
@@ -44,7 +44,7 @@ Schedule: `*/30 * * * *`（Asia/Shanghai）
    ```
 
    无变更且无异常 → **不发消息（零打扰）**。
-   `email` / `triggerHuman.id` 都为空或私聊发送失败 → `notified=false`，不重试：异常已写入台账与最终输出，下一次巡检或用户对话会再次暴露。
+   解析不到飞书会话或发送失败 → `notified=false`，不重试、不改道（不得改用 `--to`、本 run 绑定会话或任务评论顶替）：异常已写入台账与最终输出，下一次巡检或用户对话会再次暴露。
 7. 最终输出单行 JSON：`{"swept":N,"pendingRelay":N,"anomalies":N,"notified":true|false}`。
 
 ## Hard Safety Boundaries

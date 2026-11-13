@@ -18,17 +18,18 @@ Schedule: `0 9 * * *`（Asia/Shanghai）
    - **前台已转述去重**：`hifox agent list --output json` 取同层级自己的 id → `hifox run list --agent <id> --limit 200 --output json`，若存在 `createdAt` 晚于总览 `最近成功` 的已完成**前台 chat 会话 run**（用户消息触发的 run；**排除 automation 触发的 run**——包括自己的播报 run 与巡检 run）→ 用户已听过该版本，**不播报**，输出 `{"briefed":false,"reason":"already-relayed"}`。查询失败或 run 触发类型无法区分时不据此跳过（宁重勿漏，照常播报）。
    - 总览为无活动心跳（只有 `最近成功` / `最近窗口` 更新）→ 只播报一行「昨天一切如常，没有需要你决策的新建议」。
 4. 撰写摘要（对外口径，≤6 行）：日期；趋势要点一行；异常要点一行（无则并入趋势）；建议 0–3 条——用总览 `提议` 的**编号 + 现象一句话**（与用户「采纳第 N 条」同编号，不报内部 id）；末行邀请决策：「想采纳的建议回复『采纳第 N 条』，放弃回复『放弃第 N 条』」。
-5. 收件人与发送（与巡检同口径）：
-   收件人按顺序解析：`hifox auth status --output json` 的 `email` → `hifox run view $HIFOX_RUN_ID --output json` 的 `triggerHuman.id`（非空且 type 为 human/member）→ 都没有则跳过（`notified=false`，不创建、不重试）。
+5. 投递（发进你与用户的飞书直聊会话；**不走 `--to` 直聊**——agent 运行主体 `--to` 自己的 owner 会 400 `self-conversation not allowed`；automation run 也不绑定用户会话，发进本 run 会话用户看不见，两者都不算投递成功）：
+   1. 解析飞书会话：`hifox run list --agent <同层级自己 id> --limit 100 --output json`，取**最近一条** `chatSession.surface="chat"` 的 `chatSession.id`（当前飞书直聊会话；`/new` 换会话后最新 run 自然携带新 id）；没有 chat 会话 → 直接输出 `{"briefed":false,"reason":"no-session"}`。
+   2. 发送：
 
    ```bash
    BODY="$(mktemp /tmp/wuyong-briefing.XXXXXX.md)"   # 并发 run 共享 /tmp，必须独立文件
    # 写入摘要到 "$BODY"
-   hifox chat message send --to <收件人> --body-file "$BODY"
+   hifox chat message send <飞书会话 id> --body-file "$BODY"
    ```
 
-   发送失败重试一次；仍失败 → `notified=false`，不补发、不阻塞。
-6. 最终输出单行 JSON：`{"briefed":true|false,"reason":"fresh|no-activity|stale|already-relayed|no-overview|no-recipient","notified":true|false,"lastSuccess":"<ISO>"}`。
+   发送失败重试一次；仍失败 → `notified=false`，不补发、不阻塞、**不改道**（不得改用 `--to`、本 run 绑定会话或任务评论顶替）。
+6. 最终输出单行 JSON：`{"briefed":true|false,"reason":"fresh|no-activity|stale|already-relayed|no-overview|no-session","notified":true|false,"lastSuccess":"<ISO>"}`。
 
 ## Hard Safety Boundaries
 
