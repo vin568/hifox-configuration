@@ -6,11 +6,11 @@
 // ride extra/state passthrough, or add an engine-managed field name).
 //
 // Usage (inside a repo managed by x-deploy, run at the repo root):
-//   node contract-snapshot.mjs                 # compare; exit 1 on drift
+//   node contract-snapshot.mjs                 # compare; exit 1 only on removed types
 //   node contract-snapshot.mjs --update        # rewrite the snapshot
 //   node contract-snapshot.mjs --update --cli hifox --space <id>
 //
-// The snapshot lives at contract-snapshots/catalog.tsv (commit it). cli.app and
+// The snapshot lives at .contract-snapshots/catalog.tsv (commit it). cli.app and
 // spaceId are auto-detected from environments/*/environment.yaml (first
 // environment), same convention as catalog-doc.mjs.
 import { execFileSync } from "node:child_process";
@@ -65,9 +65,9 @@ const table = rows
   .map((row) => row.join("\t"));
 const next = `${table.join("\n")}\n# ${rows.length} block type(s) — engine contract snapshot (see skills/xwing-workflows/scripts/contract-snapshot.mjs)\n`;
 
-const snapshotPath = join(process.cwd(), "contract-snapshots", "catalog.tsv");
+const snapshotPath = join(process.cwd(), ".contract-snapshots", "catalog.tsv");
 if (process.argv.includes("--update") || !existsSync(snapshotPath)) {
-  mkdirSync(join(process.cwd(), "contract-snapshots"), { recursive: true });
+  mkdirSync(join(process.cwd(), ".contract-snapshots"), { recursive: true });
   writeFileSync(snapshotPath, next);
   console.log(`contract-snapshot: wrote ${rows.length} block type(s) to ${snapshotPath}`);
   process.exit(0);
@@ -85,9 +85,15 @@ const nextRows = new Map(table.map((line) => [line.split("\t")[0], line]));
 const added = [...nextRows.keys()].filter((type) => !currentRows.has(type));
 const removed = [...currentRows.keys()].filter((type) => !nextRows.has(type));
 const moved = [...nextRows.keys()].filter((type) => currentRows.has(type) && currentRows.get(type) !== nextRows.get(type));
-console.error(`contract-snapshot: engine contract drift detected (catalog ${currentRows.size} -> ${nextRows.size} type(s))`);
+console.error(`contract-snapshot: engine contract drift (catalog ${currentRows.size} -> ${nextRows.size} type(s))`);
 for (const type of added) console.error(`  + ${nextRows.get(type)}`);
 for (const type of removed) console.error(`  - ${currentRows.get(type)}`);
 for (const type of moved) console.error(`  ~ ${currentRows.get(type)} -> ${nextRows.get(type)}`);
-console.error("review each entry, then re-run with --update; new structural families need a roundtrip.test.mjs fixture");
-process.exit(1);
+if (removed.length) {
+  console.error("drift is not a broken workflow: deployed instances keep running; only the next apply of declarations can break.");
+  console.error("removed types are the only hard risk: if one is used in config/*/workflows/**, migrate that declaration before apply (removals usually pair with a rename — see the + entries).");
+  console.error("then re-run with --update to re-stamp the baseline and commit it; new structural families (sugar, roundtrip fixtures) are handled in the x-deploy repo.");
+  process.exit(1);
+}
+console.error("additions and label/category tweaks are informational (no removals): re-run with --update to re-stamp the baseline and commit it.");
+process.exit(0);

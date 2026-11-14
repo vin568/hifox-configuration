@@ -55,6 +55,7 @@ datagma	tools	Datagma
 daytona	tools	Daytona
 deployments	blocks	Deployments
 devin	tools	Devin
+dingtalk	tools	钉钉
 discord	tools	Discord
 downdetector	tools	Downdetector
 dropcontact	tools	Dropcontact
@@ -263,6 +264,7 @@ wait	blocks	Wait
 wealthbox	tools	Wealthbox
 webflow	tools	Webflow
 webhook_request	blocks	Webhook
+wecom	tools	企业微信
 whatsapp	tools	WhatsApp
 wikipedia	tools	Wikipedia
 windchill	tools	Windchill
@@ -276,4 +278,4 @@ zerobounce	tools	ZeroBounce
 zoho_desk	tools	Zoho Desk
 zoom	tools	Zoom
 zoominfo	tools	ZoomInfo
-# 278 block type(s) — engine contract snapshot (see skills/xwing-workflows/scripts/contract-snapshot.mjs)
+# 280 block type(s) — engine contract snapshot (see skills/xwing-workflows/scripts/contract-snapshot.mjs)

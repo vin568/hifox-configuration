@@ -92,10 +92,6 @@ node scripts/catalog-doc.mjs options <type> <字段> # 动态选项
 
 脚本自动从 `environments/*/environment.yaml` 解析 cli.app 与 spaceId（可用 `--cli`/`--space` 覆盖）。**不要凭记忆写块字段**——先 `view`。
 
-```
-node .agents/skills/xwing-workflows/scripts/contract-snapshot.mjs [--update]   # 引擎块类型表快照（消费仓根目录运行）
-```
-
 ## 4. 关键不变式（踩过坑的实证）
 
 - **canonical 块 id**：graph 里的块 id 是规范身份，import 在每个环境重新分配；部署器把每个块的身份铸定为 `logicalId`（缺省即规范块 id），并据此解析各环境自己的远端块 id——块 id 稳定是 webhook URL 不换新的前提（引擎的 webhook 路径 = 声明的 `triggerPath` ?? 触发块 id）。块名不要重复（重名会被自动改名 N）。
@@ -128,3 +124,11 @@ node .agents/skills/xwing-workflows/scripts/contract-snapshot.mjs [--update]   #
 - schedule 触发在 runner 离线时排队（命令 TTL 24h），上线后自动执行；手动 `--async` 同机制。
 - 含 function 块的 workflow 定向 personal 可见性 computer 时，函数代码改动需 owner 重新授权（把 computer 可见性翻成 organization/space 豁免）。
 - 同一 workflow 部署到多环境 = 多实例多 schedule；需要防并发时在首个 function 块做原子标记守卫。
+
+## 7. Maintenance surface: engine upgrade detection (no need to run this when writing workflows)
+
+```bash
+node .agents/skills/xwing-workflows/scripts/contract-snapshot.mjs [--update]
+```
+
+The baseline lives at the repo root `.contract-snapshots/catalog.tsv` (committed). Drift only indicates "the engine surface has changed", not an error in your own workflow. Exit codes are tiered: `-` type deleted (the only compatibility risk; if used in `config/*/workflows/**` declarations, migrate before apply — deletions are usually renames, see the `+` counterpart in the same output) → exit 1; `+` new type / `~` copy or category tweaks → informational, exit 0. After review, rerun `--update` to re-stamp and commit; new structural families (sugar/roundtrip fixtures) are handled in the x-deploy repo.
