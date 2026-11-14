@@ -27,7 +27,15 @@ const CODE_SELECTOR = process.env.LOGIN_CODE_SELECTOR || 'input[type="text"], in
 const SUBMIT_SELECTOR = process.env.LOGIN_SUBMIT_SELECTOR || 'button[type="submit"], button:has-text("登录"), button:has-text("Continue"), button:has-text("继续")';
 const ROUTES = (process.env.SHOT_ROUTES || "/,/agents,/crews,/skills,/workflows").split(",");
 
+// How long any single auth-related wait may take (form reveal, redirect,
+// confirmation signal). Page-load budgets stay separate literals.
+const LOGIN_TIMEOUT_MS = 30_000;
+
+// Both must be declared: ESM strict mode makes the old bare `browser =`
+// assignment throw ReferenceError, and the catch below swallowed it as a
+// "startup failure", so the script silently never captured anything.
 let chromium;
+let browser;
 try {
   ({ chromium } = await import("playwright"));
   mkdirSync(OUT_DIR, { recursive: true });
@@ -44,22 +52,43 @@ const context = await browser.newContext({ viewport: { width: 1600, height: 1000
 const page = await context.newPage();
 const notes = [];
 
+const atLogin = (u) => /\/login(\?|$|\/)/.test(typeof u === "string" ? u : u.href);
+
 try {
-  await page.goto(BASE_URL, { waitUntil: "networkidle", timeout: 60_000 });
+  // The root route renders a Loading shell while the SPA resolves auth state,
+  // so "no form after N seconds" proves nothing (the old probe mistook that
+  // shell for an authenticated session and captured login pages). An
+  // auth-gated route is deterministic instead: no session → redirect to
+  // /login or the form itself appears; valid session → neither. Race the two
+  // positive signals rather than guessing from absence.
+  await page.goto(new URL("/agents", BASE_URL).toString(), { waitUntil: "domcontentloaded", timeout: 60_000 });
   const email = page.locator(EMAIL_SELECTOR).first();
-  if (await email.isVisible({ timeout: 5_000 }).catch(() => false)) {
+  const redirectedToLogin = page.waitForURL(atLogin, { timeout: LOGIN_TIMEOUT_MS }).then(() => true, () => false);
+  const loginFormShown = email.waitFor({ state: "visible", timeout: LOGIN_TIMEOUT_MS }).then(() => true, () => false);
+  if (await Promise.race([redirectedToLogin, loginFormShown])) {
+    await email.waitFor({ state: "visible", timeout: LOGIN_TIMEOUT_MS });
     await email.fill(EMAIL);
     await page.locator(SUBMIT_SELECTOR).first().click();
     const code = page.locator(CODE_SELECTOR).first();
     await code.waitFor({ state: "visible", timeout: 20_000 });
     await code.fill(CODE);
     const submit = page.locator(SUBMIT_SELECTOR).first();
-    if (await submit.isVisible({ timeout: 3_000 }).catch(() => false)) await submit.click();
-    await page.waitForLoadState("networkidle", { timeout: 30_000 });
+    if (await submit.isVisible().catch(() => false)) await submit.click();
+    // Confirm auth actually took with a signal a still-loading shell cannot
+    // fake. On a redirect flow that is the URL leaving /login. When the form
+    // rendered in place (no redirect), the URL never entered /login, so the
+    // unfakeable transition is the code input disappearing.
+    if (atLogin(page.url())) {
+      await page.waitForURL((u) => !atLogin(u), { timeout: LOGIN_TIMEOUT_MS });
+    } else {
+      await page.locator(CODE_SELECTOR).first().waitFor({ state: "hidden", timeout: LOGIN_TIMEOUT_MS });
+    }
+    await page.waitForLoadState("networkidle", { timeout: LOGIN_TIMEOUT_MS });
     notes.push("login form filled");
   } else {
-    notes.push("no login form visible (assumed already authenticated)");
+    notes.push("no login redirect or form on gated route within 30s (assumed already authenticated)");
   }
+  await page.goto(BASE_URL, { waitUntil: "networkidle", timeout: 30_000 });
   await page.screenshot({ path: join(OUT_DIR, "00-home.png"), fullPage: true });
 
   for (const route of ROUTES) {

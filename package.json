@@ -1,0 +1,8 @@
+{
+  "name": "hifox-configuration",
+  "private": true,
+  "description": "Declarative xwing family configuration; tests cover the locally maintained skill scripts.",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.mjs\""
+  }
+}

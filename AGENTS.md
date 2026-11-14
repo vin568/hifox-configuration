@@ -26,11 +26,13 @@
 
 判定一句话：给部署的远端 agent 用 → `skills/`（源 + agent 引用）或 `config/<集合>/skills/`（Space 共享）；给在本仓干活的开发 agent 用 → `.agents/skills/<名>/`。
 
+技能目录里随仓维护的脚本（如戴宗验收套件的 `screenshot.mjs`）有回归测试：根目录 `npm test`（node:test，零依赖，用 `test/fixtures/` 的边界 stub）；用例按源码路径镜像存放——agent 技能为 `test/<agent>/<skill>/<脚本名>.test.mjs`，根级共享源按 `skills/` 下目录名（如 `test/xwing-task-runtime/`）——改这些脚本必须先跑或补用例。
+
 ## 子模块开发（唯一允许改部署逻辑的地方）
 
 1. `vendor/x-deploy` 是完整 git 仓库，不是 vendored 只读代码；`.gitmodules` 固定 `branch = dev`（`main` 为稳定分支）。detached HEAD 时先 `git -C vendor/x-deploy switch dev`。
 2. 在子模块内编辑并运行 `npm test`；真实 API 测试按 CLI App 参数化（hifox / sharkly 双套），只在各自专用测试组织上跑，见子模块 `AGENTS.md`「测试」节的 `.env.e2e` / `<APP>_ORGANIZATION_ID` 与 `<APP>_E2E_*` 约定。
-3. 在子模块仓库提交并推送 `origin/dev`，再回本仓库 `git add vendor/x-deploy && git commit` 更新指针。根仓库的提交只包含配置/文档/壳脚本/指针变化。
+3. 在子模块仓库提交并推送 `origin/dev`，再回本仓库 `git add vendor/x-deploy && git commit` 更新指针。根仓库的提交只包含配置/文档/壳脚本/测试/指针变化。
 4. 拉上游更新：`git submodule update --remote --rebase vendor/x-deploy`，随后 `./x-deploy init` 刷新受管物料；`./x-deploy update` 对子模块布局一律拒绝（见 `./x-deploy guide upgrade`）。
 
 不要把子模块当只读依赖，也不要绕开它把部署逻辑复制进根仓库或壳脚本；`x-deploy` 壳脚本的路径与 `--root` 语义属消费方契约，不要改。修改术语或契约前，先读子模块 `GLOSSARY.md` 与 `docs/adr/` 并同步。子模块文档拆分约束见其 `AGENTS.md`「文档职责」节：工具仓 `README.md` 是随包分发的纯消费契约（`guide contract` 原样输出）；维护者内容归子模块 `AGENTS.md`；随包文档（README 与 runbooks）不反向引用不随包的文件（`docs/adr/`、`AGENTS.md`、`GLOSSARY.md` 的编号与链接在安装形态下是死链）；部署实例名只出现在校验闭集处（依赖节、`cli.app` 字段表）；改契约措辞需同步其不变量与 runbook。
