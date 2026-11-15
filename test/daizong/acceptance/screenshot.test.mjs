@@ -20,10 +20,13 @@ import test from "node:test";
 const SCRIPT_URL = new URL("../../../config/hifox/agents/daizong/skills/acceptance/scripts/screenshot.mjs", import.meta.url);
 const STUB_URL = new URL("../../fixtures/playwright-stub", import.meta.url);
 
-function runScript({ args = [], env = {}, stub = true } = {}) {
+function runScript({ args = [], env = {}, stub = true, files = {} } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "shot-test-"));
   const scriptCopy = join(dir, "screenshot.mjs");
   writeFileSync(scriptCopy, readFileSync(SCRIPT_URL));
+  for (const [name, content] of Object.entries(files)) {
+    writeFileSync(join(dir, name), content);
+  }
   if (stub) {
     mkdirSync(join(dir, "node_modules"));
     cpSync(STUB_URL, join(dir, "node_modules", "playwright"), { recursive: true });
@@ -156,4 +159,117 @@ test("per-route capture failure is noted and never gates (exit 0, other shots ta
     ["00-home.png", "agents.png", "crews.png", "workflows.png"],
   );
   assert.ok(captured.every((s) => s.authed));
+});
+// ---------------------------------------------------------------------------
+// --verify: the UI gate. journey.json-style spec, text assertions, per-check
+// screenshots, ui-verdict.json, exit codes 0/1/2.
+// ---------------------------------------------------------------------------
+const VERIFY_SPEC = {
+  kind: "ui-verify",
+  checks: [
+    { name: "agents-list", route: "/agents", texts: ["Marlin Prime - journey-x", "Skipper - journey-x"] },
+    {
+      name: "agent-detail",
+      route: "/agents",
+      clickText: "Marlin Prime - journey-x",
+      afterTexts: ["Marlin runs the e2e journey", "https://cnb.cool/tars-lab/xwing"],
+    },
+  ],
+};
+const VERIFY_PAGES = {
+  "/agents": {
+    texts: ["Marlin Prime - journey-x", "Skipper - journey-x"],
+    click: { "Marlin Prime - journey-x": "/agents/marlin" },
+  },
+  "/agents/marlin": {
+    texts: ["Marlin runs the e2e journey", "https://cnb.cool/tars-lab/xwing"],
+  },
+};
+
+test("verify pass: every check asserts, clicks through to detail, writes ui-verdict pass, exit 0", () => {
+  const { dir, res, events } = runScript({
+    args: ["--url", "http://app.test", "--out", "shots", "--verify", "journey.json"],
+    env: { STUB_AUTHED: "1", STUB_VERIFY_PAGES: JSON.stringify(VERIFY_PAGES) },
+    files: { "journey.json": JSON.stringify(VERIFY_SPEC) },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.match(res.stdout, /ui verdict: pass/);
+  const verdict = JSON.parse(readFileSync(join(dir, "shots", "ui-verdict.json"), "utf8"));
+  assert.equal(verdict.verdict, "pass");
+  assert.equal(verdict.checks.length, 2);
+  assert.ok(verdict.checks.every((c) => c.pass));
+  const clicks = events.filter((e) => e.type === "click-text");
+  assert.equal(clicks.length, 1);
+  assert.equal(clicks[0].to, "/agents/marlin");
+  const names = shots(events).map((s) => s.path.replace(/^.*\//, ""));
+  assert.ok(names.includes("verify-agents-list.png"));
+  assert.ok(names.includes("verify-agent-detail.png"));
+});
+
+test("verify fail: a text the UI never shows fails the check, ui-verdict fail, exit 1", () => {
+  const { dir, res } = runScript({
+    args: ["--url", "http://app.test", "--out", "shots", "--verify", "journey.json"],
+    env: {
+      STUB_AUTHED: "1",
+      VERIFY_TIMEOUT_MS: "1000",
+      // Pages spec lists only Marlin on /agents: agents-list fails on the
+      // missing Skipper text; the detail click has no navigation map, so its
+      // afterTexts never appear — both failure paths red.
+      STUB_VERIFY_PAGES: JSON.stringify({ "/agents": { texts: ["Marlin Prime - journey-x"] } }),
+      SHOT_ROUTES: "",
+    },
+    files: { "journey.json": JSON.stringify(VERIFY_SPEC) },
+  });
+  assert.equal(res.status, 1, res.stderr);
+  assert.match(res.stdout, /ui verdict: fail/);
+  const verdict = JSON.parse(readFileSync(join(dir, "shots", "ui-verdict.json"), "utf8"));
+  assert.equal(verdict.verdict, "fail");
+});
+
+test("verify + playwright unavailable: explicit skip (exit 2), ui-verdict records it", () => {
+  const { dir, res } = runScript({
+    args: ["--url", "http://app.test", "--out", "shots", "--verify", "journey.json"],
+    stub: false,
+    files: { "journey.json": JSON.stringify(VERIFY_SPEC) },
+  });
+  assert.equal(res.status, 2, res.stderr);
+  assert.match(res.stderr, /ui layer skipped/);
+  const verdict = JSON.parse(readFileSync(join(dir, "shots", "ui-verdict.json"), "utf8"));
+  assert.equal(verdict.verdict, "skipped");
+});
+test("verify without a path value refuses to silently disable the UI gate (exit 2, review F-1)", () => {
+  const { res } = runScript({
+    args: ["--url", "http://app.test", "--out", "shots", "--verify"],
+    env: { STUB_AUTHED: "1" },
+  });
+  assert.equal(res.status, 2, res.stderr);
+  assert.match(res.stderr, /--verify requires a path/);
+});
+
+test("verify with an unreadable spec: explicit skip (exit 2) + ui-verdict records it (review F-2)", () => {
+  const { dir, res } = runScript({
+    args: ["--url", "http://app.test", "--out", "shots", "--verify", "no-such-journey.json"],
+    env: { STUB_AUTHED: "1" },
+  });
+  assert.equal(res.status, 2, res.stderr);
+  assert.match(res.stderr, /ui layer skipped/);
+  const verdict = JSON.parse(readFileSync(join(dir, "shots", "ui-verdict.json"), "utf8"));
+  assert.equal(verdict.verdict, "skipped");
+  assert.match(verdict.reason, /no-such-journey\.json/);
+});
+
+test("verify with fatal login: verdict file still written, skip semantics (exit 2, review F-2)", () => {
+  const { dir, res } = runScript({
+    args: ["--url", "http://app.test", "--out", "shots", "--verify", "journey.json"],
+    env: {
+      STUB_EXPECTED_CODE: "000000", // login can never succeed
+      SHOT_ROUTES: "",
+    },
+    files: { "journey.json": JSON.stringify(VERIFY_SPEC) },
+  });
+  assert.equal(res.status, 2, res.stderr);
+  assert.match(res.stdout, /fatal/);
+  const verdict = JSON.parse(readFileSync(join(dir, "shots", "ui-verdict.json"), "utf8"));
+  assert.equal(verdict.verdict, "skipped");
+  assert.match(verdict.reason, /fatal/);
 });

@@ -1,11 +1,22 @@
-#!/usr/bin/env node
-// Best-effort evidence screenshots of the task-local dev web UI.
-// Not a gate: failures change no verdict, but must be noted in the report.
+// Evidence screenshots of the task-local dev web UI, plus an optional
+// GATING verification pass (--verify <journey.json>): the suite's user
+// journey emits a UI-shape-agnostic spec of what an end user must SEE for
+// the deployed resources; this script asserts it text-by-text with a
+// screenshot per check.
 //
-// Usage: node screenshot.mjs --url http://localhost:30000 --out shots/
+// Exit codes (chained invocation contract, instructions §2.5):
+//   no --verify: 0 always — evidence tooling never flips the verdict alone
+//   --verify:    0 = all UI checks passed
+//                1 = an assertion failed (UI-layer gate result)
+//                2 = infrastructure unavailable (playwright/chromium) — the
+//                    round degrades, ui-verdict.json records verdict=skipped
+//
+// Usage:
+//   node screenshot.mjs --url http://localhost:30000 --out shots/
+//   node screenshot.mjs --url ... --out shots/ --verify <dir>/journey.json
 // Selectors are overridable via env (LOGIN_EMAIL_SELECTOR etc.) so the agent
 // can adapt to UI drift without editing this file.
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const args = process.argv.slice(2);
@@ -15,9 +26,35 @@ const flag = (name) => {
 };
 const BASE_URL = flag("url");
 const OUT_DIR = flag("out") || "shots";
+const VERIFY_SPEC_PATH = flag("verify");
 if (!BASE_URL) {
   console.error("screenshot: --url <frontend-origin> is required");
   process.exit(2);
+}
+// A present-but-valueless --verify must never silently degrade to the
+// evidence-only mode (which always exits 0) — that would bypass the UI gate
+// on a caller typo (review F-1).
+if (args.includes("--verify") && (!VERIFY_SPEC_PATH || VERIFY_SPEC_PATH.startsWith("--"))) {
+  console.error("screenshot: --verify requires a path to the suite's journey.json — refusing to silently disable the UI gate");
+  process.exit(2);
+}
+let VERIFY_SPEC = null;
+if (VERIFY_SPEC_PATH) {
+  // An unreadable spec (journey chain aborted before emitting it, or a
+  // typo'd path) is a supply/infrastructure problem, not an assertion
+  // failure: record skipped and exit 2 instead of crashing with exit 1
+  // (review F-2).
+  try {
+    VERIFY_SPEC = JSON.parse(readFileSync(VERIFY_SPEC_PATH, "utf8"));
+  } catch (error) {
+    mkdirSync(OUT_DIR, { recursive: true });
+    writeFileSync(
+      join(OUT_DIR, "ui-verdict.json"),
+      `${JSON.stringify({ verdict: "skipped", reason: `verify spec unreadable (${VERIFY_SPEC_PATH}): ${error.message?.split("\n")[0]}`, at: new Date().toISOString() }, null, 2)}\n`,
+    );
+    console.error(`screenshot: verify spec unreadable — ui layer skipped: ${error.message?.split("\n")[0]}`);
+    process.exit(2);
+  }
 }
 
 const EMAIL = process.env.DEVBOT_EMAIL || "devbot@example.com";
@@ -42,9 +79,18 @@ try {
   browser = await chromium.launch({ headless: true });
 } catch (error) {
   // Startup failures (playwright missing, chromium binary unavailable, output
-  // dir unwritable) are evidence-tooling problems, not gate results: note and
-  // exit 0 so a chained invocation can never flip the verdict (instructions
-  // §2.5: screenshot failures annotate the report, never change it).
+  // dir unwritable) are evidence-tooling problems. Without --verify they
+  // never flip a verdict (exit 0 + note). With --verify the UI layer is a
+  // gate: record verdict=skipped and exit 2 so the executor degrades the
+  // round explicitly instead of silently passing an unverified UI.
+  if (VERIFY_SPEC) {
+    try {
+      mkdirSync(OUT_DIR, { recursive: true });
+      writeFileSync(join(OUT_DIR, "ui-verdict.json"), `${JSON.stringify({ verdict: "skipped", reason: `startup failed: ${error.message?.split("\n")[0]}`, at: new Date().toISOString() }, null, 2)}\n`);
+    } catch { /* nothing more we can honestly report */ }
+    console.error(`screenshot: startup failed (ui layer skipped): ${error.message?.split("\n")[0]}`);
+    process.exit(2);
+  }
   console.error(`screenshot: startup failed (not a gate result): ${error.message?.split("\n")[0]}`);
   process.exit(0);
 }
@@ -91,6 +137,43 @@ try {
   await page.goto(BASE_URL, { waitUntil: "networkidle", timeout: 30_000 });
   await page.screenshot({ path: join(OUT_DIR, "00-home.png"), fullPage: true });
 
+  if (VERIFY_SPEC) {
+    // The UI gate: assert what a user SEES, text-based (no pixel compare, no
+    // CSS selectors) so presentational churn cannot break the contract.
+    const VERIFY_TIMEOUT_MS = Number(process.env.VERIFY_TIMEOUT_MS || 20_000);
+    const checks = [];
+    for (const check of VERIFY_SPEC.checks || []) {
+      const entry = { name: check.name, pass: true, note: "" };
+      try {
+        const target = new URL(check.route || "/", BASE_URL).toString();
+        await page.goto(target, { waitUntil: "networkidle", timeout: 30_000 });
+        const texts = [...(check.texts || [])];
+        if (check.clickText) texts.push(check.clickText);
+        for (const text of texts) {
+          await page.locator(`text=${text}`).first().waitFor({ state: "visible", timeout: VERIFY_TIMEOUT_MS });
+        }
+        if (check.clickText) {
+          await page.locator(`text=${check.clickText}`).first().click();
+          await page.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => {});
+          for (const text of check.afterTexts || []) {
+            await page.locator(`text=${text}`).first().waitFor({ state: "visible", timeout: VERIFY_TIMEOUT_MS });
+          }
+        }
+        await page.screenshot({ path: join(OUT_DIR, `verify-${check.name}.png`), fullPage: true });
+        notes.push(`verify ${check.name}: pass`);
+      } catch (error) {
+        entry.pass = false;
+        entry.note = String(error.message || error).split("\n")[0].slice(0, 200);
+        await page.screenshot({ path: join(OUT_DIR, `verify-${check.name}-fail.png`), fullPage: true }).catch(() => {});
+        notes.push(`verify ${check.name}: FAIL (${entry.note})`);
+      }
+      checks.push(entry);
+    }
+    const uiVerdict = checks.every((c) => c.pass) ? "pass" : "fail";
+    writeFileSync(join(OUT_DIR, "ui-verdict.json"), `${JSON.stringify({ verdict: uiVerdict, checks, at: new Date().toISOString() }, null, 2)}\n`);
+    console.log(`ui verdict: ${uiVerdict}`);
+  }
+
   for (const route of ROUTES) {
     if (!route || route === "/") continue;
     const target = new URL(route, BASE_URL).toString();
@@ -107,7 +190,25 @@ try {
   await page.screenshot({ path: join(OUT_DIR, "error.png") }).catch(() => {});
 } finally {
   await browser.close();
+  // Verify mode guarantees ui-verdict.json on every path: if checks never
+  // ran (fatal before them, e.g. login failure), record an explicit skip so
+  // the exit code and the verdict file can never disagree (review F-2).
+  if (VERIFY_SPEC && !existsSync(join(OUT_DIR, "ui-verdict.json"))) {
+    const fatal = notes.find((n) => n.startsWith("fatal:")) || "fatal before UI checks";
+    writeFileSync(join(OUT_DIR, "ui-verdict.json"), `${JSON.stringify({ verdict: "skipped", reason: fatal, at: new Date().toISOString() }, null, 2)}\n`);
+  }
 }
 
 console.log(notes.join("\n"));
-process.exit(0);
+process.exit(!VERIFY_SPEC ? 0 : uiExitCode());
+
+function uiExitCode() {
+  // ui-verdict.json was written in the verify block; re-read to decide the
+  // exit code so the file and the code can never disagree.
+  try {
+    const verdict = JSON.parse(readFileSync(join(OUT_DIR, "ui-verdict.json"), "utf8")).verdict;
+    return verdict === "pass" ? 0 : verdict === "skipped" ? 2 : 1;
+  } catch {
+    return 1;
+  }
+}

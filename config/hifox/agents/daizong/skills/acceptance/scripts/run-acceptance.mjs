@@ -12,6 +12,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
+import { parseCommandSurface, tiersFor, buildCoverage } from "./lib/surface.mjs";
 
 // Template braces are assembled at runtime: this file is synced as a skill
 // attachment and must survive the deploy pipeline's variable expansion
@@ -45,6 +46,13 @@ function spawnCliEnv() {
   const env = { ...process.env, HIFOX_ORGANIZATION_ID: ORG_ID };
   if (process.env.HIFOX_SERVER_URL) env.HIFOX_SERVER_URL = process.env.HIFOX_SERVER_URL;
   if (process.env.HIFOX_TOKEN) env.HIFOX_TOKEN = process.env.HIFOX_TOKEN;
+  // The port-suffixed task CLI authenticates only from APP_*-prefixed vars
+  // (it does not read HIFOX_*). Alias the suite's HIFOX_* contract so the
+  // spawned CLI tree authenticates even when the caller exported nothing
+  // else; never override values the caller already provided.
+  if (process.env.HIFOX_SERVER_URL && !env.APP_SERVER_URL) env.APP_SERVER_URL = process.env.HIFOX_SERVER_URL;
+  if (process.env.HIFOX_TOKEN && !env.APP_TOKEN) env.APP_TOKEN = process.env.HIFOX_TOKEN;
+  if (ORG_ID && !env.APP_ORGANIZATION_ID) env.APP_ORGANIZATION_ID = ORG_ID;
   if (CLI_BIN !== "hifox") {
     env.PATH = `${dirname(CLI_BIN)}:${env.PATH || ""}`;
   }
@@ -69,12 +77,38 @@ function cliJson(cliArgs) {
   return result.stdout.trim() ? JSON.parse(result.stdout) : null;
 }
 
+// Every candidate invocation is logged with its scenario/chain provenance:
+// the report's coverage matrix is MEASURED from this log (which commands the
+// pinned scenarios and the user journey actually exercised), never declared.
+const invocations = [];
+let currentScenario = null;
+let currentChain = null;
+
 function deployRun(deployRoot, deployArgs) {
+  if (currentScenario) invocations.push({ command: deployArgs[0], scenario: currentScenario, chain: currentChain });
   return spawnSync(
     process.execPath,
     [join(REPO, "bin", "x-deploy.mjs"), ...deployArgs, "--root", deployRoot],
     { encoding: "utf8", maxBuffer: 128 * 1024 * 1024, timeout: 600_000, env: spawnCliEnv() },
   );
+}
+
+// Raw candidate invocation outside any --root fixture (help output, bare
+// smoke tier, and the journey's init). Logged into invocations like deployRun
+// when a scenario context is active (review F-7: the journey's init must
+// surface as pinned provenance in the coverage matrix, not smoke-only);
+// flag-like pseudo-commands (--help) are not commands and stay unlogged.
+function candidateRun(cwd, cliArgs, timeout = 120_000) {
+  if (currentScenario && cliArgs[0] && !cliArgs[0].startsWith("-")) {
+    invocations.push({ command: cliArgs[0], scenario: currentScenario, chain: currentChain });
+  }
+  return spawnSync(process.execPath, [join(REPO, "bin", "x-deploy.mjs"), ...cliArgs], {
+    cwd,
+    encoding: "utf8",
+    maxBuffer: 128 * 1024 * 1024,
+    timeout,
+    env: spawnCliEnv(),
+  });
 }
 
 // Minimal state.yaml reader: sections (crew/agents/skills/workflows) at col 0,
@@ -115,6 +149,40 @@ const startedAt = now();
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
+// Platform contract: every agent create requires a paired runtime target
+// (computer + runtime selector). Resolve the task-local lease once — the
+// computerId is environment-specific and must never be hardcoded — and stamp
+// the same target into every fixture agent that will be created (alpha/beta,
+// gamma, the workflow fixture agent, and the journey config). The provider
+// NAME (not runtime id) is declared on purpose: the remote stores the
+// provider name, so runtime rotation stays platform-owned and the idempotent
+// re-apply comparison stays meaningful. Zero or multiple active computers is
+// an environment problem, not a contract result: fail fast with that
+// attribution.
+function resolveAgentTarget() {
+  const rows = cliJson(["agent", "target", "list"]);
+  const entries = Array.isArray(rows) ? rows : rows?.items ?? [];
+  const active = entries.filter((row) => row?.leaseStatus === "active" && row.computerId);
+  const computers = new Set(active.map((row) => row.computerId));
+  if (computers.size !== 1) {
+    fail(
+      `env: fixture agents need exactly one active computer in 'agent target list', got ${computers.size} — the task-local daemon must register exactly one (environment problem, not a contract result)`,
+    );
+  }
+  const preferred =
+    active.find((row) => row.runtimeProvider === "claude") ??
+    active.find((row) => row.runtimeStatus === "online") ??
+    active[0];
+  if (!preferred.runtimeProvider) {
+    fail("env: the active computer lease reports no runtimeProvider (environment problem, not a contract result)");
+  }
+  return { computerId: preferred.computerId, runtimeProvider: preferred.runtimeProvider };
+}
+
+function targetYaml(target) {
+  return `target:\n  computer: ${target.computerId}\n  runtimeProvider: ${target.runtimeProvider}`;
+}
+
 function buildMainRoot() {
   const root = mkdtempSync(join(tmpdir(), "xwd-acc-main-"));
   const suffix = ` - xwdci-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -151,6 +219,7 @@ function buildMainRoot() {
       "repositories:",
       "  - https://cnb.cool/tars-lab/xwing",
       "  - https://example.com/auxiliary.git",
+      agentTargetYaml,
       "",
     ].join("\n"),
     ".xwing/config/test/agents/beta/agent.yaml": [
@@ -158,6 +227,7 @@ function buildMainRoot() {
       "name: Beta",
       "jobTitle: Reviewer",
       "instructionsFile: instructions.md",
+      agentTargetYaml,
       "",
     ].join("\n"),
     ".xwing/config/test/agents/beta/instructions.md": `Beta reviews in ${mustache("environment")}.\n`,
@@ -274,6 +344,7 @@ function buildWorkflowRoot(suffix) {
       "name: Alpha",
       "jobTitle: Probe",
       "instructionsFile: instructions.md",
+      agentTargetYaml,
       "",
     ].join("\n"),
     ".xwing/config/test/agents/alpha/instructions.md": "Workflow fixture agent for executor resolution.\n",
@@ -342,7 +413,11 @@ function cleanupRemote(state) {
 
 if (CLEANUP_REPORT) {
   const report = JSON.parse(readFileSync(CLEANUP_REPORT, "utf8"));
-  const problems = [...cleanupRemote(report.cleanup.main || {}), ...cleanupRemote(report.cleanup.workflow || {})];
+  const problems = [
+    ...cleanupRemote(report.cleanup.main || {}),
+    ...cleanupRemote(report.cleanup.workflow || {}),
+    ...cleanupRemote(report.cleanup.journey || {}),
+  ];
   if (problems.length) fail(`cleanup incomplete: ${problems.join(", ")}`);
   console.log("cleanup complete");
   process.exit(0);
@@ -369,26 +444,52 @@ if (head !== candidateFull) {
 
 mkdirSync(OUT_DIR, { recursive: true });
 
+// Resolved before any fixture is written so every agent-creating scenario
+// (create / plan+drift / workflow-lifecycle / journey) shares one target.
+// agentTarget feeds both the agent-level fixture stamp (agentTargetYaml) and
+// the journey's environment-level default target.
+const agentTarget = resolveAgentTarget();
+const agentTargetYaml = targetYaml(agentTarget);
+
 // ---------------------------------------------------------------------------
-// Scenarios
+// Scenarios — chain-partitioned (HF-15862 review): chains abort INTERNALLY
+// (a failure stops the rest of its own chain; later scenarios in it depend
+// on earlier state) but never bleed across chains. One broken contract must
+// not blind the round to the remaining contracts — each round costs a full
+// environment setup, so it owes the workflow the complete failure surface.
 // ---------------------------------------------------------------------------
+const CHAINS = ["offline", "main", "workflow", "journey", "smoke"];
 const scenarios = [];
-let aborted = false;
-function scenario(name, fn) {
-  if (aborted) {
-    scenarios.push({ name, status: "skipped" });
-    return;
+const chainAborted = new Set();
+function scenario(chain, name, fn) {
+  scenarios.push({ chain, name, fn });
+}
+function runScenarios() {
+  for (const chain of CHAINS) {
+    for (const entry of scenarios.filter((item) => item.chain === chain)) {
+      if (chainAborted.has(chain)) {
+        entry.status = "skipped";
+        continue;
+      }
+      currentChain = chain;
+      currentScenario = entry.name;
+      const startedAt = Date.now();
+      try {
+        entry.fn();
+        entry.status = "pass";
+        entry.ms = Date.now() - startedAt;
+        console.log(`pass: ${entry.name}`);
+      } catch (error) {
+        entry.status = "fail";
+        entry.error = String(error.message || error);
+        entry.ms = Date.now() - startedAt;
+        console.error(`FAIL: ${entry.name}: ${entry.error}`);
+        chainAborted.add(chain);
+      }
+    }
   }
-  const started = Date.now();
-  try {
-    fn();
-    scenarios.push({ name, status: "pass", ms: Date.now() - started });
-    console.log(`pass: ${name}`);
-  } catch (error) {
-    scenarios.push({ name, status: "fail", error: String(error.message || error), ms: Date.now() - started });
-    console.error(`FAIL: ${name}: ${error.message || error}`);
-    aborted = true;
-  }
+  currentScenario = null;
+  currentChain = null;
 }
 
 function assert(condition, message) {
@@ -413,7 +514,7 @@ let workflowFixture;
 let keepMainState;
 let keepWorkflowState;
 
-scenario("validate: fixture root passes offline validation, bad config is rejected", () => {
+scenario("offline", "validate: fixture root passes offline validation, bad config is rejected", () => {
   mustPass(deployRun(main.deployRoot, ["validate", "--environment", "e2e"]), "validate");
   // Negative: an unknown template variable must fail validation — guards the
   // validator against being hollowed out (every check deleted still passes).
@@ -449,7 +550,7 @@ scenario("validate: fixture root passes offline validation, bad config is reject
 let state;
 let crewId, alphaId, betaId, skillId, relaySkillId;
 
-scenario("create: full provisioning lands and state registers ids", () => {
+scenario("main", "create: full provisioning lands and state registers ids", () => {
   mustPass(deployRun(main.deployRoot, ["create", "--environment", "e2e", "--apply"]), "create --apply");
   state = readState(main.deployRoot);
   assertEqual(Object.keys(state.agents || {}).sort().join(","), "alpha,beta", "created agents");
@@ -506,7 +607,7 @@ scenario("create: full provisioning lands and state registers ids", () => {
   assert(members.some((m) => m.member.id === betaId && m.role === "Reviewer"), "reviewer role not applied");
 });
 
-scenario("doctor: self-check passes, broken environment fails", () => {
+scenario("offline", "doctor: self-check passes, broken environment fails", () => {
   mustPass(deployRun(main.deployRoot, ["doctor", "--environment", "e2e"]), "doctor");
   // Negative: an unknown cli.app must fail the doctor check, not pass silently.
   const badApp = mkdtempSync(join(tmpdir(), "xwd-acc-doctor-"));
@@ -520,13 +621,14 @@ scenario("doctor: self-check passes, broken environment fails", () => {
   assert(bad.status !== 0, "doctor must fail on an unknown cli.app");
 });
 
-scenario("plan: previews without writing state", () => {
+scenario("main", "plan: previews without writing state", () => {
   mkdirSync(join(main.root, ".xwing/config/test/agents/gamma"), { recursive: true });
   writeFileSync(join(main.root, ".xwing/config/test/agents/gamma/agent.yaml"), [
     "key: gamma",
     "name: Gamma",
     "jobTitle: Auditor",
     "instructionsFile: instructions.md",
+    agentTargetYaml,
     "",
   ].join("\n"));
   writeFileSync(join(main.root, ".xwing/config/test/agents/gamma/instructions.md"), `Gamma runs in ${mustache("environment")}.\n`);
@@ -543,7 +645,7 @@ scenario("plan: previews without writing state", () => {
   assertEqual(readState(main.deployRoot).agents.gamma, undefined, "plan must not write state.yaml");
 });
 
-scenario("apply-drift: additions, role change, file prune and repo shrink converge", () => {
+scenario("main", "apply-drift: additions, role change, file prune and repo shrink converge", () => {
   // Add gamma (from the plan scenario), delete an obsolete skill file, shrink
   // the declared repository list: one apply must converge all three.
   rmSync(join(main.root, "skills/echo/references/obsolete.md"));
@@ -580,7 +682,7 @@ scenario("apply-drift: additions, role change, file prune and repo shrink conver
   assertEqual(role(), "Reviewer-plus", "an emptied role must not be sent as an empty --role");
 });
 
-scenario("apply-idempotent: second apply keeps ids and skips in-sync pushes", () => {
+scenario("main", "apply-idempotent: second apply keeps ids and skips in-sync pushes", () => {
   const reapplied = mustPass(deployRun(main.deployRoot, ["apply", "--environment", "e2e", "--apply"]), "re-apply");
   assertEqual(readState(main.deployRoot).crew.team.id, crewId, "crew id changed on re-apply");
   assertEqual(readState(main.deployRoot).agents.alpha.id, alphaId, "agent id changed on re-apply");
@@ -597,7 +699,7 @@ scenario("apply-idempotent: second apply keeps ids and skips in-sync pushes", ()
   assertEqual(alphaNow?.name, `Alpha${main.suffix}`, "re-apply must not alter the rendered agent name");
 });
 
-scenario("pull: snapshots land on disk", () => {
+scenario("main", "pull: snapshots land on disk", () => {
   // Stale-entry negative (README 快照与备份): pull clears snapshots/<env>/
   // before writing, so remote-deleted resources cannot linger in snapshots.
   const ghostDir = join(main.deployRoot, "snapshots/e2e/agents");
@@ -626,7 +728,7 @@ scenario("pull: snapshots land on disk", () => {
 });
 
 let backupEnvDir;
-scenario("backup-restore: backup dir forms, in-place and --to restores work", () => {
+scenario("main", "backup-restore: backup dir forms, in-place and --to restores work", () => {
   mustPass(deployRun(main.deployRoot, ["backup", "--environment", "e2e"]), "backup");
   const stamps = readdirSync(join(main.deployRoot, "backups"));
   assert(stamps.length > 0, "no backup timestamp directory");
@@ -647,7 +749,7 @@ scenario("backup-restore: backup dir forms, in-place and --to restores work", ()
   assert(readFileSync(promptPath, "utf8") === pristine, "in-place restore did not restore the external prompt");
 });
 
-scenario("workflow-lifecycle: apply converges, re-applies in sync, drift-edits while locked, prune archives", () => {
+scenario("workflow", "workflow-lifecycle: apply converges, re-applies in sync, drift-edits while locked, prune archives", () => {
   workflowFixture = buildWorkflowRoot(main.suffix);
   const deployRoot = workflowFixture.deployRoot;
   mustPass(deployRun(deployRoot, ["validate", "--environment", "e2e"]), "workflow validate");
@@ -718,7 +820,7 @@ scenario("workflow-lifecycle: apply converges, re-applies in sync, drift-edits w
   );
 });
 
-scenario("automation-lifecycle: created by apply, re-applies in sync, drift-edits, prune hard-deletes", () => {
+scenario("main", "automation-lifecycle: created by apply, re-applies in sync, drift-edits, prune hard-deletes", () => {
   // The automation ships in the main fixture: the first full apply (scenario
   // apply-drift) must have created it alongside the agents (same-apply 首发).
   const deployRoot = main.deployRoot;
@@ -771,25 +873,297 @@ scenario("automation-lifecycle: created by apply, re-applies in sync, drift-edit
   );
 });
 
+// ---------------------------------------------------------------------------
+// User journey (chain "journey"): simulate the consumer's first mile on a
+// fresh machine — init scaffolds a project, the user edits config by hand,
+// bind adopts org/space by name, create lands it, a user-style edit
+// converges via apply, backup forms. This chain covers init/bind (otherwise
+// bare-tier only) and pins the environment-level default target path (the
+// pinned fixtures all declare agent-level targets). It also emits
+// journey.json for the UI verification layer (screenshot.mjs --verify): the
+// checks there assert what an end user SEES in the app for these resources.
+// ---------------------------------------------------------------------------
+let journeyProject = null;
+let journeySuffix = "";
+scenario("journey", "user-journey: init scaffolds, bind adopts, create lands, apply converges, backup forms", () => {
+  journeyProject = mkdtempSync(join(tmpdir(), "xwd-acc-journey-"));
+  mustPass(candidateRun(undefined, ["init", journeyProject, "--config-set", "prod", "--environment", "e2e"]), "init");
+  const envPath = join(journeyProject, "environments/e2e/environment.yaml");
+  assert(existsSync(envPath), "init must scaffold environments/e2e/environment.yaml");
+  assert(existsSync(join(journeyProject, "config/prod/agents/.gitkeep")), "init must scaffold the config-set directories");
+  assert(existsSync(join(journeyProject, "environments/e2e/state.yaml")), "init must seed state.yaml");
+
+  journeySuffix = ` - journey-${Date.now().toString(36)}`;
+  // The user hand-edits the scaffold (identity lines stay as placeholders
+  // for bind to fill; the rest — suffix, naming, target — is authored here).
+  writeFileSync(envPath, [
+    "organizationId: replace-with-organization-id",
+    "spaceId: replace-with-space-id",
+    "configRoot: config/prod",
+    "cli:",
+    "  app: hifox",
+    `nameSuffix: ${JSON.stringify(journeySuffix)}`,
+    `namingPattern: ${JSON.stringify(NAMING_PATTERN)}`,
+    "target:",
+    `  computer: ${agentTarget.computerId}`,
+    `  runtimeProvider: ${agentTarget.runtimeProvider}`,
+    "",
+  ].join("\n"));
+
+  const orgs = cliJson(["organization", "list"]) || [];
+  assert(orgs.length >= 1, "task-local organization must exist for bind");
+  const spaces = cliJson(["space", "list"]) || [];
+  const general = spaces.find((s) => /general/i.test(s.name || "")) || spaces[0];
+  assert(general?.name, "task-local space must exist for bind");
+  mustPass(
+    deployRun(journeyProject, [
+      "bind", "--environment", "e2e",
+      "--organization-name", orgs[0].name, "--space-name", general.name, "--apply",
+    ]),
+    "bind --apply",
+  );
+  const bound = readFileSync(envPath, "utf8");
+  assert(bound.includes(`organizationId: ${ORG_ID}`), "bind must write the resolved organization id");
+  assert(bound.includes(`spaceId: ${SPACE_ID}`), "bind must write the resolved space id");
+  assert(bound.includes(`nameSuffix: ${JSON.stringify(journeySuffix)}`), "bind must preserve unrelated lines");
+
+  // Realistic consumer config in this repo's own shape, just smaller: two
+  // agents (leader with avatar/repositories/skill; member riding the
+  // environment-level default target), a space skill, a crew with a role,
+  // an automation that only apply (not create) provisions — added by the
+  // user's second edit, exactly like real usage.
+  const files = {
+    "config/prod/agents/marlin/agent.yaml": [
+      "key: marlin",
+      "name: Marlin",
+      "jobTitle: Voyage Engineer",
+      "instructionsFile: instructions.md",
+      "avatarFile: avatar.png",
+      "repositories:",
+      "  - https://cnb.cool/tars-lab/xwing",
+      agentTargetYaml,
+      "",
+    ].join("\n"),
+    "config/prod/agents/marlin/instructions.md":
+      `Marlin runs the e2e journey in ${mustache("environment")} with ${mustache("skills.helm.name")}.\n`,
+    "config/prod/agents/skipper/agent.yaml": [
+      "key: skipper",
+      "name: Skipper",
+      "jobTitle: Lookout",
+      "instructionsFile: instructions.md",
+      "",
+    ].join("\n"),
+    "config/prod/agents/skipper/instructions.md": `Skipper watches in ${mustache("environment")}.\n`,
+    "config/prod/skills/helm/skill.yaml": [
+      "key: helm",
+      "name: Helm",
+      "description: Helm skill",
+      'dir: "@/skills/helm"',
+      "assignTo:",
+      "  - marlin",
+      "",
+    ].join("\n"),
+    "skills/helm/SKILL.md": `# ${mustache("skills.helm.name")}\n\nHelm checks the ${mustache("environment")} voyage.\n`,
+    "config/prod/crews/voyage/crew.yaml": [
+      "key: voyage",
+      "name: Voyage",
+      "leader: marlin",
+      "members:",
+      "  - agent: marlin",
+      "  - agent: skipper",
+      "    role: Lookout",
+      "instructionsFile: instructions.md",
+      "",
+    ].join("\n"),
+    "config/prod/crews/voyage/instructions.md": `Voyage ${mustache("crew.name")} sails in ${mustache("environment")}.\n`,
+  };
+  for (const [path, content] of Object.entries(files)) {
+    const target = join(journeyProject, path);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, content);
+  }
+  // 1x1 transparent PNG: exercises the avatar upload path end to end.
+  writeFileSync(
+    join(journeyProject, "config/prod/agents/marlin/avatar.png"),
+    Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"),
+  );
+
+  mustPass(deployRun(journeyProject, ["validate", "--environment", "e2e"]), "journey validate");
+  mustPass(deployRun(journeyProject, ["plan", "--environment", "e2e"]), "journey plan");
+  mustPass(deployRun(journeyProject, ["create", "--environment", "e2e", "--apply"]), "journey create --apply");
+
+  let jstate = readState(journeyProject);
+  assert(jstate.agents?.marlin?.id, "marlin not registered by create");
+  assert(jstate.agents?.skipper?.id, "skipper not registered (environment-level default target must cover it)");
+  assert(jstate.skills?.helm?.id, "helm skill not registered by create");
+  assert(jstate.crew?.voyage?.id, "voyage crew not registered by create");
+  const marlinId = jstate.agents.marlin.id;
+  const skipperId = jstate.agents.skipper.id;
+  const helmId = jstate.skills.helm.id;
+  const voyageId = jstate.crew.voyage.id;
+
+  const marlin = cliJson(["agent", "view", marlinId]);
+  assertEqual(marlin?.name, `Marlin${journeySuffix}`, "journey marlin name mismatch");
+  assert(
+    marlin?.instructions?.includes("Marlin runs the e2e journey") && marlin.instructions.includes(`Helm${journeySuffix}`),
+    "journey instructions not rendered (environment/skill variables)",
+  );
+  const avatarValue = marlin?.avatar?.url ?? marlin?.avatarUrl ?? marlin?.avatar;
+  assert(avatarValue && /https?:\/\/|\//.test(String(avatarValue)), "avatar upload must surface in agent view");
+  assert(
+    (cliJson(["agent", "repo", "list", marlinId]) || []).some((item) => item.url === "https://cnb.cool/tars-lab/xwing"),
+    "journey repository not attached",
+  );
+  assert(
+    (cliJson(["agent", "skill", "list", marlinId]) || []).some((item) => item.id === helmId),
+    "helm skill not attached to marlin",
+  );
+  const voyage = cliJson(["crew", "view", voyageId]);
+  assertEqual(voyage?.name, `Voyage${journeySuffix}`, "journey crew name mismatch");
+  assert(
+    (cliJson(["crew", "member", "list", voyageId]) || []).some((m) => m.member.id === skipperId && m.role === "Lookout"),
+    "journey member role not applied",
+  );
+
+  // User-style second edit: rename the leader AND add an automation — one
+  // apply must converge both (create does not provision automations; apply
+  // does, same-run with the rename).
+  const marlinYaml = join(journeyProject, "config/prod/agents/marlin/agent.yaml");
+  writeFileSync(marlinYaml, readFileSync(marlinYaml, "utf8").replace("name: Marlin\n", "name: Marlin Prime\n"));
+  mkdirSync(join(journeyProject, "config/prod/automations/watch"), { recursive: true });
+  writeFileSync(join(journeyProject, "config/prod/automations/watch/automation.yaml"), [
+    "key: watch",
+    "name: Watch",
+    "assignee: agent:marlin",
+    "triggers:",
+    "  - kind: schedule",
+    '    cron: "0 0 3 3 *"',
+    "    timezone: Asia/Shanghai",
+    "",
+  ].join("\n"));
+  writeFileSync(join(journeyProject, "config/prod/automations/watch/description.md"), "Journey watch automation.\n");
+  mustPass(deployRun(journeyProject, ["apply", "--environment", "e2e", "--apply"]), "journey apply --apply (edit)");
+
+  const renamed = cliJson(["agent", "view", marlinId]);
+  assertEqual(renamed?.name, `Marlin Prime${journeySuffix}`, "journey rename must converge via apply");
+  jstate = readState(journeyProject);
+  const watchId = jstate.automations?.watch?.id;
+  assert(watchId, "journey automation must be provisioned by the same apply");
+  const watch = cliJson(["automation", "view", watchId, "-y"]);
+  assertEqual(watch?.automation?.status, "active", "journey automation must be active");
+  assertEqual(watch?.automation?.assigneeId, marlinId, "journey automation assignee must resolve to the state uuid");
+
+  mustPass(deployRun(journeyProject, ["backup", "--environment", "e2e"]), "journey backup");
+  assert(readdirSync(join(journeyProject, "backups")).length > 0, "journey backup directory must form");
+
+  // UI verification spec: what an end user must SEE in the app. Consumed by
+  // screenshot.mjs --verify <out>/journey.json — text-based, UI-shape-agnostic.
+  writeFileSync(join(OUT_DIR, "journey.json"), `${JSON.stringify({
+    kind: "ui-verify",
+    generatedAt: now(),
+    checks: [
+      { name: "agents-list", route: "/agents", texts: [`Marlin Prime${journeySuffix}`, `Skipper${journeySuffix}`] },
+      {
+        name: "agent-detail",
+        route: "/agents",
+        clickText: `Marlin Prime${journeySuffix}`,
+        afterTexts: ["Marlin runs the e2e journey", `Helm${journeySuffix}`, "https://cnb.cool/tars-lab/xwing"],
+      },
+      { name: "crew-page", route: "/crews", texts: [`Voyage${journeySuffix}`, "Lookout"] },
+    ],
+  }, null, 2)}\n`);
+});
+
+// ---------------------------------------------------------------------------
+// Derived command-surface smoke (chain "smoke"): the command list is READ
+// from the candidate's own --help at run time (rendered from its registry,
+// ADR 0013) — never maintained here. Tiers are shape rules, not per-command
+// knowledge; the only allowed name knowledge is the direct-mutator denylist
+// (see lib/surface.mjs). Results feed the coverage matrix in the report.
+// ---------------------------------------------------------------------------
+const smokeResults = [];
+let surfaceCommands = [];
+scenario("smoke", "smoke: derived command surface (bare/preview/read tiers from candidate --help)", () => {
+  const help = candidateRun(undefined, ["--help"], 60_000);
+  mustPass(help, "--help");
+  surfaceCommands = parseCommandSurface(help.stdout);
+  assert(surfaceCommands.length >= 10, `parsed command surface looks wrong (${surfaceCommands.length} commands)`);
+  const cleanDiagnostic = /usage|required|error|invalid|missing|unknown|refus|expect|provide|not\b|no\b|set\b/i;
+  const noStack = (out) => !/node:internal|\n\s+at /.test(out);
+  for (const command of surfaceCommands) {
+    for (const tier of tiersFor(command)) {
+      try {
+        if (tier === "bare") {
+          const cwd = mkdtempSync(join(tmpdir(), "xwd-acc-smoke-"));
+          const result = candidateRun(cwd, [command.name]);
+          const out = `${result.stdout || ""}${result.stderr || ""}`;
+          assert(noStack(out), `stack trace leaked:\n${out.slice(0, 300)}`);
+          if (result.status === 0) {
+            assert((result.stdout || "").trim().length > 0, "exit 0 with empty stdout is neither info nor error");
+          } else {
+            assert(cleanDiagnostic.test(out), `non-zero exit without a clean diagnostic:\n${out.slice(0, 300)}`);
+          }
+          assert(readdirSync(cwd).length === 0, "side-effect files written into an empty cwd");
+        } else if (tier === "read") {
+          mustPass(deployRun(main.deployRoot, [command.name, "--environment", "e2e"]), `${command.name} (read tier)`);
+        } else if (tier === "preview") {
+          // State lives at environments/e2e/state.yaml (readState's path) —
+          // the old bare deployRoot/state.yaml never existed, so the
+          // before/after compare was null===null and the gate was vacuous
+          // (review F-6).
+          const statePath = join(main.deployRoot, "environments", "e2e", "state.yaml");
+          const before = existsSync(statePath) ? readFileSync(statePath, "utf8") : null;
+          const result = deployRun(main.deployRoot, [command.name, "--environment", "e2e"]);
+          const out = `${result.stdout || ""}${result.stderr || ""}`;
+          assert(noStack(out), `stack trace leaked:\n${out.slice(0, 300)}`);
+          const after = existsSync(statePath) ? readFileSync(statePath, "utf8") : null;
+          assertEqual(after, before, `${command.name} mutated state without --apply (gate contract)`);
+          if (result.status !== 0) {
+            assert(cleanDiagnostic.test(out), `non-zero exit without a clean diagnostic:\n${out.slice(0, 300)}`);
+          }
+        }
+        smokeResults.push({ command: command.name, tier, status: "pass" });
+      } catch (error) {
+        smokeResults.push({
+          command: command.name,
+          tier,
+          status: "fail",
+          note: String(error.message || error).split("\n")[0].slice(0, 200),
+        });
+      }
+    }
+  }
+  const failed = smokeResults.filter((r) => r.status === "fail");
+  assert(
+    failed.length === 0,
+    `smoke failures: ${failed.map((f) => `${f.command}/${f.tier}: ${f.note}`).join("; ")}`,
+  );
+});
 
 // ---------------------------------------------------------------------------
 // Report + cleanup
 // ---------------------------------------------------------------------------
+runScenarios();
 keepMainState = readState(main.deployRoot);
 keepWorkflowState = workflowFixture ? readState(workflowFixture.deployRoot) : {};
+const keepJourneyState = journeyProject ? readState(journeyProject) : {};
 
 let cleanupProblems = [];
 if (!KEEP) {
   // Pass and fail paths alike: archive whatever the fixtures managed to
   // create, so the acceptance space does not accumulate garbage from red runs.
-  cleanupProblems = [...cleanupRemote(keepMainState), ...cleanupRemote(keepWorkflowState)];
+  cleanupProblems = [
+    ...cleanupRemote(keepMainState),
+    ...cleanupRemote(keepWorkflowState),
+    ...cleanupRemote(keepJourneyState),
+  ];
 }
 
 // Cleanup failures are part of the verdict. The executor (instructions §2.4)
 // trusts the exit code AND report.json — the two must never disagree, so
 // cleanup problems are recorded in the report and flip it to fail.
 const verdict =
-  aborted || scenarios.some((s) => s.status === "fail") || cleanupProblems.length ? "fail" : "pass";
+  scenarios.some((s) => s.status === "fail") || cleanupProblems.length ? "fail" : "pass";
 const report = {
   suite: "x-deploy-acceptance",
   verdict,
@@ -798,11 +1172,16 @@ const report = {
   organizationId: ORG_ID,
   startedAt,
   finishedAt: now(),
+  chains: CHAINS,
   scenarios,
-  workdirs: { main: main.root, workflow: workflowFixture?.root || null },
-  cleanup: { main: keepMainState, workflow: keepWorkflowState },
+  coverage: buildCoverage(surfaceCommands, invocations, smokeResults),
+  smoke: smokeResults,
+  journey: { project: journeyProject, suffix: journeySuffix, uiSpec: join(OUT_DIR, "journey.json") },
+  workdirs: { main: main.root, workflow: workflowFixture?.root || null, journey: journeyProject },
+  cleanup: { main: keepMainState, workflow: keepWorkflowState, journey: keepJourneyState },
   cleanupProblems,
 };
+
 
 mkdirSync(OUT_DIR, { recursive: true });
 writeFileSync(join(OUT_DIR, "report.json"), `${JSON.stringify(report, null, 2)}\n`);

@@ -67,6 +67,13 @@ const visibility = (kind) => {
   if (kind === "email" || kind === "submit") return state.loginStep >= 1;
   return false;
 };
+// Verify-mode page model (STUB_VERIFY_PAGES, JSON): {"/agents": {"texts":
+// [...], "click": {"<text>": "/agents/marlin"}}, ...}. A text= locator is
+// visible only when authenticated AND the current path's spec lists it —
+// whitelist-narrow, exactly like real `text=` matching is not.
+const VERIFY_PAGES = process.env.STUB_VERIFY_PAGES ? JSON.parse(process.env.STUB_VERIFY_PAGES) : null;
+const pageSpec = () => VERIFY_PAGES?.[path()] ?? null;
+const textVisible = (text) => Boolean(state.authed && pageSpec()?.texts?.includes(text));
 const onSubmit = () => {
   if (INLINE ? state.loginStep < 1 : path() !== "/login") return;
   if (state.loginStep === 1) {
@@ -155,17 +162,19 @@ const page = {
     });
   },
   locator(selector) {
-    const kind = SELECTOR_KINDS.get(selector) ?? "unknown";
+    const textMatch = selector.startsWith("text=") ? selector.slice("text=".length) : null;
+    const kind = textMatch !== null ? "text" : SELECTOR_KINDS.get(selector) ?? "unknown";
+    const visible = () => (textMatch !== null ? textVisible(textMatch) : visibility(kind));
     const self = {
       first: () => self,
-      isVisible: () => Promise.resolve(visibility(kind)),
+      isVisible: () => Promise.resolve(visible()),
       waitFor: (opts = {}) =>
         new Promise((resolve, reject) => {
           const wantVisible = opts.state !== "hidden";
           const limit = scale(opts.timeout ?? 30_000);
           const started = Date.now();
           const tick = () => {
-            if (visibility(kind) === wantVisible) return resolve();
+            if (visible() === wantVisible) return resolve();
             if (Date.now() - started >= limit) {
               return reject(new Error(`TimeoutError: locator(${kind}) ${wantVisible ? "never visible" : "still visible"}`));
             }
@@ -174,12 +183,21 @@ const page = {
           tick();
         }),
       async fill(value) {
-        if (!visibility(kind)) throw new Error(`TimeoutError: locator(${kind}) not visible for fill`);
+        if (!visible()) throw new Error(`TimeoutError: locator(${kind}) not visible for fill`);
         state.values[kind] = value;
         log({ type: "fill", kind, value });
       },
       async click() {
-        if (!visibility(kind)) throw new Error(`TimeoutError: locator(${kind}) not visible for click`);
+        if (!visible()) throw new Error(`TimeoutError: locator(${kind}) not visible for click`);
+        if (textMatch !== null) {
+          const to = pageSpec()?.click?.[textMatch];
+          log({ type: "click-text", text: textMatch, to: to ?? null });
+          if (to) {
+            state.url = new URL(to, state.url).toString();
+            notify();
+          }
+          return;
+        }
         log({ type: "click", kind });
         onSubmit();
       },
