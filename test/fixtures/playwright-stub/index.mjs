@@ -32,6 +32,9 @@ const FAIL_ROUTE = process.env.STUB_FAIL_ROUTE;
 const FORM_DELAY = Number(process.env.STUB_FORM_DELAY_MS ?? 100);
 const REDIRECT_DELAY = Number(process.env.STUB_REDIRECT_DELAY_MS ?? 30);
 // Independent of DEVBOT_CODE so tests can simulate a wrong configured code.
+// Org-prefixed routing (HF-15955): when set, an authenticated goto("/") lands
+// on /<org> so the script under test can resolve the prefix from the URL.
+const ORG_SEG = process.env.STUB_ORG_PREFIX ? `/${process.env.STUB_ORG_PREFIX}` : "";
 const EXPECTED_CODE = process.env.STUB_EXPECTED_CODE ?? process.env.DEVBOT_CODE ?? "888888";
 
 // loginStep: 0 shell · 1 email+submit visible · 2 code visible · 3 form gone.
@@ -39,6 +42,7 @@ const state = { authed: AUTHED, loginStep: 0, url: "about:blank", values: {}, li
 
 const SELECTOR_KINDS = new Map([
   ['input[type="email"], input[name*="email" i]', "email"],
+  ['input[type="text"], input[name*="code" i], input[inputmode="numeric"], input[type="password"]', "code"],
   ['input[type="text"], input[name*="code" i], input[inputmode="numeric"]', "code"],
   ['button[type="submit"], button:has-text("登录"), button:has-text("Continue"), button:has-text("继续")', "submit"],
 ]);
@@ -106,6 +110,12 @@ const page = {
       throw new Error(`page.goto: url: expected string, got ${url === null ? "null" : typeof url}`);
     }
     const u = new URL(url);
+    if (ORG_SEG && state.authed && u.pathname === "/") {
+      state.url = `${u.origin}${ORG_SEG}`;
+      log({ type: "goto", url: state.url });
+      notify();
+      return state.url;
+    }
     if (FAIL_ROUTE && u.pathname === FAIL_ROUTE) {
       throw new Error(`net::ERR_CONNECTION_REFUSED (${url})`);
     }

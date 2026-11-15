@@ -12,7 +12,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { parseCommandSurface, tiersFor, buildCoverage } from "./lib/surface.mjs";
+import { parseCommandSurface, tiersFor, buildCoverage, DIRECT_MUTATORS } from "./lib/surface.mjs";
 
 // Template braces are assembled at runtime: this file is synced as a skill
 // attachment and must survive the deploy pipeline's variable expansion
@@ -53,6 +53,17 @@ function spawnCliEnv() {
   if (process.env.HIFOX_SERVER_URL && !env.APP_SERVER_URL) env.APP_SERVER_URL = process.env.HIFOX_SERVER_URL;
   if (process.env.HIFOX_TOKEN && !env.APP_TOKEN) env.APP_TOKEN = process.env.HIFOX_TOKEN;
   if (ORG_ID && !env.APP_ORGANIZATION_ID) env.APP_ORGANIZATION_ID = ORG_ID;
+  // Strip the executor's own session/identity markers (HF-15949/15951:
+  // RUN_ID + LOCAL_DAEMON_TOKEN rerouted mutations to the HOST daemon (403
+  // scope mismatch); AGENT_ID flipped the numbered CLI into agent-execution
+  // context (400 invalid forward request); CLAIM_CREDENTIAL/CLAIM_TOKEN trip
+  // the workflow user-auth gate). The task-local daemon must be the only
+  // target, so the whole identity family goes, under every brand prefix.
+  for (const key of Object.keys(env)) {
+    if (/^(HIFOX|SHARKLY|APP)_(RUN_ID|AGENT_ID|CLAIM_TOKEN|CLAIM_CREDENTIAL|LOCAL_DAEMON_[A-Z_]+)$/.test(key)) {
+      delete env[key];
+    }
+  }
   if (CLI_BIN !== "hifox") {
     env.PATH = `${dirname(CLI_BIN)}:${env.PATH || ""}`;
   }
@@ -754,8 +765,12 @@ scenario("workflow", "workflow-lifecycle: apply converges, re-applies in sync, d
   const deployRoot = workflowFixture.deployRoot;
   mustPass(deployRun(deployRoot, ["validate", "--environment", "e2e"]), "workflow validate");
   const applied = mustPass(deployRun(deployRoot, ["apply", "--apply", "--environment", "e2e"]), "workflow apply");
-  assertMatch(applied.stdout, /workflow demo: in sync/, "one-shot import must land the full graph");
-  assertMatch(applied.stdout, /workflow demo-dsl: in sync/, "authored (graph.yaml) workflow must land in the same one-shot import");
+  // Apply-output contract (candidate README 变更集与收口): creates stream
+  // `+ kind key` lines carrying ids; in-sync resources emit NOTHING (the
+  // closing count is the evidence). The old `/in sync/` match pinned a
+  // pre-tiered-exits render and never ran until round HF-15949.
+  assertMatch(applied.stdout, /\+ workflow demo\b/, "one-shot import must land the full graph");
+  assertMatch(applied.stdout, /\+ workflow demo-dsl\b/, "authored (graph.yaml) workflow must land in the same one-shot import");
 
   const id = readState(deployRoot).workflows?.demo?.id;
   assert(id, "state.yaml must register the created workflow");
@@ -772,7 +787,11 @@ scenario("workflow", "workflow-lifecycle: apply converges, re-applies in sync, d
   const alphaRef = readState(deployRoot).agents?.alpha?.id;
   assert(alphaRef, "the workflow fixture agent must land in the same apply");
   const exported = cliJson(["workflow", "export", dslId, "--space", SPACE_ID]);
-  const executorBlock = Object.values(exported?.blocks ?? exported?.graph?.blocks ?? {}).find(
+  // HF-15957 calibration: the task CLI's export envelope carries the graph at
+  // data.state.blocks (verified live with the sim engine connected; the old
+  // blocks/graph.blocks guesses predate any successful export — the scenario
+  // never got past import before run-sim.sh existed).
+  const executorBlock = Object.values(exported?.data?.state?.blocks ?? {}).find(
     (block) => block?.type === "run_agent",
   );
   assert(executorBlock, "exported graph must contain the run_agent block");
@@ -787,7 +806,7 @@ scenario("workflow", "workflow-lifecycle: apply converges, re-applies in sync, d
   );
 
   const reapply = mustPass(deployRun(deployRoot, ["apply", "--apply", "--environment", "e2e"]), "workflow re-apply");
-  assertMatch(reapply.stdout, /workflow demo: in sync/, "re-apply must converge in sync");
+  assertMatch(reapply.stdout, /Apply complete: .*in sync/, "re-apply closing count must report convergence");
   // Change-set marks are documented (+ create / ~ update / = in sync): no demo
   // drift may appear. Symbol-anchored, not prose-anchored, so a wording change
   // cannot silently disable this check.
@@ -835,7 +854,12 @@ scenario("main", "automation-lifecycle: created by apply, re-applies in sync, dr
   assertEqual(trigger.cronExpression, "0 0 1 1 *", "trigger cron must land");
 
   const reapply = mustPass(deployRun(deployRoot, ["apply", "--environment", "e2e", "--apply"]), "automation re-apply");
-  assertMatch(reapply.stdout, /automation heartbeat: in sync/, "re-apply must converge in sync");
+  // Apply-output contract: in-sync resources emit no streaming lines — the
+  // pin is the ABSENCE of automation action lines plus a converging closing
+  // count (the old `/automation heartbeat: in sync/` matched a render the
+  // candidate no longer produces; crew may legitimately show `~`).
+  assert(!/^ [+~] automation heartbeat/m.test(reapply.stdout), "in-sync automation must emit no action line on re-apply");
+  assertMatch(reapply.stdout, /Apply complete: .*in sync/, "re-apply closing count must report convergence");
   const reread = cliJson(["automation", "view", id, "-y"]);
   assertEqual(reread?.automation?.title, `Heartbeat${main.suffix}`, "re-apply must not alter the rendered title");
   assertEqual(
@@ -888,14 +912,26 @@ let journeySuffix = "";
 scenario("journey", "user-journey: init scaffolds, bind adopts, create lands, apply converges, backup forms", () => {
   journeyProject = mkdtempSync(join(tmpdir(), "xwd-acc-journey-"));
   mustPass(candidateRun(undefined, ["init", journeyProject, "--config-set", "prod", "--environment", "e2e"]), "init");
-  const envPath = join(journeyProject, "environments/e2e/environment.yaml");
-  assert(existsSync(envPath), "init must scaffold environments/e2e/environment.yaml");
-  assert(existsSync(join(journeyProject, "config/prod/agents/.gitkeep")), "init must scaffold the config-set directories");
-  assert(existsSync(join(journeyProject, "environments/e2e/state.yaml")), "init must seed state.yaml");
+  // Candidate contract (README --layout): embedded is the DEFAULT and places
+  // the DeploymentRoot at <project>/.xwing — config/, environments/ and
+  // state live under it; project-level paths like @/skills stay at the root.
+  const jd = join(journeyProject, ".xwing");
+  const envPath = join(jd, "environments/e2e/environment.yaml");
+  assert(existsSync(envPath), "init must scaffold .xwing/environments/e2e/environment.yaml");
+  assert(existsSync(join(jd, "config/prod/agents/.gitkeep")), "init must scaffold the config-set directories");
+  assert(existsSync(join(jd, "environments/e2e/state.yaml")), "init must seed state.yaml");
 
-  journeySuffix = ` - journey-${Date.now().toString(36)}`;
-  // The user hand-edits the scaffold (identity lines stay as placeholders
-  // for bind to fill; the rest — suffix, naming, target — is authored here).
+  // A real user does NOT invent a suffix on a fresh project: init stamped
+  // `nameSuffix: " - e2e"` into BOTH environment.yaml and state.yaml, and the
+  // candidate resolves state over env (options.suffix ?? state.nameSuffix ??
+  // env.nameSuffix, config.mjs — pinned in HF-15954). The journey rides the
+  // default; the task-local org is fresh each round so uniqueness is moot
+  // (the main fixture's unique suffix matters only in the persistent
+  // acceptance space).
+  journeySuffix = " - e2e";
+  // The user hand-edits the scaffold: identity lines stay as placeholders
+  // for bind to fill; suffix/naming stay exactly as init wrote them; only
+  // the runtime target is authored here.
   writeFileSync(envPath, [
     "organizationId: replace-with-organization-id",
     "spaceId: replace-with-space-id",
@@ -909,6 +945,11 @@ scenario("journey", "user-journey: init scaffolds, bind adopts, create lands, ap
     `  runtimeProvider: ${agentTarget.runtimeProvider}`,
     "",
   ].join("\n"));
+  const statePath = join(jd, "environments/e2e/state.yaml");
+  assert(
+    readFileSync(statePath, "utf8").includes(`nameSuffix: ${JSON.stringify(journeySuffix)}`),
+    "init-stamped state nameSuffix is the effective suffix (state wins over env)",
+  );
 
   const orgs = cliJson(["organization", "list"]) || [];
   assert(orgs.length >= 1, "task-local organization must exist for bind");
@@ -916,7 +957,7 @@ scenario("journey", "user-journey: init scaffolds, bind adopts, create lands, ap
   const general = spaces.find((s) => /general/i.test(s.name || "")) || spaces[0];
   assert(general?.name, "task-local space must exist for bind");
   mustPass(
-    deployRun(journeyProject, [
+    deployRun(jd, [
       "bind", "--environment", "e2e",
       "--organization-name", orgs[0].name, "--space-name", general.name, "--apply",
     ]),
@@ -933,7 +974,7 @@ scenario("journey", "user-journey: init scaffolds, bind adopts, create lands, ap
   // an automation that only apply (not create) provisions — added by the
   // user's second edit, exactly like real usage.
   const files = {
-    "config/prod/agents/marlin/agent.yaml": [
+    ".xwing/config/prod/agents/marlin/agent.yaml": [
       "key: marlin",
       "name: Marlin",
       "jobTitle: Voyage Engineer",
@@ -944,17 +985,17 @@ scenario("journey", "user-journey: init scaffolds, bind adopts, create lands, ap
       agentTargetYaml,
       "",
     ].join("\n"),
-    "config/prod/agents/marlin/instructions.md":
+    ".xwing/config/prod/agents/marlin/instructions.md":
       `Marlin runs the e2e journey in ${mustache("environment")} with ${mustache("skills.helm.name")}.\n`,
-    "config/prod/agents/skipper/agent.yaml": [
+    ".xwing/config/prod/agents/skipper/agent.yaml": [
       "key: skipper",
       "name: Skipper",
       "jobTitle: Lookout",
       "instructionsFile: instructions.md",
       "",
     ].join("\n"),
-    "config/prod/agents/skipper/instructions.md": `Skipper watches in ${mustache("environment")}.\n`,
-    "config/prod/skills/helm/skill.yaml": [
+    ".xwing/config/prod/agents/skipper/instructions.md": `Skipper watches in ${mustache("environment")}.\n`,
+    ".xwing/config/prod/skills/helm/skill.yaml": [
       "key: helm",
       "name: Helm",
       "description: Helm skill",
@@ -964,7 +1005,7 @@ scenario("journey", "user-journey: init scaffolds, bind adopts, create lands, ap
       "",
     ].join("\n"),
     "skills/helm/SKILL.md": `# ${mustache("skills.helm.name")}\n\nHelm checks the ${mustache("environment")} voyage.\n`,
-    "config/prod/crews/voyage/crew.yaml": [
+    ".xwing/config/prod/crews/voyage/crew.yaml": [
       "key: voyage",
       "name: Voyage",
       "leader: marlin",
@@ -975,7 +1016,7 @@ scenario("journey", "user-journey: init scaffolds, bind adopts, create lands, ap
       "instructionsFile: instructions.md",
       "",
     ].join("\n"),
-    "config/prod/crews/voyage/instructions.md": `Voyage ${mustache("crew.name")} sails in ${mustache("environment")}.\n`,
+    ".xwing/config/prod/crews/voyage/instructions.md": `Voyage ${mustache("crew.name")} sails in ${mustache("environment")}.\n`,
   };
   for (const [path, content] of Object.entries(files)) {
     const target = join(journeyProject, path);
@@ -984,15 +1025,15 @@ scenario("journey", "user-journey: init scaffolds, bind adopts, create lands, ap
   }
   // 1x1 transparent PNG: exercises the avatar upload path end to end.
   writeFileSync(
-    join(journeyProject, "config/prod/agents/marlin/avatar.png"),
+    join(journeyProject, ".xwing/config/prod/agents/marlin/avatar.png"),
     Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"),
   );
 
-  mustPass(deployRun(journeyProject, ["validate", "--environment", "e2e"]), "journey validate");
-  mustPass(deployRun(journeyProject, ["plan", "--environment", "e2e"]), "journey plan");
-  mustPass(deployRun(journeyProject, ["create", "--environment", "e2e", "--apply"]), "journey create --apply");
+  mustPass(deployRun(jd, ["validate", "--environment", "e2e"]), "journey validate");
+  mustPass(deployRun(jd, ["plan", "--environment", "e2e"]), "journey plan");
+  mustPass(deployRun(jd, ["create", "--environment", "e2e", "--apply"]), "journey create --apply");
 
-  let jstate = readState(journeyProject);
+  let jstate = readState(jd);
   assert(jstate.agents?.marlin?.id, "marlin not registered by create");
   assert(jstate.agents?.skipper?.id, "skipper not registered (environment-level default target must cover it)");
   assert(jstate.skills?.helm?.id, "helm skill not registered by create");
@@ -1028,10 +1069,10 @@ scenario("journey", "user-journey: init scaffolds, bind adopts, create lands, ap
   // User-style second edit: rename the leader AND add an automation — one
   // apply must converge both (create does not provision automations; apply
   // does, same-run with the rename).
-  const marlinYaml = join(journeyProject, "config/prod/agents/marlin/agent.yaml");
+  const marlinYaml = join(journeyProject, ".xwing/config/prod/agents/marlin/agent.yaml");
   writeFileSync(marlinYaml, readFileSync(marlinYaml, "utf8").replace("name: Marlin\n", "name: Marlin Prime\n"));
-  mkdirSync(join(journeyProject, "config/prod/automations/watch"), { recursive: true });
-  writeFileSync(join(journeyProject, "config/prod/automations/watch/automation.yaml"), [
+  mkdirSync(join(journeyProject, ".xwing/config/prod/automations/watch"), { recursive: true });
+  writeFileSync(join(journeyProject, ".xwing/config/prod/automations/watch/automation.yaml"), [
     "key: watch",
     "name: Watch",
     "assignee: agent:marlin",
@@ -1041,35 +1082,40 @@ scenario("journey", "user-journey: init scaffolds, bind adopts, create lands, ap
     "    timezone: Asia/Shanghai",
     "",
   ].join("\n"));
-  writeFileSync(join(journeyProject, "config/prod/automations/watch/description.md"), "Journey watch automation.\n");
-  mustPass(deployRun(journeyProject, ["apply", "--environment", "e2e", "--apply"]), "journey apply --apply (edit)");
+  writeFileSync(join(journeyProject, ".xwing/config/prod/automations/watch/description.md"), "Journey watch automation.\n");
+  mustPass(deployRun(jd, ["apply", "--environment", "e2e", "--apply"]), "journey apply --apply (edit)");
 
   const renamed = cliJson(["agent", "view", marlinId]);
   assertEqual(renamed?.name, `Marlin Prime${journeySuffix}`, "journey rename must converge via apply");
-  jstate = readState(journeyProject);
+  jstate = readState(jd);
   const watchId = jstate.automations?.watch?.id;
   assert(watchId, "journey automation must be provisioned by the same apply");
   const watch = cliJson(["automation", "view", watchId, "-y"]);
   assertEqual(watch?.automation?.status, "active", "journey automation must be active");
   assertEqual(watch?.automation?.assigneeId, marlinId, "journey automation assignee must resolve to the state uuid");
 
-  mustPass(deployRun(journeyProject, ["backup", "--environment", "e2e"]), "journey backup");
-  assert(readdirSync(join(journeyProject, "backups")).length > 0, "journey backup directory must form");
+  mustPass(deployRun(jd, ["backup", "--environment", "e2e"]), "journey backup");
+  assert(readdirSync(join(jd, "backups")).length > 0, "journey backup directory must form");
 
-  // UI verification spec: what an end user must SEE in the app. Consumed by
-  // screenshot.mjs --verify <out>/journey.json — text-based, UI-shape-agnostic.
+
+  // UI verification spec (HF-15955 calibration): routes are LOGICAL names
+  // ("agents") — the verifier resolves the org-prefixed real route from the
+  // authenticated landing URL (the platform routes /<org>/agents and has no
+  // standalone /crews page: crews render inside the agents page). Detail
+  // assertions stop at the drawer header (deep sections are collapsed by
+  // design); the settings-button overlay on cards needs a forced click.
   writeFileSync(join(OUT_DIR, "journey.json"), `${JSON.stringify({
     kind: "ui-verify",
     generatedAt: now(),
     checks: [
-      { name: "agents-list", route: "/agents", texts: [`Marlin Prime${journeySuffix}`, `Skipper${journeySuffix}`] },
+      { name: "agents-list", route: "agents", texts: [`Marlin Prime${journeySuffix}`, `Skipper${journeySuffix}`, "Lookout"] },
       {
         name: "agent-detail",
-        route: "/agents",
-        clickText: `Marlin Prime${journeySuffix}`,
-        afterTexts: ["Marlin runs the e2e journey", `Helm${journeySuffix}`, "https://cnb.cool/tars-lab/xwing"],
+        route: "agents",
+        openDetail: `Marlin Prime${journeySuffix}`,
+        afterTexts: [`Marlin Prime${journeySuffix}`],
       },
-      { name: "crew-page", route: "/crews", texts: [`Voyage${journeySuffix}`, "Lookout"] },
+      { name: "crew-visible", route: "agents", texts: [`Voyage${journeySuffix}`] },
     ],
   }, null, 2)}\n`);
 });
@@ -1103,7 +1149,11 @@ scenario("smoke", "smoke: derived command surface (bare/preview/read tiers from 
           } else {
             assert(cleanDiagnostic.test(out), `non-zero exit without a clean diagnostic:\n${out.slice(0, 300)}`);
           }
-          assert(readdirSync(cwd).length === 0, "side-effect files written into an empty cwd");
+          // Direct mutators (init/capture) write user assets by documented
+          // design — "no side effects" only holds for gated/read commands.
+          if (!DIRECT_MUTATORS.includes(command.name)) {
+            assert(readdirSync(cwd).length === 0, "side-effect files written into an empty cwd");
+          }
         } else if (tier === "read") {
           mustPass(deployRun(main.deployRoot, [command.name, "--environment", "e2e"]), `${command.name} (read tier)`);
         } else if (tier === "preview") {
@@ -1146,7 +1196,10 @@ scenario("smoke", "smoke: derived command surface (bare/preview/read tiers from 
 runScenarios();
 keepMainState = readState(main.deployRoot);
 keepWorkflowState = workflowFixture ? readState(workflowFixture.deployRoot) : {};
-const keepJourneyState = journeyProject ? readState(journeyProject) : {};
+// HF-15957: journey state lives at <project>/.xwing (embedded layout) — the
+// project root has no state.yaml, so cleanup previously read {} and never
+// archived journey resources (same-env reruns then collided on names).
+const keepJourneyState = journeyProject ? readState(join(journeyProject, ".xwing")) : {};
 
 let cleanupProblems = [];
 if (!KEEP) {

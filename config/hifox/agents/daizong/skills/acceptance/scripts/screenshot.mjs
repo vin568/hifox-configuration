@@ -60,9 +60,15 @@ if (VERIFY_SPEC_PATH) {
 const EMAIL = process.env.DEVBOT_EMAIL || "devbot@example.com";
 const CODE = process.env.DEVBOT_CODE || "888888";
 const EMAIL_SELECTOR = process.env.LOGIN_EMAIL_SELECTOR || 'input[type="email"], input[name*="email" i]';
-const CODE_SELECTOR = process.env.LOGIN_CODE_SELECTOR || 'input[type="text"], input[name*="code" i], input[inputmode="numeric"]';
+// input[type=password]: the task-local test-account login bypass renders a
+// PASSWORD field instead of a code field (HF-15955 field observation).
+const CODE_SELECTOR = process.env.LOGIN_CODE_SELECTOR || 'input[type="text"], input[name*="code" i], input[inputmode="numeric"], input[type="password"]';
 const SUBMIT_SELECTOR = process.env.LOGIN_SUBMIT_SELECTOR || 'button[type="submit"], button:has-text("登录"), button:has-text("Continue"), button:has-text("继续")';
-const ROUTES = (process.env.SHOT_ROUTES || "/,/agents,/crews,/skills,/workflows").split(",");
+// No standalone /crews page exists (crews render inside the agents page,
+// HF-15955); raw root paths land on the org-unavailable page because the app
+// routes everything under /<org>/ — the ROUTES loop resolves the org prefix
+// the same way the verify pass does.
+const ROUTES = (process.env.SHOT_ROUTES || "/,/agents,/skills,/workflows").split(",");
 
 // How long any single auth-related wait may take (form reveal, redirect,
 // confirmation signal). Page-load budgets stay separate literals.
@@ -136,7 +142,12 @@ try {
   }
   await page.goto(BASE_URL, { waitUntil: "networkidle", timeout: 30_000 });
   await page.screenshot({ path: join(OUT_DIR, "00-home.png"), fullPage: true });
-
+  // Org-prefixed routing (HF-15955): after auth the app lands on /<org>/…
+  // — resolve the prefix once so spec routes stay LOGICAL ("agents").
+  const KNOWN_ROOTS = new Set(["login", "agents", "crews", "skills", "workflows", "settings"]);
+  const firstSegment = (new URL(page.url()).pathname.split("/")[1] || "").toLowerCase();
+  const ORG_PREFIX = firstSegment && !KNOWN_ROOTS.has(firstSegment) ? `/${firstSegment}` : "";
+  if (ORG_PREFIX) notes.push(`org route prefix: ${ORG_PREFIX}`);
   if (VERIFY_SPEC) {
     // The UI gate: assert what a user SEES, text-based (no pixel compare, no
     // CSS selectors) so presentational churn cannot break the contract.
@@ -145,15 +156,18 @@ try {
     for (const check of VERIFY_SPEC.checks || []) {
       const entry = { name: check.name, pass: true, note: "" };
       try {
-        const target = new URL(check.route || "/", BASE_URL).toString();
+        const target = new URL(`${ORG_PREFIX}/${(check.route || "agents").replace(/^\//, "")}`, BASE_URL).toString();
         await page.goto(target, { waitUntil: "networkidle", timeout: 30_000 });
         const texts = [...(check.texts || [])];
-        if (check.clickText) texts.push(check.clickText);
+        if (check.openDetail) texts.push(check.openDetail);
         for (const text of texts) {
           await page.locator(`text=${text}`).first().waitFor({ state: "visible", timeout: VERIFY_TIMEOUT_MS });
         }
-        if (check.clickText) {
-          await page.locator(`text=${check.clickText}`).first().click();
+        if (check.openDetail) {
+          // Cards carry an absolute-inset settings button that intercepts the
+          // pointer at the text's hit point (HF-15955) — a forced click opens
+          // the detail drawer the way a user's direct click would.
+          await page.locator(`text=${check.openDetail}`).first().click({ force: true });
           await page.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => {});
           for (const text of check.afterTexts || []) {
             await page.locator(`text=${text}`).first().waitFor({ state: "visible", timeout: VERIFY_TIMEOUT_MS });
@@ -176,7 +190,7 @@ try {
 
   for (const route of ROUTES) {
     if (!route || route === "/") continue;
-    const target = new URL(route, BASE_URL).toString();
+    const target = new URL(`${ORG_PREFIX}/${route.replace(/^\//, "")}`, BASE_URL).toString();
     try {
       await page.goto(target, { waitUntil: "networkidle", timeout: 30_000 });
       await page.screenshot({ path: join(OUT_DIR, `${route.replace(/\//g, "_").replace(/^_+|_+$/g, "") || "root"}.png`), fullPage: true });

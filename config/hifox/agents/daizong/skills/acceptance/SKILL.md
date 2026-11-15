@@ -55,10 +55,10 @@ node scripts/run-acceptance.mjs --cleanup-report <dir>/report.json
 4. `apply-idempotent`：二次 apply 幂等（ID 不变、无 mutation 回显——ADR 0021 漂移门控、远端名称不漂移）。
 5. `pull`：快照文件落盘；陈旧快照条目先清空（负例）。
 6. `backup-restore`：备份目录成形；原地恢复还原被破坏的 prompt；`--to` 异地恢复物化外部引用。
-7. `automation-lifecycle`：主 fixture 自带 automation（`deployed` 缺省，钉缺省 true 契约）——apply 与 agent 同轮首发（state 注册 + 引擎读回 title/status/assignee/trigger）→ 二次 apply 幂等（stdout in-sync + title/assignee 复验）→ cron 漂移经 trigger edit 收敛（trigger id 稳定，非删+重建）→ 删除配置后 `prune automations` **硬删**并注销（事后 `automation view` 必须失败）。
+7. `automation-lifecycle`：主 fixture 自带 automation（`deployed` 缺省，钉缺省 true 契约）——apply 与 agent 同轮首发（state 注册 + 引擎读回 title/status/assignee/trigger）→ 二次 apply 幂等（apply 输出契约：in-sync 资源零动作行——断言无 `~`/`+ automation` 行 + 收口计数收敛 + title/assignee 复验）→ cron 漂移经 trigger edit 收敛（trigger id 稳定，非删+重建）→ 删除配置后 `prune automations` **硬删**并注销（事后 `automation view` 必须失败）。
 
 **workflow 链**（独立 root，与主链互不遮蔽）：
-1. `workflow-lifecycle`：捕获型（graph.json）与编写型（graph.yaml）双形态同轮一次成型（in sync）→ 引擎读回名称 / deployed / lock → 编写型图的 run_agent executor 解析为 state UUID（export 读回）→ 二次 apply 幂等（无 `+`/`~` 漂移标记）→ 已上锁实例改元数据与 `deployed: false` 经 apply 解锁更新并恢复上锁 → 删除配置后 `prune workflows` 归档并注销（active 列表消失、`--status archived` 可见）。
+1. `workflow-lifecycle`：捕获型（graph.json）与编写型（graph.yaml）双形态同轮一次成型（各自 `+ workflow` 落地行）→ 引擎读回名称 / deployed / lock → 编写型图的 run_agent executor 解析为 state UUID（export 读回）→ 二次 apply 幂等（无 `+`/`~` 漂移标记 + 收口计数收敛）→ 已上锁实例改元数据与 `deployed: false` 经 apply 解锁更新并恢复上锁 → 删除配置后 `prune workflows` 归档并注销（active 列表消失、`--status archived` 可见）。
 
 **journey / smoke 链**：见「验收分层」B 与 C。
 

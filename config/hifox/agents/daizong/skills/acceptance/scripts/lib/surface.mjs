@@ -41,11 +41,15 @@ export function hasRequiredArgs(args) {
 // - "preview": usage contains [--apply] (the gate marker) and no required
 //              args. Run WITHOUT --apply on a fixture root; state.yaml must
 //              stay byte-identical (the gate itself is the contract).
-// - "read":    usage contains [--environment NAME], no required args, no
-//              [--apply]. Run against the fixture; must exit 0.
-// Direct mutators (init/capture write user assets with no gate) get "bare"
-// only — the denylist is the single allowed piece of command-name knowledge.
-export function tiersFor({ name, args }, directMutators = ["init", "capture"]) {
+// The single allowed piece of command-name knowledge anywhere in the
+// derived layer: commands that mutate user assets with no --apply gate.
+// Exported for the smoke runner: bare tier still exercises them (clean
+// failure / info output, no stack) but must NOT assert "no side-effect
+// files" — writing directly is their documented contract (review: smoke
+// init/bare false red on round HF-15949).
+export const DIRECT_MUTATORS = ["init", "capture"];
+
+export function tiersFor({ name, args }, directMutators = DIRECT_MUTATORS) {
   const tiers = ["bare"];
   if (directMutators.includes(name)) return tiers;
   const gated = /\[--apply\]/.test(args);

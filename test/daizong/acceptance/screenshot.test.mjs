@@ -85,7 +85,7 @@ test("cold login: enters via gated route, fills two-step code, captures only aut
   const captured = shots(events);
   assert.deepEqual(
     captured.map((s) => s.path.replace(/^.*\//, "")),
-    ["00-home.png", "agents.png", "crews.png", "skills.png", "workflows.png"],
+    ["00-home.png", "agents.png", "skills.png", "workflows.png"],
   );
   assert.ok(captured.every((s) => s.authed), "screenshot taken before authentication");
   assert.match(captured[0].url, /^http:\/\/app\.test\/?$/);
@@ -98,7 +98,7 @@ test("already-authenticated environment: no false login attempt", () => {
   assert.match(res.stdout, /assumed already authenticated/);
   assert.equal(events.filter((e) => e.type === "fill" || e.type === "click").length, 0);
   const captured = shots(events);
-  assert.equal(captured.length, 5);
+  assert.equal(captured.length, 4);
   assert.ok(captured.every((s) => s.authed));
 });
 
@@ -126,7 +126,7 @@ test("inline login form (no redirect): code input disappearing confirms auth", (
   // No redirect ever happened: the form rendered in place on the gated route.
   assert.equal(events.filter((e) => e.type === "redirect").length, 0);
   const captured = shots(events);
-  assert.equal(captured.length, 5);
+  assert.equal(captured.length, 4);
   assert.ok(captured.every((s) => s.authed), "screenshot taken before authentication");
 });
 
@@ -156,7 +156,7 @@ test("per-route capture failure is noted and never gates (exit 0, other shots ta
   const captured = shots(events);
   assert.deepEqual(
     captured.map((s) => s.path.replace(/^.*\//, "")),
-    ["00-home.png", "agents.png", "crews.png", "workflows.png"],
+    ["00-home.png", "agents.png", "workflows.png"],
   );
   assert.ok(captured.every((s) => s.authed));
 });
@@ -167,22 +167,23 @@ test("per-route capture failure is noted and never gates (exit 0, other shots ta
 const VERIFY_SPEC = {
   kind: "ui-verify",
   checks: [
-    { name: "agents-list", route: "/agents", texts: ["Marlin Prime - journey-x", "Skipper - journey-x"] },
+    { name: "agents-list", route: "agents", texts: ["Marlin Prime - e2e", "Skipper - e2e", "Lookout"] },
     {
       name: "agent-detail",
-      route: "/agents",
-      clickText: "Marlin Prime - journey-x",
-      afterTexts: ["Marlin runs the e2e journey", "https://cnb.cool/tars-lab/xwing"],
+      route: "agents",
+      openDetail: "Marlin Prime - e2e",
+      afterTexts: ["Marlin Prime - e2e"],
     },
+    { name: "crew-visible", route: "agents", texts: ["Voyage - e2e"] },
   ],
 };
 const VERIFY_PAGES = {
   "/agents": {
-    texts: ["Marlin Prime - journey-x", "Skipper - journey-x"],
-    click: { "Marlin Prime - journey-x": "/agents/marlin" },
+    texts: ["Marlin Prime - e2e", "Skipper - e2e", "Lookout", "Voyage - e2e"],
+    click: { "Marlin Prime - e2e": "/agents/marlin" },
   },
   "/agents/marlin": {
-    texts: ["Marlin runs the e2e journey", "https://cnb.cool/tars-lab/xwing"],
+    texts: ["Marlin Prime - e2e"],
   },
 };
 
@@ -196,7 +197,7 @@ test("verify pass: every check asserts, clicks through to detail, writes ui-verd
   assert.match(res.stdout, /ui verdict: pass/);
   const verdict = JSON.parse(readFileSync(join(dir, "shots", "ui-verdict.json"), "utf8"));
   assert.equal(verdict.verdict, "pass");
-  assert.equal(verdict.checks.length, 2);
+  assert.equal(verdict.checks.length, 3);
   assert.ok(verdict.checks.every((c) => c.pass));
   const clicks = events.filter((e) => e.type === "click-text");
   assert.equal(clicks.length, 1);
@@ -204,6 +205,24 @@ test("verify pass: every check asserts, clicks through to detail, writes ui-verd
   const names = shots(events).map((s) => s.path.replace(/^.*\//, ""));
   assert.ok(names.includes("verify-agents-list.png"));
   assert.ok(names.includes("verify-agent-detail.png"));
+  assert.ok(names.includes("verify-crew-visible.png"));
+});
+
+test("verify pass with org-prefixed routing: logical routes resolve via the landing URL", () => {
+  const { res } = runScript({
+    args: ["--url", "http://app.test", "--out", "shots", "--verify", "journey.json"],
+    env: {
+      STUB_AUTHED: "1",
+      STUB_ORG_PREFIX: "acme",
+      STUB_VERIFY_PAGES: JSON.stringify({
+        "/acme/agents": { texts: VERIFY_PAGES["/agents"].texts, click: { "Marlin Prime - e2e": "/acme/agents/marlin" } },
+        "/acme/agents/marlin": { texts: ["Marlin Prime - e2e"] },
+      }),
+    },
+    files: { "journey.json": JSON.stringify(VERIFY_SPEC) },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.match(res.stdout, /org route prefix: \/acme/);
 });
 
 test("verify fail: a text the UI never shows fails the check, ui-verdict fail, exit 1", () => {
@@ -215,7 +234,7 @@ test("verify fail: a text the UI never shows fails the check, ui-verdict fail, e
       // Pages spec lists only Marlin on /agents: agents-list fails on the
       // missing Skipper text; the detail click has no navigation map, so its
       // afterTexts never appear — both failure paths red.
-      STUB_VERIFY_PAGES: JSON.stringify({ "/agents": { texts: ["Marlin Prime - journey-x"] } }),
+      STUB_VERIFY_PAGES: JSON.stringify({ "/agents": { texts: ["Marlin Prime - e2e"] } }),
       SHOT_ROUTES: "",
     },
     files: { "journey.json": JSON.stringify(VERIFY_SPEC) },
