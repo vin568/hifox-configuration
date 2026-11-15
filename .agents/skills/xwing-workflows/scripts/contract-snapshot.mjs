@@ -22,9 +22,19 @@ const flag = (name) => {
   return i >= 0 ? process.argv[i + 1] : undefined;
 };
 
+// environmentsDir follows the root x-deploy.yaml when present (ADR 0027);
+// the file is a flat five-key mapping, so a single top-level line match is
+// enough — malformed values stay the CLI's doctor business, not this script's.
+function environmentsDir(root) {
+  const settingsPath = join(root, "x-deploy.yaml");
+  if (!existsSync(settingsPath)) return "environments";
+  const value = readFileSync(settingsPath, "utf8").match(/^environmentsDir:\s*(\S+)\s*$/m)?.[1];
+  return value ? value.replace(/^["']|["']$/g, "") : "environments";
+}
+
 function detect() {
   const root = process.cwd();
-  const envDirs = join(root, "environments");
+  const envDirs = join(root, environmentsDir(root));
   if (existsSync(envDirs)) {
     for (const name of readdirSync(envDirs)) {
       const file = join(envDirs, name, "environment.yaml");

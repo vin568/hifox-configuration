@@ -124,8 +124,10 @@ function candidateRun(cwd, cliArgs, timeout = 120_000) {
 
 // Minimal state.yaml reader: sections (crew/agents/skills/workflows) at col 0,
 // entries indented 2, fields (id/deployedName) indented 4.
+// state.yaml lives under the settings-declared environmentsDir; every
+// settings-embedded fixture below uses the .xwing/ convention.
 function readState(deploymentRoot) {
-  const path = join(deploymentRoot, "environments", "e2e", "state.yaml");
+  const path = join(deploymentRoot, ".xwing", "environments", "e2e", "state.yaml");
   if (!existsSync(path)) return {};
   const state = {};
   let section = null;
@@ -193,15 +195,26 @@ function resolveAgentTarget() {
 function targetYaml(target) {
   return `target:\n  computer: ${target.computerId}\n  runtimeProvider: ${target.runtimeProvider}`;
 }
+// The embedded convention IS the settings mechanism (ADR 0027): a root
+// x-deploy.yaml pointing the four directories under .xwing/. The CLI root of
+// every settings fixture below is the project root, never .xwing itself.
+const SETTINGS_YAML = [
+  "configDir: .xwing/config",
+  "environmentsDir: .xwing/environments",
+  "snapshotsDir: .xwing/snapshots",
+  "backupsDir: .xwing/backups",
+  "",
+].join("\n");
 
 function buildMainRoot() {
   const root = mkdtempSync(join(tmpdir(), "xwd-acc-main-"));
   const suffix = ` - xwdci-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   const files = {
+    "x-deploy.yaml": SETTINGS_YAML,
     ".xwing/environments/e2e/environment.yaml": [
       `organizationId: ${ORG_ID}`,
       `spaceId: ${SPACE_ID}`,
-      "configRoot: config/test",
+      "configSet: test",
       "cli:",
       "  app: hifox",
       `nameSuffix: ${JSON.stringify(suffix)}`,
@@ -293,7 +306,7 @@ function buildMainRoot() {
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, content);
   }
-  return { root, suffix, deployRoot: join(root, ".xwing") };
+  return { root, suffix, deployRoot: root };
 }
 
 function buildWorkflowRoot(suffix) {
@@ -331,10 +344,11 @@ function buildWorkflowRoot(suffix) {
     variables: {},
   };
   const files = {
+    "x-deploy.yaml": SETTINGS_YAML,
     ".xwing/environments/e2e/environment.yaml": [
       `organizationId: ${ORG_ID}`,
       `spaceId: ${SPACE_ID}`,
-      "configRoot: config/test",
+      "configSet: test",
       "cli:",
       "  app: hifox",
       `nameSuffix: ${JSON.stringify(suffix)}`,
@@ -389,7 +403,7 @@ function buildWorkflowRoot(suffix) {
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, content);
   }
-  return { root, deployRoot: join(root, ".xwing") };
+  return { root, deployRoot: root };
 }
 
 // ---------------------------------------------------------------------------
@@ -529,32 +543,33 @@ scenario("offline", "validate: fixture root passes offline validation, bad confi
   mustPass(deployRun(main.deployRoot, ["validate", "--environment", "e2e"]), "validate");
   // Negative: an unknown template variable must fail validation — guards the
   // validator against being hollowed out (every check deleted still passes).
+  // Zero-config default layout (no x-deploy.yaml) covers the dedicated shape.
   const badRoot = mkdtempSync(join(tmpdir(), "xwd-acc-bad-"));
   const badFiles = {
-    ".xwing/environments/e2e/environment.yaml": [
+    "environments/e2e/environment.yaml": [
       `organizationId: ${ORG_ID}`,
       `spaceId: ${SPACE_ID}`,
-      "configRoot: config/test",
+      "configSet: test",
       "cli:",
       "  app: hifox",
       'nameSuffix: " - bad"',
       `namingPattern: ${JSON.stringify(NAMING_PATTERN)}`,
       "",
     ].join("\n"),
-    ".xwing/config/test/agents/bad/agent.yaml": [
+    "config/test/agents/bad/agent.yaml": [
       "key: bad",
       "name: Bad",
       "instructionsFile: instructions.md",
       "",
     ].join("\n"),
-    ".xwing/config/test/agents/bad/instructions.md": `Unresolved ${mustache("agents.missing.name")}.\n`,
+    "config/test/agents/bad/instructions.md": `Unresolved ${mustache("agents.missing.name")}.\n`,
   };
   for (const [path, content] of Object.entries(badFiles)) {
     const target = join(badRoot, path);
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, content);
   }
-  const bad = deployRun(join(badRoot, ".xwing"), ["validate", "--environment", "e2e"]);
+  const bad = deployRun(badRoot, ["validate", "--environment", "e2e"]);
   assert(bad.status !== 0, "validate must reject unknown template variables");
 });
 
@@ -622,13 +637,13 @@ scenario("offline", "doctor: self-check passes, broken environment fails", () =>
   mustPass(deployRun(main.deployRoot, ["doctor", "--environment", "e2e"]), "doctor");
   // Negative: an unknown cli.app must fail the doctor check, not pass silently.
   const badApp = mkdtempSync(join(tmpdir(), "xwd-acc-doctor-"));
-  const envPath = join(badApp, ".xwing/environments/e2e/environment.yaml");
+  const envPath = join(badApp, "environments/e2e/environment.yaml");
   mkdirSync(dirname(envPath), { recursive: true });
   writeFileSync(
     envPath,
-    [`organizationId: ${ORG_ID}`, `spaceId: ${SPACE_ID}`, "configRoot: config/test", "cli:", "  app: nosuchapp", ""].join("\n"),
+    [`organizationId: ${ORG_ID}`, `spaceId: ${SPACE_ID}`, "configSet: test", "cli:", "  app: nosuchapp", ""].join("\n"),
   );
-  const bad = deployRun(join(badApp, ".xwing"), ["doctor", "--environment", "e2e"]);
+  const bad = deployRun(badApp, ["doctor", "--environment", "e2e"]);
   assert(bad.status !== 0, "doctor must fail on an unknown cli.app");
 });
 
@@ -713,7 +728,7 @@ scenario("main", "apply-idempotent: second apply keeps ids and skips in-sync pus
 scenario("main", "pull: snapshots land on disk", () => {
   // Stale-entry negative (README 快照与备份): pull clears snapshots/<env>/
   // before writing, so remote-deleted resources cannot linger in snapshots.
-  const ghostDir = join(main.deployRoot, "snapshots/e2e/agents");
+  const ghostDir = join(main.deployRoot, ".xwing/snapshots/e2e/agents");
   mkdirSync(ghostDir, { recursive: true });
   writeFileSync(join(ghostDir, "ghost.json"), "{}\n");
   mustPass(deployRun(main.deployRoot, ["pull", "--environment", "e2e"]), "pull");
@@ -722,16 +737,16 @@ scenario("main", "pull: snapshots land on disk", () => {
   // (Agent Skill keys nest), crews/<key>/{crew,members}.json, plus root-level
   // crew.json/members.json for the single-crew case.
   const expected = [
-    "snapshots/e2e/crew.json",
-    "snapshots/e2e/members.json",
-    "snapshots/e2e/agents/alpha.json",
-    "snapshots/e2e/agents/beta.json",
-    "snapshots/e2e/agents/gamma.json",
-    "snapshots/e2e/skills/echo.json",
-    "snapshots/e2e/skills/alpha/relay.json",
-    "snapshots/e2e/crews/team/crew.json",
-    "snapshots/e2e/crews/team/members.json",
-    "snapshots/e2e/automations/heartbeat/automation.json",
+    ".xwing/snapshots/e2e/crew.json",
+    ".xwing/snapshots/e2e/members.json",
+    ".xwing/snapshots/e2e/agents/alpha.json",
+    ".xwing/snapshots/e2e/agents/beta.json",
+    ".xwing/snapshots/e2e/agents/gamma.json",
+    ".xwing/snapshots/e2e/skills/echo.json",
+    ".xwing/snapshots/e2e/skills/alpha/relay.json",
+    ".xwing/snapshots/e2e/crews/team/crew.json",
+    ".xwing/snapshots/e2e/crews/team/members.json",
+    ".xwing/snapshots/e2e/automations/heartbeat/automation.json",
   ];
   for (const path of expected) {
     assert(existsSync(join(main.deployRoot, path)), `missing snapshot ${path}`);
@@ -741,9 +756,9 @@ scenario("main", "pull: snapshots land on disk", () => {
 let backupEnvDir;
 scenario("main", "backup-restore: backup dir forms, in-place and --to restores work", () => {
   mustPass(deployRun(main.deployRoot, ["backup", "--environment", "e2e"]), "backup");
-  const stamps = readdirSync(join(main.deployRoot, "backups"));
+  const stamps = readdirSync(join(main.deployRoot, ".xwing/backups"));
   assert(stamps.length > 0, "no backup timestamp directory");
-  backupEnvDir = join(main.deployRoot, "backups", stamps[0], "e2e");
+  backupEnvDir = join(main.deployRoot, ".xwing/backups", stamps[0], "e2e");
   assert(existsSync(backupEnvDir), "backup env dir missing");
 
   const restoredTarget = mkdtempSync(join(tmpdir(), "xwd-acc-restore-"));
@@ -813,7 +828,7 @@ scenario("workflow", "workflow-lifecycle: apply converges, re-applies in sync, d
   assert(!/^[+~] workflow demo/m.test(reapply.stdout), "re-apply must not report demo drift");
 
   writeFileSync(
-    join(deployRoot, "config/test/workflows/demo/workflow.yaml"),
+    join(deployRoot, ".xwing/config/test/workflows/demo/workflow.yaml"),
     ['key: demo', 'name: "Demo Flow"', 'description: "edited while locked"', "deployed: false", "source: ui", ""].join("\n"),
   );
   mustPass(deployRun(deployRoot, ["apply", "--apply", "--environment", "e2e"]), "workflow locked drift-edit");
@@ -823,7 +838,7 @@ scenario("workflow", "workflow-lifecycle: apply converges, re-applies in sync, d
   assertEqual(updatedRow.isDeployed, false, "deployed: false must undeploy a locked workflow");
   assertEqual(updatedRow.locked, true, "lockUiEdits default must re-lock after mutating");
 
-  rmSync(join(deployRoot, "config/test/workflows/demo"), { recursive: true });
+  rmSync(join(deployRoot, ".xwing/config/test/workflows/demo"), { recursive: true });
   const pruned = mustPass(deployRun(deployRoot, ["prune", "workflows", "--apply", "--environment", "e2e"]), "prune workflows");
   assertMatch(pruned.stdout, /demo/, "prune must report the removed workflow");
   assertEqual(readState(deployRoot).workflows?.demo, undefined, "prune must deregister state");
@@ -868,7 +883,7 @@ scenario("main", "automation-lifecycle: created by apply, re-applies in sync, dr
     "re-apply must not alter the resolved assignee",
   );
 
-  const configPath = join(deployRoot, "config/test/automations/heartbeat/automation.yaml");
+  const configPath = join(deployRoot, ".xwing/config/test/automations/heartbeat/automation.yaml");
   const triggerIdBefore = trigger.id;
   assert(triggerIdBefore, "schedule trigger must expose a stable id");
   writeFileSync(configPath, readFileSync(configPath, "utf8").replace('"0 0 1 1 *"', '"0 0 2 2 *"'));
@@ -885,7 +900,7 @@ scenario("main", "automation-lifecycle: created by apply, re-applies in sync, dr
     triggerIdBefore,
     "cron drift must edit the trigger in place, not delete+recreate (id rotation would break webhook URLs)",
   );
-  rmSync(join(deployRoot, "config/test/automations/heartbeat"), { recursive: true });
+  rmSync(join(deployRoot, ".xwing/config/test/automations/heartbeat"), { recursive: true });
   const pruned = mustPass(deployRun(deployRoot, ["prune", "automations", "--environment", "e2e", "--apply"]), "prune automations");
   assertMatch(pruned.stdout, /heartbeat/, "prune must report the removed automation");
   assertEqual(readState(deployRoot).automations?.heartbeat, undefined, "prune must deregister state");
@@ -911,10 +926,12 @@ let journeyProject = null;
 let journeySuffix = "";
 scenario("journey", "user-journey: init scaffolds, bind adopts, create lands, apply converges, backup forms", () => {
   journeyProject = mkdtempSync(join(tmpdir(), "xwd-acc-journey-"));
-  mustPass(candidateRun(undefined, ["init", journeyProject, "--config-set", "prod", "--environment", "e2e"]), "init");
-  // Candidate contract (README --layout): embedded is the DEFAULT and places
-  // the DeploymentRoot at <project>/.xwing — config/, environments/ and
-  // state live under it; project-level paths like @/skills stay at the root.
+  mustPass(candidateRun(undefined, ["init", journeyProject, "--layout", "embedded", "--config-set", "prod", "--environment", "e2e"]), "init");
+  // Candidate contract (ADR 0027): --layout embedded writes a root
+  // x-deploy.yaml pointing the four directories under <project>/.xwing —
+  // config/, environments/ and state live under it; project-level paths like
+  // @/skills stay at the root; the CLI root stays the project root.
+  assert(existsSync(join(journeyProject, "x-deploy.yaml")), "init must scaffold the settings file for the embedded layout");
   const jd = join(journeyProject, ".xwing");
   const envPath = join(jd, "environments/e2e/environment.yaml");
   assert(existsSync(envPath), "init must scaffold .xwing/environments/e2e/environment.yaml");
@@ -930,16 +947,19 @@ scenario("journey", "user-journey: init scaffolds, bind adopts, create lands, ap
   // acceptance space).
   journeySuffix = " - e2e";
   // The user hand-edits the scaffold: identity lines stay as placeholders
-  // for bind to fill; suffix/naming stay exactly as init wrote them; only
-  // the runtime target is authored here.
+  // for bind to fill; suffix/naming/visibility stay exactly as init wrote
+  // them; only the runtime target is authored here.
   writeFileSync(envPath, [
     "organizationId: replace-with-organization-id",
     "spaceId: replace-with-space-id",
-    "configRoot: config/prod",
+    "configSet: prod",
     "cli:",
     "  app: hifox",
     `nameSuffix: ${JSON.stringify(journeySuffix)}`,
     `namingPattern: ${JSON.stringify(NAMING_PATTERN)}`,
+    "visibility:",
+    "  crew: personal",
+    "  agents: personal",
     "target:",
     `  computer: ${agentTarget.computerId}`,
     `  runtimeProvider: ${agentTarget.runtimeProvider}`,
@@ -957,7 +977,7 @@ scenario("journey", "user-journey: init scaffolds, bind adopts, create lands, ap
   const general = spaces.find((s) => /general/i.test(s.name || "")) || spaces[0];
   assert(general?.name, "task-local space must exist for bind");
   mustPass(
-    deployRun(jd, [
+    deployRun(journeyProject, [
       "bind", "--environment", "e2e",
       "--organization-name", orgs[0].name, "--space-name", general.name, "--apply",
     ]),
@@ -1029,11 +1049,11 @@ scenario("journey", "user-journey: init scaffolds, bind adopts, create lands, ap
     Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"),
   );
 
-  mustPass(deployRun(jd, ["validate", "--environment", "e2e"]), "journey validate");
-  mustPass(deployRun(jd, ["plan", "--environment", "e2e"]), "journey plan");
-  mustPass(deployRun(jd, ["create", "--environment", "e2e", "--apply"]), "journey create --apply");
+  mustPass(deployRun(journeyProject, ["validate", "--environment", "e2e"]), "journey validate");
+  mustPass(deployRun(journeyProject, ["plan", "--environment", "e2e"]), "journey plan");
+  mustPass(deployRun(journeyProject, ["create", "--environment", "e2e", "--apply"]), "journey create --apply");
 
-  let jstate = readState(jd);
+  let jstate = readState(journeyProject);
   assert(jstate.agents?.marlin?.id, "marlin not registered by create");
   assert(jstate.agents?.skipper?.id, "skipper not registered (environment-level default target must cover it)");
   assert(jstate.skills?.helm?.id, "helm skill not registered by create");
@@ -1083,18 +1103,18 @@ scenario("journey", "user-journey: init scaffolds, bind adopts, create lands, ap
     "",
   ].join("\n"));
   writeFileSync(join(journeyProject, ".xwing/config/prod/automations/watch/description.md"), "Journey watch automation.\n");
-  mustPass(deployRun(jd, ["apply", "--environment", "e2e", "--apply"]), "journey apply --apply (edit)");
+  mustPass(deployRun(journeyProject, ["apply", "--environment", "e2e", "--apply"]), "journey apply --apply (edit)");
 
   const renamed = cliJson(["agent", "view", marlinId]);
   assertEqual(renamed?.name, `Marlin Prime${journeySuffix}`, "journey rename must converge via apply");
-  jstate = readState(jd);
+  jstate = readState(journeyProject);
   const watchId = jstate.automations?.watch?.id;
   assert(watchId, "journey automation must be provisioned by the same apply");
   const watch = cliJson(["automation", "view", watchId, "-y"]);
   assertEqual(watch?.automation?.status, "active", "journey automation must be active");
   assertEqual(watch?.automation?.assigneeId, marlinId, "journey automation assignee must resolve to the state uuid");
 
-  mustPass(deployRun(jd, ["backup", "--environment", "e2e"]), "journey backup");
+  mustPass(deployRun(journeyProject, ["backup", "--environment", "e2e"]), "journey backup");
   assert(readdirSync(join(jd, "backups")).length > 0, "journey backup directory must form");
 
 
@@ -1157,11 +1177,11 @@ scenario("smoke", "smoke: derived command surface (bare/preview/read tiers from 
         } else if (tier === "read") {
           mustPass(deployRun(main.deployRoot, [command.name, "--environment", "e2e"]), `${command.name} (read tier)`);
         } else if (tier === "preview") {
-          // State lives at environments/e2e/state.yaml (readState's path) —
+          // State lives at .xwing/environments/e2e/state.yaml (readState's path) —
           // the old bare deployRoot/state.yaml never existed, so the
           // before/after compare was null===null and the gate was vacuous
           // (review F-6).
-          const statePath = join(main.deployRoot, "environments", "e2e", "state.yaml");
+          const statePath = join(main.deployRoot, ".xwing/environments", "e2e", "state.yaml");
           const before = existsSync(statePath) ? readFileSync(statePath, "utf8") : null;
           const result = deployRun(main.deployRoot, [command.name, "--environment", "e2e"]);
           const out = `${result.stdout || ""}${result.stderr || ""}`;
@@ -1199,7 +1219,7 @@ keepWorkflowState = workflowFixture ? readState(workflowFixture.deployRoot) : {}
 // HF-15957: journey state lives at <project>/.xwing (embedded layout) — the
 // project root has no state.yaml, so cleanup previously read {} and never
 // archived journey resources (same-env reruns then collided on names).
-const keepJourneyState = journeyProject ? readState(join(journeyProject, ".xwing")) : {};
+const keepJourneyState = journeyProject ? readState(journeyProject) : {};
 
 let cleanupProblems = [];
 if (!KEEP) {

@@ -1,6 +1,6 @@
 // Unit tests for the derived command-surface helpers (lib/surface.mjs).
 // Fixture: the real `x-deploy --help` usage block (captured 2026-11-15 from
-// vendor/x-deploy @ 8e4da55-era registry). If x-deploy's help render format
+// vendor/x-deploy @ f6ebba3-era registry. If x-deploy's help render format
 // ever changes shape, these tests fail before the suite silently loses its
 // derived coverage — that is the point.
 import assert from "node:assert/strict";
@@ -8,7 +8,7 @@ import test from "node:test";
 import { parseCommandSurface, hasRequiredArgs, tiersFor, buildCoverage } from "../../../config/hifox/agents/daizong/skills/acceptance/scripts/lib/surface.mjs";
 
 const HELP = `Usage:
-  x-deploy init          [DIR] [--layout embedded|dedicated] [--config-set NAME] [--environment NAME] [--cli-source PATH] [--repo-url URL] [--ref NAME]
+  x-deploy init          [DIR] [--layout dedicated|embedded] [--config-set NAME] [--environment NAME] [--cli-source PATH] [--repo-url URL] [--ref NAME]
   x-deploy update        [--apply]
   x-deploy validate      [--environment NAME] [--suffix TEXT]
   x-deploy build         <workflow-key> [--environment NAME] [--out PATH]

@@ -10,13 +10,13 @@
 
 同 Organization（Apifox）下两个 Space：**Apifox 产研** 与 **HiFox 产研**；同一配置集合可被多个环境绑定，各环境独立 `state.yaml`。
 
-| 环境 | configRoot | 目标 Space | 说明 |
+| 环境 | configSet | 目标 Space | 说明 |
 | --- | --- | --- | --- |
-| `staging`（默认） | `config/apifox` | Apifox 产研 | 后缀 ` - staging`，Ragnarok 日常迭代环境，已部署 |
-| `current` | `config/apifox` | Apifox 产研 | 无后缀，线上正在使用的实例 |
-| `example` | `config/apifox` | Apifox 产研 | 后缀 ` - example`，未部署，新环境复制模板（`cp -R environments/example environments/<name>`） |
-| `hifox-prod` | `config/hifox` | HiFox 产研 | 无后缀，已部署 |
-| `hifox-staging` | `config/hifox` | HiFox 产研 | 后缀 ` (staging)`，已部署 |
+| `staging` | `apifox` | Apifox 产研 | 后缀 ` - staging`，Ragnarok 日常迭代环境，已部署 |
+| `current` | `apifox` | Apifox 产研 | 无后缀，线上正在使用的实例 |
+| `example` | `apifox` | Apifox 产研 | 后缀 ` - example`，未部署，新环境复制模板（`cp -R environments/example environments/<name>`） |
+| `hifox-prod` | `hifox` | HiFox 产研 | 无后缀，已部署 |
+| `hifox-staging` | `hifox` | HiFox 产研 | 后缀 ` (staging)`，已部署 |
 
 ## 模型策略
 
