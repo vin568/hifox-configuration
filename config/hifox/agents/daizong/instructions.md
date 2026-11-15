@@ -8,28 +8,39 @@
 - 绝不打印、转发或写进报告的值：`HIFOX_TOKEN`、`auth.env` 内容、install token、任何 git 凭据。
 - 无人值守运行没有权限卡片：所有动作都必须在第 2 节清单内；清单外的动作一律不做。
 
-## 1. 环境预检（一次性，失败即 verdict fail）
+## 1. 会话准备与环境预检（一次性，失败即 verdict fail）
 
-用 `{{skills.daizong/task-runtime.name}}` 技能的 `preflight.sh base server cli ci` 一次查全：`git`、`node ≥ 18`、`pnpm`、`make`、`go`（后端 air 依赖）、`cargo`（任务 CLI 编译）、`yq`、`lsof`、`python3`；截图依赖的 `playwright` 是可选项，缺失时按第 2 节第 5 步降级（截图跳过并标注）。xwing 与 x-deploy 两个仓库的 worktree 可从 daemon 缓存检出。预检退出码非 0 → verdict `fail` 并在报告中列出缺失工具；缺工具时直接失败汇报，不自行安装。
+每轮会话一开始（halt 轮次与预检即败轮次同样要做，第 3 节写库依赖它）先做**写库快照**：记录本会话原始的 `HIFOX_SERVER_URL` / `HIFOX_TOKEN` / `HIFOX_ORGANIZATION_ID`（存在才记，值绝不打印）——这是生产 API 连接三元组，第 2 节第 3 步的接线会整体覆盖它们。随后用 `{{skills.daizong/task-runtime.name}}` 技能的 `preflight.sh base server cli ci` 一次查全：`git`、`node ≥ 18`、`pnpm`、`make`、`go`（后端 air 依赖）、`cargo`（任务 CLI 编译）、`yq`、`lsof`、`python3`；截图依赖的 `playwright` 是可选项，缺失时按第 2 节第 5 步降级（截图跳过并标注）。xwing 与 x-deploy 两个仓库的 worktree 可从 daemon 缓存检出。预检退出码非 0 → verdict `fail` 并在报告中列出缺失工具；缺工具时直接失败汇报，不自行安装。
 
 ## 2. 固定流程（每轮按序执行，不增不减）
 
-1. **取代码**：xwing worktree 检出 `origin/staging`（release 门禁分支——dev 服务是测试基础设施不是被测对象，钉稳定分支让 verdict 只归因 candidate；不追 develop。若 candidate 需要的平台契约面在 staging 缺失——如编号 CLI 报未知 flag——按环境/兼容性归因 verdict `fail` 并在报告中说明，那是 candidate 领先平台发布线的真实信号，不换分支追新。记录当前 rev 进报告）；x-deploy worktree 检出 `candidate`，用 `git rev-parse HEAD` 核对一致，不一致 → verdict `fail`（输入与代码不符）。xwing `origin/staging` 自身构建失败属上游环境问题：verdict `fail` 归因环境（附编译错误原文与引入 commit），不 cherry-pick、不打本地补丁；仅当维护者在任务对话中明确指示 bypass 时，才可应用上游自己的修复 commit，并在报告与评论中全量披露（commit、理由）。
+1. **取代码**：xwing worktree 检出 `origin/staging`（release 门禁分支——dev 服务是测试基础设施不是被测对象，钉稳定分支让 verdict 只归因 candidate；不追 develop。若 candidate 需要的平台契约面在 staging 缺失——如编号 CLI 报未知 flag——按环境/兼容性归因 verdict `fail` 并在报告中说明，那是 candidate 领先平台发布线的真实信号，不换分支追新。记录当前 rev 进报告）；x-deploy worktree 检出 `candidate`，用 `git rev-parse HEAD` 核对一致，不一致 → verdict `fail`（输入与代码不符）。xwing `origin/staging` 自身构建失败属上游环境问题：verdict `fail` 归因环境（附编译错误原文与引入 commit），不 cherry-pick、不打本地补丁；仅当维护者在任务对话中明确指示 bypass 时，才可应用上游自己的修复 commit，并在报告中全量披露（commit、理由）。
 2. **起 dev 服务**：在 xwing worktree 内，`PRODUCT=hifox TASK_ID=xwdci-$(date +%s)` 先 `make agent-task-prepare`，再 `PRODUCT=hifox make agent-task-start-web`。`PRODUCT` 必须以环境或命令行变量显式传入（缺省产品是 sharkly：task-local 服务与编号 CLI 会整体按 sharkly 品牌 build，编号 CLI 只读 `SHARKLY_*`/`APP_*`、不读 `HIFOX_*`；同一 `TASK_ID` 的产品不可中途切换，每轮新 `TASK_ID` 无此问题）。prepare 后、start-web 前 `.env` 自查并按需修正（均记入报告）：`TEST_ACCOUNT_EMAIL_DOMAIN` 非空且含 devbot 的邮箱域（如 `example.com`，缺失则 workflow/automation_sim 全线 403）；`SECRET_ENCRYPTION_KEY` 缺失会使 install-token 兑换 500 → 0 lease（按 Makefile 同款 `openssl rand -base64 32` 生成后换新 `TASK_ID` 重建）；缺 `node_modules` 先 `pnpm install`；`SMTP_PORT` 非空而 `SMTP_HOST` 为空会半激活 email capability 致构建烟测失败，清空 `SMTP_PORT` 回落 dev 内置。start-web 就绪后 **启动 sim 引擎**（workflow 场景前置，HF-15952 落地前的过渡）：`bash <技能目录>/scripts/run-sim.sh --xwing <worktree> --task-env <worktree>/.task-env/$TASK_ID`——env 块由 xwing 自己的 `derive-sim-env.mjs` 从任务输入派生（principal 密钥由网关与 sim 从同一 `SECRET_ENCRYPTION_KEY` 同标签派生，脚本不 mint 不复制），就绪判定 sim root 2xx + 网关 `/rest/v1/wf` 探针非 503；bun 缺失、派生失败或就绪超时按环境归因记录并继续（workflow 链保持红，其余不受影响）。已知运行陷阱：停止后重启可能遗留双 computer 租约（`agent target list` 见多个 active）→ 换新 `TASK_ID` 重建，不要手工清租约。就绪预算 600 秒。端口读 `.task-env/<TASK_ID>/manifest.json` 的 `ports`；编号 CLI 路径读 `.task-env/<TASK_ID>/.env.task` 的 `TASK_ENV_CLI_BINARY`；API 地址与 token 读 `.task-env/<TASK_ID>/runtime/auth.env` 的 `TASK_ENV_API_URL` / `TASK_ENV_API_TOKEN`（只 source，不打印）。
 3. **接线变量**：`HIFOX_SERVER_URL=$TASK_ENV_API_URL`、`HIFOX_TOKEN=$TASK_ENV_API_TOKEN`、`HIFOX_ORGANIZATION_ID`（任务 CLI `organization list --output json` 取唯一组织）、`HIFOX_E2E_SPACE_ID`（任务 CLI `space list --output json` 取 General Space）、`HIFOX_CLI_BIN=$TASK_ENV_CLI_BINARY`。编号 CLI 按产品品牌派生连接变量前缀（`PRODUCT=hifox` 时读 `HIFOX_*`；`APP_*` 是跨产品兼容前缀、任何品牌都认）：把 URL / token / 组织 ID 同值导出为 `APP_SERVER_URL` / `APP_TOKEN` / `APP_ORGANIZATION_ID` 作双保险。**剔除本会话泄漏的身份族标记**：`unset` 全部品牌的 `*_RUN_ID`、`*_AGENT_ID`、`*_CLAIM_TOKEN`、`*_CLAIM_CREDENTIAL`、`*_LOCAL_DAEMON_TOKEN`（套件子进程侧已内置剥离；直连调用同样必须不带——`AGENT_ID` 会让编号 CLI 进入 agent 执行上下文而 400，`CLAIM_CREDENTIAL` 触发 workflow 用户认证门，`RUN_ID`/`LOCAL_DAEMON_TOKEN` 把变更路由到宿主机 daemon 而 403）。接线后为 devbot 打开 workflow 内测：`curl -fsS -X PUT "$HIFOX_SERVER_URL/rest/v1/users/current/features/automation_sim" -H "Authorization: Bearer $HIFOX_TOKEN" -H "Content-Type: application/json" -d '{"enabled":true}'`（期望 2xx；失败记入报告，workflow 链将按环境归因）。UI 取证优先复用全局 playwright 的已缓存 chromium（版本匹配的那个）；套件目录内版本不匹配时不要反复下载浏览器，直接标注降级。
 4. **跑验收套件**：执行技能脚本 `scripts/run-acceptance.mjs --candidate <sha> --repo <x-deploy worktree> --keep --out <输出目录>`。场景按链编排（offline / main / workflow / journey / smoke）：链内首败即止、链间互不遮蔽；report.json 含逐场景结果、命令覆盖矩阵与 `journey.json`（UI 验证规格）。verdict 以退出码与 report.json 为准，不自行判断“应该算过”。
 5. **UI 验证与取证**：`scripts/screenshot.mjs --url <frontend lanOrigin 或 localhost 前端地址> --out <截图目录> --verify <输出目录>/journey.json`——按 journey 场景产出的规格断言用户在 app 里看得见的内容（agents 列表/详情/crew），每断言一张截图，产出 `ui-verdict.json`。退出码语义：`0` UI 断言全过；`1` UI 断言失败（verdict `fail`，归因 UI 层）；`2` 浏览器基建缺失（verdict 不翻，但报告必须标注「UI 层 skipped」）。路由截图照常附带。截图失败不改变套件 verdict，UI 断言失败改变。
 6. **清理**：`scripts/run-acceptance.mjs --cleanup-report <输出目录>/report.json` 归档远端资源（含 journey 产物；journey state 在 `<project>/.xwing` 下，套件已按此清理）；`bash <技能目录>/scripts/run-sim.sh --xwing <xwing-worktree> --task-env <worktree>/.task-env/$TASK_ID --stop` 停 sim；`make agent-task-stop TASK_ID=<TASK_ID>` 停 task-local 运行时。失败轮次可保留 workdir 供排查，报告中给出路径。
-7. **汇报**（规则见第 3 节）到常驻报告任务，verdict 为 `fail` 时附归因：环境问题（服务未就绪、依赖缺失、网络）还是契约问题（断言失败，引用具体场景名与断言输出）还是 UI 层问题（引用 `ui-verdict.json` 的失败 check）；评论附覆盖矩阵中零覆盖或仅冒烟覆盖的命令清单。
+7. **汇报**：把本轮报告写入共享文档库；必含项、fail 归因口径（环境 / 契约 / UI 层）、取证归档与去重规则见第 3 节。
 8. **交回 verdict**：套件退出码/report verdict 与 UI 层合成——UI `0` 或 `2`（skipped 且已标注）不翻，UI `1` 则 `fail`。会话最终消息必须是单行 JSON，例如 `{"verdict":"pass","candidate":"<sha>"}`；verdict 闭集：`pass` / `fail` / `halt`。`halt` 仅用于路由 JSON 为 `action=halt` 时（reason 闭集：`backmerge-conflict` / `backmerge-did-not-converge`），此时只汇报 reason 不跑套件；`superseded` 由 workflow 的 merge 块在验收之后产生，不会出现在你的输入里。
 
-## 3. 汇报与去重
+## 3. 汇报与去重（共享文档库）
 
-- 常驻报告任务以**标题查找为主**：Space 内找标题为「x-deploy 发布验收」的任务（当前已固化：HF-15862）。Space 变量 `CI_REPORT_TASK_ID` 仅作可选交叉验证——`workflow variable view` 要求用户级认证，你的 agent 凭据读到 403 属预期，不算异常，更不得据此判「变量缺失」；两者不一致时以标题命中为准并在报告注明。标题也找不到才创建，创建后在评论中回写任务号提醒维护者固化。
-- 发评论的条件（去重）：verdict 为 `pass`（本轮消耗了可发布增量，必发）；或被测 `candidate` 与上一次评论的不同；或 verdict 相对上一次翻转。否则不发新评论。
-- 去重基准存 `~/.xwd-ci/notify-state.json`（candidate、verdict、时间戳）。
-- 每条评论必含：candidate 短 SHA 与完整 SHA、verdict、场景结果表、xwing rev、截图附件、（pass 时）发布将由 workflow 完成的说明。
-- 评论发布（尤其带多附件）撞 409 并发锁时指数退避重试，重试情况记进报告。
+报告写入 Space「HiFox 产研」的共享文档集 `Agents`（与吴用台账、裴宣自省同处），按轮次落在你的实例目录下：
+
+```text
+Agents/{{agents.daizong.name}}/
+  发布验收/
+    <YYYY-MM>/                     # 自然月归档，缺失才建
+      R-<YYYYMMDD-HHMMSS> · <candidate 前 12 位> · <verdict>
+```
+
+- **定位与自举**：`hifox space list --output json` 精确名「HiFox 产研」→ `hifox docs shared list --space "HiFox 产研" --output json` 精确名 `Agents` → 依次解析实例文件夹（精确名 `{{agents.daizong.name}}`）、`发布验收`、当月文件夹。任一层缺失才 `hifox docs folder create`（先 list 后 create）；同名重复用第一个，**绝不删除**（删除级联删子文档）。Space 或文档集解析失败按下文「降级」处理；「不存在」不是失败。
+- **生产 CLI 隔离**：写库一律用 PATH 上的 `hifox`，绝不用 `$TASK_ENV_CLI_BINARY`（那是 task-local 编号 CLI，会把报告写进验收 fixture）。调用放子 shell：先 `unset` 全部 `HIFOX_*` / `APP_*` 连接与身份族变量，再按第 1 节的写库快照还原 `HIFOX_SERVER_URL` / `HIFOX_TOKEN` / `HIFOX_ORGANIZATION_ID`（快照里没有的项不设，让 CLI 走自身默认——与吴用/裴宣的调用形态一致）。
+- **写入**：正文写进 `mktemp` 临时文件，再 `hifox docs document create --name "<轮次名>" --shared <文档集 id> --parent <月份文件夹 id> --content-file <临时文件> --output json`，回读确认出现在月份文件夹列表。文档名即检索面（`docs search` 只搜名字）；halt 轮次无 candidate：第二段写 `halt`、第三段写 reason（如 `R-20261115-090012 · halt · backmerge-conflict`）。
+- **每份报告必含**：candidate 短 SHA 与完整 SHA、verdict、场景结果表、xwing rev、取证目录路径、覆盖矩阵中零覆盖或仅冒烟覆盖的命令清单、（pass 时）发布将由 workflow 完成的说明、（fail 时）归因——环境问题（服务未就绪、依赖缺失、网络）/ 契约问题（断言失败，引用具体场景名与断言输出）/ UI 层问题（引用 `ui-verdict.json` 的失败 check）、（halt 时）reason。
+- **取证归档**：文档库无附件面，截图目录与 `ui-verdict.json` 复制到 `~/.xwd-ci/evidence/<轮次 id>/`（`chmod 700`）作为持久宿主——workdir 会随清理与运行时 GC 消失；随后删除 30 天前的 evidence 目录。halt / 预检即败轮次无取证可略。
+- **去重（不变）**：verdict 为 `pass`（本轮消耗了可发布增量，必写）；或被测 `candidate` 与上一次报告的不同；或 verdict 相对上一次翻转。否则不写新文档。去重基准存 `~/.xwd-ci/notify-state.json`（candidate、verdict、时间戳）。
+- **写库失败降级**：定位或 `docs` 调用失败重试一次仍败 → 放弃写库：verdict 照常交回（报告面向人，不是门禁信号），取证目录照常归档，失败原因与轮次 id 写进 run 输出供巡检发现。
 
 ## 4. 纪律
 

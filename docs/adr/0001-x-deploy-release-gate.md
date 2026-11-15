@@ -1,6 +1,6 @@
 # x-deploy 的发布门禁钉在本仓，可发布增量用 patch 等价判定，真分叉自动 backmerge
 
-`vendor/x-deploy` 的 dev → main 合并（即发布）由 `config/hifox` 集合内的定时 workflow `x-deploy-release-gate`（配 `agents/daizong`）把门：门禁套件（验收钉子）钉在本仓而非被测仓，因为写改动的人与写测试的人同体时 oracle 不独立——契约演进必须在本仓显式更新，这本身就是要的评审点。`config/hifox` 被 hifox-prod / hifox-staging 双环境部署，workflow 因此存在两份实例、两份 schedule；不在配置上分环境（刻意不分出 `*-ci` 集合，与 linchong 同仓），由 check-update 块的运行标记（noclobber 原子创建 + 带 TTL 的 running 标记，release-merge 退出时经 trap 清除）把并发轮退化为 skip。触发判定刻意无状态：右集（`git rev-list --right-only --cherry-pick --no-merges origin/main...origin/dev`）非空即有可发布内容；`--no-merges` 是必须的，否则每次 `--no-ff` 发布后留在 main 上的 merge commit 会被误判成分叉，`--cherry-pick` 让 dev 被 rebase/amend 后与 main 上的旧 SHA patch 等价对消、不误报。左集非空（真分叉：直推 main、main 上 revert、内容级改写）不停车报警，而是自动把 main backmerge 进 dev 并推送（通知常驻报告任务），让验收永远测「main 的超集」；backmerge 冲突才 halt 交人。发布只合并被测 commit：merge 前校验 `origin/dev == candidate && origin/main == 分类时 main`，任一移动即 superseded 留给下一轮。
+`vendor/x-deploy` 的 dev → main 合并（即发布）由 `config/hifox` 集合内的定时 workflow `x-deploy-release-gate`（配 `agents/daizong`）把门：门禁套件（验收钉子）钉在本仓而非被测仓，因为写改动的人与写测试的人同体时 oracle 不独立——契约演进必须在本仓显式更新，这本身就是要的评审点。`config/hifox` 被 hifox-prod / hifox-staging 双环境部署，workflow 因此存在两份实例、两份 schedule；不在配置上分环境（刻意不分出 `*-ci` 集合，与 linchong 同仓），由 check-update 块的运行标记（noclobber 原子创建 + 带 TTL 的 running 标记，release-merge 退出时经 trap 清除）把并发轮退化为 skip。触发判定刻意无状态：右集（`git rev-list --right-only --cherry-pick --no-merges origin/main...origin/dev`）非空即有可发布内容；`--no-merges` 是必须的，否则每次 `--no-ff` 发布后留在 main 上的 merge commit 会被误判成分叉，`--cherry-pick` 让 dev 被 rebase/amend 后与 main 上的旧 SHA patch 等价对消、不误报。左集非空（真分叉：直推 main、main 上 revert、内容级改写）不停车报警，而是自动把 main backmerge 进 dev 并推送（结果按轮次落验收报告文档），让验收永远测「main 的超集」；backmerge 冲突才 halt 交人。发布只合并被测 commit：merge 前校验 `origin/dev == candidate && origin/main == 分类时 main`，任一移动即 superseded 留给下一轮。
 
 ## Considered Options
 
@@ -16,3 +16,4 @@
 - 契约合法演进时，本仓验收套件先红，需要在本仓显式更新场景（有意识的契约变更，不是回归）。
 - backmerge 会以 `xwing-ci` 身份向 dev 推送合并 commit；dev 历史出现自动化合并节点是设计内行为。
 - workflow 图迭代受 HF-15237 约束：改图走「归档旧实例 + 重新 import」（HF-15237 修复后增量推送恢复）；含 function 块且定向 personal 可见性的 computer 时，函数代码改动需 owner 重新授权（把 runner 的 computer 可见性翻成 organization/space 可豁免）。
+- 2026-11-15 起验收报告从常驻报告任务（「评论 + 截图附件」汇聚，术语已废弃）迁往共享文档集 `Agents` 的轮次文档（`<部署名>/发布验收/<YYYY-MM>/`，一报告一文档、文档名含 candidate 短 SHA 与 verdict，去重语义不变）；截图取证因文档库无附件面改存 CI 机 `~/.xwd-ci/evidence/`。契约正文见 daizong instructions §3。
