@@ -46,7 +46,7 @@
 - 不变量：`state.yaml` 的 UUID 是已部署资源的唯一权威，勿手改；key 改名时把对应条目搬到新 key（UUID 不变），validate 的 look-renamed 门禁会拦下未重绑的改名；变更命令默认预览，必须显式 `--apply` 才执行（各命令的变更分级见 `./x-deploy --help`）。
 - 预检：`./x-deploy doctor`（node / yq / CLI 可执行 / state 盖章 / settings 与 configSet，全离线，先跑它）。
 - 命令目录：`./x-deploy --help`；逐命令 `./x-deploy <command> --help`。
-- 过程手册：`./x-deploy guide <topic>`（authoring / automations / restore / troubleshooting / upgrade / workflows，随 CLI 版本发布）。
+- 过程手册：`./x-deploy guide <topic>`（authoring / automations / maintenance / restore / troubleshooting / upgrade / workflows，随 CLI 版本发布）。
 - 完整契约：`./x-deploy guide contract`（CLI 按自身位置解析随包 README，任意包管理器/安装布局可用）；copy/子模块安装亦可直接读 `vendor/x-deploy/README.md`。
 
 <!-- x-deploy:end -->
