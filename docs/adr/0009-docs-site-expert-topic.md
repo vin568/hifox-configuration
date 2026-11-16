@@ -18,7 +18,7 @@ Apifox 文档站（仓库 `explorer-v2`）此前由全栈交付专家燕青（`y
 
 - **主题闭集新增一项**：`docs-site` 需三处同步——二龙山 condition 分支、吴用路由表（`config/hifox/agents/wuyong/instructions.md`）、任务委派映射（同文件 §4）；`branch-hall-dispatch` skill 的舵登记表与 `GLOSSARY.md` 的「主题闭集」定义随之更新。
 - **一舵两专家**：二龙山图现为 start → condition（apifox / docs-site / else）→ `run_agent` × 2 + reject；两分支的 work 都显式收窄为「单条消息的排查答复」，聊天链路零任务增量不变，完整交付仍只走 `task create --space "Apifox 产研"`。
-- **图迭代受 HF-15237 约束**：二龙山是 `workflow import` 建立的实例，改图走「归档旧实例 + 重新 import」（同 ADR 0004）；配置未变时 plan 显示 in sync 不代表图可增量推送。
+- **图迭代**：二龙山是 `workflow import` 建立的实例，改图走增量推送（改源 → apply；HF-15237 已于 2026-11-16 修复上线，同 ADR 0004）。
 - **双实例**：二龙山与萧让都随 apifox 环境双份（无后缀 / ` - staging`），吴用按同层级挑选中枢与委派对象。
 - **萧让的仓库与技能归属**：`agent.yaml` 的 `repositories` 只声明 `explorer-v2`；自审所需的 Space Skill `architecture-fit-review` 的 `assignTo` 增 `xiaorang`（指令要求该 skill）。
-- **未 apply**：本决策落在配置侧，staging / current 的远端生效由后续 apply 收口（含二龙山图的归档 + 重新 import）。
+- **未 apply**：本决策落在配置侧，staging / current 的远端生效由后续 apply 收口（含二龙山图推送）。

@@ -15,5 +15,5 @@
 
 - 契约合法演进时，本仓验收套件先红，需要在本仓显式更新场景（有意识的契约变更，不是回归）。
 - backmerge 会以 `xwing-ci` 身份向 dev 推送合并 commit；dev 历史出现自动化合并节点是设计内行为。
-- workflow 图迭代受 HF-15237 约束：改图走「归档旧实例 + 重新 import」（HF-15237 修复后增量推送恢复）；含 function 块且定向 personal 可见性的 computer 时，函数代码改动需 owner 重新授权（把 runner 的 computer 可见性翻成 organization/space 可豁免）。
+- workflow 图迭代走增量推送（改源 → apply；HF-15237 已于 2026-11-16 修复上线）；含 function 块且定向 personal 可见性的 computer 时，函数代码改动需 owner 重新授权（把 runner 的 computer 可见性翻成 organization/space 可豁免）。
 - 2026-11-15 起验收报告从常驻报告任务（「评论 + 截图附件」汇聚，术语已废弃）迁往共享文档集 `Agents` 的轮次文档（`<部署名>/发布验收/<YYYY-MM>/`，一报告一文档、文档名含 candidate 短 SHA 与 verdict，去重语义不变）；截图取证因文档库无附件面改存 CI 机 `~/.xwd-ci/evidence/`。契约正文见 daizong instructions §3。

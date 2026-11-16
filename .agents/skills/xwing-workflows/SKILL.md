@@ -80,7 +80,7 @@ state:
 ./x-deploy capture --kind workflow --id <uuid> --key <key> --form yaml
 ```
 
-捕获型要 UI 可编辑：`workflow.yaml` 写 `lockUiEdits: false`（per-workflow 覆盖环境默认；UI 建的实例不受 HF-15237 影响，apply 可增量推送）。
+捕获型要 UI 可编辑：`workflow.yaml` 写 `lockUiEdits: false`（per-workflow 覆盖环境默认；编写型保持默认锁定）。
 
 ## 3. 块目录（引擎全量块类型的字段真值）
 
@@ -117,7 +117,7 @@ node scripts/catalog-doc.mjs options <type> <字段> # 动态选项
 ./x-deploy prune workflows --environment <env> --apply        # 归档配置中已删除的 workflow
 ```
 
-**改图迭代（HF-15237 修复前，针对 API 创建的实例）**：移出 workflow 目录 → `prune workflows --apply`（归档+注销）→ 改源 → 移回 → `apply --apply`（重新 import）。UI 创建的历史实例可直接增量推送。修复后统一为「改源 → apply」。
+**改图迭代**：改源 → `plan` → `apply --apply` 增量推送（已部署实例不换 id、webhook URL 不变）。
 
 ## 6. 运行时事实
 

@@ -21,6 +21,6 @@ Apifox CLI（仓库 `apifox-cli`，产品包 `apifox-cli` / `apidog-cli`）此�
 - **Space Skill `architecture-fit-review` 的 `assignTo` 增 `tanglong`**：汤隆的自审环节要求该 skill。
 - **汤隆的仓库与目标**：`agent.yaml` 的 `repositories` 只声明 `https://cnb.cool/apifox/apifox-cli`；`target` 与燕青 / 萧让同机同 runtime，模型 `claude-opus-4-7`（与另两位调度面专家一致）。
 - **头像**：`avatar.png`（512×512、256 色 PNG、约 190 KB）取自歌川国芳「通俗水滸伝豪傑百八人一個・金銭豹子湯隆」（1798–1861，约 1845–1850；Wikimedia Commons 标注公有领域，原件藏大英博物馆）的局部裁切，与燕青 / 萧让同属该国芳水浒系列，风格一致；出处与许可同时写入 PNG 元数据。
-- **图迭代受 HF-15237 约束**：二龙山是 `workflow import` 建立的实例，改图走「归档旧实例 + 重新 import」；配置未变时 plan 显示 in sync 不代表图可增量推送。
+- **图迭代**：二龙山是 `workflow import` 建立的实例，改图走增量推送（改源 → apply；HF-15237 已于 2026-11-16 修复上线，同 ADR 0004）。
 - **双实例**：二龙山与汤隆随 apifox 环境双份（无后缀 / ` - staging`），吴用按同层级挑选中枢实例与委派对象。
-- **未 apply**：本决策落在配置侧——staging / current 的远端生效（新建汤隆实例、二龙山图归档 + 重新 import、`assignTo` 变更）由后续 apply 收口。
+- **未 apply**：本决策落在配置侧——staging / current 的远端生效（新建汤隆实例、二龙山图推送、`assignTo` 变更）由后续 apply 收口。
