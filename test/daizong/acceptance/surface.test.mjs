@@ -5,7 +5,7 @@
 // derived coverage — that is the point.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseCommandSurface, hasRequiredArgs, tiersFor, buildCoverage } from "../../../config/hifox/agents/daizong/skills/acceptance/scripts/lib/surface.mjs";
+import { DIRECT_MUTATORS, parseCommandSurface, hasRequiredArgs, tiersFor, buildCoverage } from "../../../config/hifox/agents/daizong/skills/acceptance/scripts/lib/surface.mjs";
 
 const HELP = `Usage:
   x-deploy init          [DIR] [--layout dedicated|embedded] [--config-set NAME] [--environment NAME] [--cli-source PATH] [--repo-url URL] [--ref NAME]
@@ -117,4 +117,10 @@ test("buildCoverage: measured provenance — pinned from invocations, smoke from
   assert.equal(by.clone.exercised, false);
   // Smoke-chain invocations do not count as pinned provenance.
   assert.equal(by.plan.pinnedBy.length, 0);
+});
+
+test("DIRECT_MUTATORS: init is the sole direct mutator (ADR 0031 moved capture behind --apply)", () => {
+  // Re-adding a command here silently relaxes the bare-tier "no side-effect
+  // files" assertion — pin the exact list so the denylist is itself under test.
+  assert.deepEqual(DIRECT_MUTATORS, ["init"]);
 });
