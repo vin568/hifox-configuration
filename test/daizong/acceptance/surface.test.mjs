@@ -1,6 +1,6 @@
 // Unit tests for the derived command-surface helpers (lib/surface.mjs).
-// Fixture: the real `x-deploy --help` usage block (captured 2026-11-15 from
-// vendor/x-deploy @ f6ebba3-era registry. If x-deploy's help render format
+// Fixture: the real `x-deploy --help` usage block (captured 2026-11-16 from
+// vendor/x-deploy dev, ADR 0031 era (capture previews by default; --user owner batch; --refresh re-capture). If x-deploy's help render format
 // ever changes shape, these tests fail before the suite silently loses its
 // derived coverage — that is the point.
 import assert from "node:assert/strict";
@@ -18,7 +18,7 @@ const HELP = `Usage:
   x-deploy apply         --apply [--environment NAME] [--suffix TEXT] [--verbose]
   x-deploy pull          [--environment NAME]
   x-deploy backup        [--environment NAME] [--output-dir PATH]
-  x-deploy capture       --environment NAME --kind (workflow|automation|agent|crew|skill) (--id ID | --name NAME)… [--key KEY] [--form graph|yaml] [--allow-lossy] | capture --environment NAME --all
+  x-deploy capture       --environment NAME --kind (workflow|automation|agent|crew|skill) ((--id ID | --name NAME)… | --user NAME)… [--key KEY] [--form graph|yaml] [--refresh] [--allow-lossy] [--apply]
   x-deploy bind          [--environment NAME] (--organization-name NAME | --space-name NAME)… [--apply]
   x-deploy restore       --from PATH [--to PATH] [--environment NAME] [--apply]
   x-deploy model         <model-id|default> [--environment NAME] [--apply]

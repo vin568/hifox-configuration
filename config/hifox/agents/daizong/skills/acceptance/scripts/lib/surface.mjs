@@ -46,8 +46,9 @@ export function hasRequiredArgs(args) {
 // Exported for the smoke runner: bare tier still exercises them (clean
 // failure / info output, no stack) but must NOT assert "no side-effect
 // files" — writing directly is their documented contract (review: smoke
-// init/bare false red on round HF-15949).
-export const DIRECT_MUTATORS = ["init", "capture"];
+// init/bare false red on round HF-15949). capture left this list with ADR
+// 0031 (previews by default; --apply writes) — init is the sole member.
+export const DIRECT_MUTATORS = ["init"];
 
 export function tiersFor({ name, args }, directMutators = DIRECT_MUTATORS) {
   const tiers = ["bare"];

@@ -1169,7 +1169,8 @@ scenario("smoke", "smoke: derived command surface (bare/preview/read tiers from 
           } else {
             assert(cleanDiagnostic.test(out), `non-zero exit without a clean diagnostic:\n${out.slice(0, 300)}`);
           }
-          // Direct mutators (init/capture) write user assets by documented
+          // Direct mutators (init, the sole member since ADR 0031 moved
+          // capture behind --apply) write user assets by documented
           // design — "no side effects" only holds for gated/read commands.
           if (!DIRECT_MUTATORS.includes(command.name)) {
             assert(readdirSync(cwd).length === 0, "side-effect files written into an empty cwd");

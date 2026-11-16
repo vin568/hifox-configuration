@@ -75,9 +75,9 @@ state:
 
 ```bash
 # 捕获型（graph.json 为源，编辑器是 UI）
-./x-deploy capture --kind workflow --id <uuid> --key <key>
+./x-deploy capture --kind workflow --id <uuid> --key <key> --apply
 # 语义反编译为编写型：schedule→cron、code→*.sh、行 id 净化、executor 反解配置键、未知块 raw
-./x-deploy capture --kind workflow --id <uuid> --key <key> --form yaml
+./x-deploy capture --kind workflow --id <uuid> --key <key> --form yaml --apply
 ```
 
 捕获型要 UI 可编辑：`workflow.yaml` 写 `lockUiEdits: false`（per-workflow 覆盖环境默认；编写型保持默认锁定）。
@@ -113,7 +113,7 @@ node scripts/catalog-doc.mjs options <type> <字段> # 动态选项
 <cli> workflow run <id> --space <space> --async      # 无 GUI 手动触发（id 见 state.yaml）
 <cli> workflow runs view <wf-id> <execution-id> --space <space>   # 执行状态
 <cli> workflow logs list --space <space> --workflow <wf-id>       # 运行日志
-./x-deploy capture …                             # 收编（§2）
+./x-deploy capture … --apply                     # 收编（§2；预览默认，--apply 写盘）
 ./x-deploy prune workflows --environment <env> --apply        # 归档配置中已删除的 workflow
 ```
 
