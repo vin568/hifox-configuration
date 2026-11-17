@@ -42,11 +42,20 @@ type Runner func(ctx context.Context, args []string) (string, error)
 
 // Agent.Name 是 herdr 具名（songjiang / jiangjing）；Agent 是底层可执行名（omp）。
 type Agent struct {
-	Agent       string `json:"agent"`
-	Name        string `json:"name"`
-	AgentStatus string `json:"agent_status"`
-	PaneID      string `json:"pane_id"`
-	CWD         string `json:"cwd"`
+	Agent        string       `json:"agent"`
+	Name         string       `json:"name"`
+	AgentStatus  string       `json:"agent_status"`
+	PaneID       string       `json:"pane_id"`
+	CWD          string       `json:"cwd"`
+	AgentSession AgentSession `json:"agent_session"`
+}
+
+// AgentSession 是 herdr 对 agent 会话身份的识别（source=herdr:omp 时为 omp 的
+// session jsonl 绝对路径）。换脑的「是否真的换了会话」靠对比前后这个值来钉死。
+type AgentSession struct {
+	Kind   string `json:"kind"`
+	Source string `json:"source"`
+	Value  string `json:"value"`
 }
 
 func ExecRunner(session string) Runner {
@@ -226,4 +235,49 @@ func (c *Client) AgentStart(ctx context.Context, name, kind, pane string, extra 
 func (c *Client) AgentPrompt(ctx context.Context, target, text string, wait bool, timeoutMS int) error {
 	_, err := c.Run(ctx, agentPromptArgs(target, text, wait, timeoutMS))
 	return err
+}
+
+func agentSendKeysArgs(target string, keys []string) []string {
+	return append([]string{"agent", "send-keys", target}, keys...)
+}
+
+// AgentSendKeys 向 agent 所在 pane 送按键（换脑用 ctrl+d；esc 是中断键名）。
+func (c *Client) AgentSendKeys(ctx context.Context, target string, keys ...string) error {
+	if len(keys) == 0 {
+		return fmt.Errorf("herdr: no keys given for %s", target)
+	}
+	_, err := c.Run(ctx, agentSendKeysArgs(target, keys))
+	return err
+}
+
+// PaneClose 关掉一个 pane（herdr 语义：关掉 workspace 的最后一个 pane，workspace 随之消失）。
+func (c *Client) PaneClose(ctx context.Context, paneID string) error {
+	_, err := c.Run(ctx, []string{"pane", "close", paneID})
+	return err
+}
+
+// WorkspaceClose 关掉一个 workspace（用于「workspace 在、pane 没了」的残局重建）。
+func (c *Client) WorkspaceClose(ctx context.Context, workspaceID string) error {
+	_, err := c.Run(ctx, []string{"workspace", "close", workspaceID})
+	return err
+}
+
+// WorkspaceCreatePane 在既有 workspace 里新开一个 pane（`pane split` 需要现成的 pane 当锚）。
+func (c *Client) WorkspaceCreatePane(ctx context.Context, anchorPane, direction, cwd string) (string, error) {
+	out, err := c.Run(ctx, []string{"pane", "split", "--pane", anchorPane, "--direction", direction, "--cwd", cwd, "--no-focus"})
+	if err != nil {
+		return "", err
+	}
+	var r struct {
+		Result struct {
+			Pane PaneRef `json:"pane"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(out), &r); err != nil {
+		return "", fmt.Errorf("decode pane split: %w", err)
+	}
+	if r.Result.Pane.PaneID == "" {
+		return "", fmt.Errorf("pane split returned no pane id")
+	}
+	return r.Result.Pane.PaneID, nil
 }

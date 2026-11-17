@@ -11,14 +11,8 @@ import (
 	"time"
 
 	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/hifox"
+	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/inflight"
 )
-
-// WatchEntry 是云端跟踪清单（watchlist.json）的一项。清单由主控维护：
-// 派云端活时登记，收口时移除；哨兵只读。
-type WatchEntry struct {
-	TaskID string `json:"task_id"`
-	Note   string `json:"note,omitempty"`
-}
 
 // Change 是一次探测到的状态变化。
 type Change struct {
@@ -33,16 +27,17 @@ type Result struct {
 	Changed []Change `json:"changed,omitempty"`
 	// Injected 仅在「确有变化且注入成功」时为 true；注入失败时 false 且带 err，
 	// 快照不推进，下一轮重见同一变化并重试（评审 P1：变化不可静默丢失）。
+	// 急停期间注入被闸门拦下走的也是这条路径：变化攒着，解除后一次性补交。
 	Injected bool `json:"injected"`
 }
 
-// Poll 读跟踪清单，逐个 `hifox task view` 对照快照：首见只记基线（防启动噪声），
+// Poll 读在途清单的云端条目，逐个 `hifox task view` 对照快照：首见只记基线（防启动噪声），
 // 之后签名变化才汇总成一条事件注入主控，**注入成功才落盘新快照**。
 // 快照只保留清单在册任务（移出的随下一轮清掉，避免同任务重派撞旧签名）。
-// watchlist/快照损坏时不让哨兵永久死掉：把坏文件改名 `.corrupt-<ts>` 另存、按空处理、告警。
-func Poll(ctx context.Context, client *hifox.Client, watchPath, snapPath string, inject func(text string) error) (*Result, error) {
+// 清单/快照损坏时不让哨兵永久死掉：把坏文件改名 `.corrupt-<ts>` 另存、按空处理、告警。
+func Poll(ctx context.Context, client *hifox.Client, inflightPath, snapPath string, inject func(text string) error) (*Result, error) {
 	res := &Result{}
-	entries, err := readWatchlist(watchPath)
+	entries, err := readCloudEntries(inflightPath)
 	if err != nil {
 		return nil, err
 	}
@@ -96,17 +91,15 @@ func ChangesPrompt(changes []Change) string {
 	return b.String()
 }
 
-func readWatchlist(path string) ([]WatchEntry, error) {
-	data, err := readFileOrHeal(path)
-	if err != nil || len(data) == 0 {
+// readCloudEntries 读在途清单里的云端条目；旧 watchlist.json 只在 inflight.json
+// 尚未生成时作迁移源（sentinel 与主控共用同一份清单，云本地同列一处）。
+func readCloudEntries(inflightPath string) ([]inflight.Entry, error) {
+	legacy := filepath.Join(filepath.Dir(inflightPath), "watchlist.json")
+	entries, err := inflight.LoadMigrating(inflightPath, legacy)
+	if err != nil {
 		return nil, err
 	}
-	var entries []WatchEntry
-	if err := json.Unmarshal(data, &entries); err != nil {
-		healCorrupt(path, data)
-		return nil, nil
-	}
-	return entries, nil
+	return inflight.Cloud(entries), nil
 }
 
 func loadSnapshot(path string) (map[string]string, error) {

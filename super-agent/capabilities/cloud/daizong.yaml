@@ -1,0 +1,5 @@
+key: daizong
+name: 戴宗
+space: HF
+org: rayfox
+note: 发布验收（按被测 commit 跑黑盒验收套件）

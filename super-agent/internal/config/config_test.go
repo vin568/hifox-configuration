@@ -103,8 +103,6 @@ func TestLoadTomlOverrideAndExpansion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "superctl.toml")
 	toml := `
 session = "s1"
-master_agent = "songjiang"
-retro_agent = "jiangjing"
 state_dir = "` + filepath.Join(t.TempDir(), "state") + `"
 tick_interval = "30s"
 allowed_users = ["ou_a", "ou_b"]
@@ -124,5 +122,37 @@ allowed_users = ["ou_a", "ou_b"]
 	}
 	if c.OutboxPath() != filepath.Join(c.StateDir, "outbox.jsonl") || c.DedupPath() != filepath.Join(c.StateDir, "dedup.jsonl") {
 		t.Fatalf("state-dir derived paths wrong: %s %s", c.OutboxPath(), c.DedupPath())
+	}
+}
+
+// 未知键必须报错（静默忽略会让「改了不生效」长期悬案）；两个已下线键单独处理，
+// 由 loadConfigWithAgents 按「值是否等于注册表派生值」决定警告还是报错。
+func TestLoadRejectsUnknownKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/superctl.toml"
+	body := "session = \"t\"\nstate_dir = \"" + dir + "\"\nunknown_knob = 1\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "unknown_knob") {
+		t.Fatalf("未知键必须报错并点名: %v", err)
+	}
+}
+
+// 已下线的两个键仍可读（供调用方比对），不会让存量配置在 Load 阶段炸掉。
+func TestLoadAcceptsLegacyAgentKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/superctl.toml"
+	body := "session = \"t\"\nstate_dir = \"" + dir + "\"\nmaster_agent = \"songjiang\"\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("旧键不应让 Load 失败: %v", err)
+	}
+	if c.LegacyMasterAgent != "songjiang" {
+		t.Fatalf("旧键应可读: %+v", c)
 	}
 }

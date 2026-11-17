@@ -6,16 +6,32 @@ import (
 )
 
 func TestSweepPrompt(t *testing.T) {
-	got := SweepPrompt("/active", "/archived")
-	for _, want := range []string{"/active", "/archived", "hifox task view", "一行带过"} {
+	got := SweepPrompt()
+	// 注入卫生（ADR 0022）：样板与路径只在首条 prime 出现，注入文本只带增量。
+	for _, want := range []string{"[触发器: sweep]", "活跃区台账", "一行带过"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("sweep prompt missing %q: %s", want, got)
 		}
 	}
-	// 「读 /active」必须先于「移入 /archived」出现，顺序反了会读不到任何待归档条目。
-	ia := strings.Index(got, "读 /active")
-	ib := strings.Index(got, "移入 /archived")
-	if ia < 0 || ib < 0 || ia >= ib {
-		t.Fatalf("sweep prompt order wrong (read=%d archive=%d):\n%s", ia, ib, got)
+	if strings.Contains(got, "/") {
+		t.Fatalf("巡检注入不应再带路径样板（路径归首条 prime）: %s", got)
+	}
+}
+
+func TestNeeded(t *testing.T) {
+	cases := []struct {
+		name string
+		s    Signals
+		want bool
+	}{
+		{"全空不注入", Signals{}, false},
+		{"有在途作业台账", Signals{ActiveJobs: 1}, true},
+		{"有在途清单条目", Signals{Inflight: 2}, true},
+		{"有活动 jobs agent", Signals{JobsAgents: 1}, true},
+	}
+	for _, c := range cases {
+		if got := Needed(c.s); got != c.want {
+			t.Errorf("%s: Needed(%+v)=%v，want %v", c.name, c.s, got, c.want)
+		}
 	}
 }

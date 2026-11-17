@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -18,8 +17,10 @@ import (
 	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/boot"
 	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/config"
 	feishu "apifox.github.com/vin568/hifox-configuration/super-agent/internal/feishu"
+	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/halt"
 	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/herdr"
 	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/hifox"
+	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/inflight"
 	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/inject"
 	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/outbox"
 	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/sentinel"
@@ -31,15 +32,21 @@ const usage = `superctl — 宋江 super agent 本地运行时（super-agent/，
 用法：superctl <命令> [参数]
 
 命令：
-  ensure   幂等引导：对账 herdr 拓扑（master/crew/jobs workspace + 常驻 agent），缺则补齐
-  status   概览：session / workspaces / agents / 活跃作业 / 待发回帖
-  inject   手工注入一条 prompt 到主控（--source feishu|event|manual）
-  tick     立即注入一次作业巡检
-  reply    追加一条回帖到 outbox（主控回用户的唯一通道）
-  serve    常驻：飞书长连接 + outbox 投递 + 定时巡检
-  cloudwatch  云端哨兵一轮：读跟踪清单轮询 hifox，有状态变化才注入（serve 内置，也可 cron 单跑）
-  probe    连上飞书只打印事件 ID（取 open_id / chat_id / bot_open_id 的引导工具）
-  help     本帮助
+  ensure       幂等引导：按能力注册表对账 herdr 拓扑（master/crew/jobs + 常驻 agent），缺则补齐
+  status       概览：session / workspaces / agents / 活跃作业 / 在途清单 / 急停状态 / 待发回帖
+  inject       手工注入一条 prompt 到主控（--source feishu|event|manual）
+  tick         立即注入一次作业巡检（无在途内容时不发）
+  reply        追加一条回帖到 outbox（主控回用户的唯一通道）
+  serve        常驻：飞书长连接 + outbox 投递 + 定时巡检 + 注入闸门
+  cloudwatch   云端哨兵一轮：读在途清单的云端条目轮询 hifox，有状态变化才注入
+  halt         急停：落闸 + 秒级回执 + 换脑（解除=用户下一句私聊；离线兜底 resume）
+  resume       解除急停闸门（离线兜底，正常不用）
+  new          人工换脑：起新会话、清空上下文（/new 的命令行等价物）
+  dispatch     派活：--cloud 建平台任务（--agent 是能力 key，平台 ref 自动解析）/ --local 按配方起 jobs agent；自动登记
+  cancel       撤销：--task 取消云端运行 / --agent 关本地 pane，并移出在途清单
+  capabilities  能力注册表：打印索引；--check 查漂移（索引与注入主控的那份同源）
+  probe        连上飞书只打印事件 ID（取 open_id / chat_id / bot_open_id 的引导工具）
+  help         本帮助
 
 配置查找：--config 路径 > $SONGJIANG_CONFIG > ./superctl.toml > ~/.config/songjiang/superctl.toml
 飞书凭证走环境变量：SONGJIANG_FEISHU_APP_ID / SONGJIANG_FEISHU_APP_SECRET（不进配置文件）`
@@ -47,14 +54,20 @@ const usage = `superctl — 宋江 super agent 本地运行时（super-agent/，
 // commands 是唯一的命令注册表：usage 文案与之对齐，dispatch 测试钉死
 // 「usage 列了但表里没有」这类漏注册（reply 曾因此在集成编辑中丢失）。
 var commands = map[string]func(args []string) error{
-	"ensure":     cmdEnsure,
-	"status":     cmdStatus,
-	"inject":     cmdInject,
-	"tick":       cmdTick,
-	"cloudwatch": cmdCloudwatch,
-	"reply":      cmdReply,
-	"serve":      cmdServe,
-	"probe":      cmdProbe,
+	"ensure":       cmdEnsure,
+	"status":       cmdStatus,
+	"inject":       cmdInject,
+	"tick":         cmdTick,
+	"cloudwatch":   cmdCloudwatch,
+	"reply":        cmdReply,
+	"serve":        cmdServe,
+	"probe":        cmdProbe,
+	"halt":         cmdHalt,
+	"resume":       cmdResume,
+	"new":          cmdNew,
+	"dispatch":     cmdDispatch,
+	"cancel":       cmdCancel,
+	"capabilities": cmdCapabilities,
 }
 
 func main() {
@@ -78,6 +91,8 @@ func main() {
 	}
 }
 
+// loadConfig 只读配置文件，不做注册表派生：reply 这类命令不该因注册表坏掉而失联
+// （主控回话是唯一对外通道，不能在「能力表读不出来」时一起哑掉）。
 func loadConfig(args []string) (config.Config, string, error) {
 	fs := flag.NewFlagSet("", flag.ContinueOnError)
 	cfgPath := fs.String("config", "", "配置文件路径")
@@ -92,40 +107,50 @@ func loadConfig(args []string) (config.Config, string, error) {
 	return cfg, path, err
 }
 
-// ensureTopo 注入前幂等引导（ADR 0018）：缺 workspace/agent 就补，新 agent 灌首条 prompt。
+// loadConfigWithAgents 在读配置之外，从能力注册表派生主控/复盘 agent 名（ADR 0021）。
+// 需要 agent 名的命令用它；不要让「回话」「探针」这类基础通道依赖注册表。
+func loadConfigWithAgents(args []string) (config.Config, string, error) {
+	cfg, path, err := loadConfig(args)
+	if err != nil {
+		return cfg, path, err
+	}
+	master, retro, err := deriveAgentNames(cfg)
+	if err != nil {
+		return cfg, path, err
+	}
+	// 已下线的 master_agent/retro_agent：值一致就警告后忽略（存量部署平滑升级），
+	// 值不一致就硬报错——那说明有人以为它还在生效。
+	for _, k := range []struct{ key, legacy, derived string }{
+		{"master_agent", cfg.LegacyMasterAgent, master},
+		{"retro_agent", cfg.LegacyRetroAgent, retro},
+	} {
+		if k.legacy == "" || k.legacy == k.derived {
+			if k.legacy != "" {
+				slog.Warn("superctl: 配置里的已下线键被忽略（以能力注册表为准）", "key", k.key, "value", k.legacy)
+			}
+			continue
+		}
+		return cfg, path, fmt.Errorf("config %s 的 %s=%q 已不再生效（注册表派生为 %q）；改注册表或删掉该键", path, k.key, k.legacy, k.derived)
+	}
+	cfg.MasterAgent, cfg.RetroAgent = master, retro
+	return cfg, path, nil
+}
+
+// ensureTopo 注入前幂等引导（ADR 0018）：拓扑由能力注册表派生（ADR 0021），
+// 缺 workspace/agent 就补，新 agent 灌首条 prompt（手册 + 索引 + 路径）。
 func ensureTopo(ctx context.Context, cfg config.Config, hc *herdr.Client) (*boot.Report, error) {
 	if err := cfg.EnsureDirs(); err != nil {
 		return nil, err
 	}
-	manual, err := os.ReadFile(filepath.Join(cfg.PromptsDir(), "songjiang.md"))
+	exp, err := expectedTopo(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("read songjiang.md: %w", err)
+		return nil, err
 	}
-	retro, err := os.ReadFile(filepath.Join(cfg.PromptsDir(), "jiangjing.md"))
-	if err != nil {
-		return nil, fmt.Errorf("read jiangjing.md: %w", err)
-	}
-	return boot.Ensure(ctx, hc, boot.Expected{
-		RepoDir:        cfg.RepoDir,
-		MasterAgent:    cfg.MasterAgent,
-		RetroAgent:     cfg.RetroAgent,
-		Kind:           "omp",
-		MasterArgs:     cfg.MasterAgentArgs,
-		DynamicWS:      "jobs",
-		PrimeMarkerDir: cfg.PrimeMarkerDir(),
-		MasterPrime: boot.PrimePrompt(string(manual), boot.Paths{
-			CapabilitiesDir: cfg.PromptsDir(),
-			ActiveDir:       cfg.ActiveDir(),
-			ArchivedDir:     cfg.ArchivedDir(),
-			ResultsDir:      cfg.ResultsDir(),
-			WatchlistPath:   cfg.WatchlistPath(),
-		}),
-		RetroPrime: string(retro),
-	})
+	return boot.Ensure(ctx, hc, exp)
 }
 
 func cmdEnsure(args []string) error {
-	cfg, path, err := loadConfig(args)
+	cfg, path, err := loadConfigWithAgents(args)
 	if err != nil {
 		return err
 	}
@@ -139,7 +164,7 @@ func cmdEnsure(args []string) error {
 }
 
 func cmdStatus(args []string) error {
-	cfg, _, err := loadConfig(args)
+	cfg, _, err := loadConfigWithAgents(args)
 	if err != nil {
 		return err
 	}
@@ -163,6 +188,10 @@ func cmdStatus(args []string) error {
 		Workspaces     []string `json:"workspaces"`
 		Agents         []string `json:"agents"`
 		ActiveJobs     int      `json:"active_jobs"`
+		InFlight       int      `json:"inflight"`
+		Halted         bool     `json:"halted"`
+		MasterSession  string   `json:"master_session,omitempty"`
+		SessionBytes   int64    `json:"master_session_bytes,omitempty"`
 		PendingReplies int      `json:"pending_replies"`
 	}
 	labels := make([]string, 0, len(ws))
@@ -177,13 +206,36 @@ func cmdStatus(args []string) error {
 		}
 		names = append(names, n+"("+a.AgentStatus+")")
 	}
-	return jsonPrint(status{
+	entries, err := inflight.LoadMigrating(cfg.InflightPath(), cfg.LegacyWatchlistPath())
+	if err != nil {
+		slog.Warn("superctl: read inflight failed", "error", err)
+	}
+	st := status{
 		Session:        cfg.Session,
 		Workspaces:     labels,
 		Agents:         names,
 		ActiveJobs:     active,
+		InFlight:       len(entries),
+		Halted:         halt.Active(cfg.HaltPath()),
 		PendingReplies: ob.Pending(outbox.DefaultMaxAttempts),
-	})
+	}
+	if master, ok := findAgentByName(agents, cfg.MasterAgent); ok {
+		st.MasterSession = master.AgentSession.Value
+		if fi, err := os.Stat(master.AgentSession.Value); err == nil {
+			st.SessionBytes = fi.Size()
+		}
+	}
+	return jsonPrint(st)
+}
+
+// findAgentByName 按具名或底层名找 agent（注册表派生后主控名来自注册表，不再硬编码）。
+func findAgentByName(agents []herdr.Agent, name string) (herdr.Agent, bool) {
+	for _, a := range agents {
+		if a.Name == name || a.Agent == name {
+			return a, true
+		}
+	}
+	return herdr.Agent{}, false
 }
 
 func cmdInject(args []string) error {
@@ -201,7 +253,7 @@ func cmdInject(args []string) error {
 	if strings.TrimSpace(*text) == "" {
 		return errors.New("--text required")
 	}
-	cfg, _, err := loadConfig([]string{"--config", *cfgPath})
+	cfg, _, err := loadConfigWithAgents([]string{"--config", *cfgPath})
 	if err != nil {
 		return err
 	}
@@ -239,7 +291,7 @@ func buildInjectPrompt(source string, p inject.Payload) (string, error) {
 }
 
 func cmdTick(args []string) error {
-	cfg, _, err := loadConfig(args)
+	cfg, _, err := loadConfigWithAgents(args)
 	if err != nil {
 		return err
 	}
@@ -248,7 +300,18 @@ func cmdTick(args []string) error {
 	if _, err := ensureTopo(ctx, cfg, hc); err != nil {
 		return err
 	}
-	if err := inject.Do(ctx, hc, cfg.MasterAgent, tick.SweepPrompt(cfg.ActiveDir(), cfg.ArchivedDir())); err != nil {
+	if !(gate{cfg: cfg}).allowMachine() {
+		return errors.New("急停期间巡检不注入（变化攒着，解除后补交）")
+	}
+	// 轮换先于巡检：主控刚被巡检叫起来就是 working，轮换会永远撞不上窗口。
+	if err := maybeRotate(ctx, cfg, hc); err != nil {
+		slog.Warn("superctl: rotate failed", "error", err)
+	}
+	if !tick.Needed(sweepSignals(ctx, cfg, hc)) {
+		fmt.Println("sweep skipped (no in-flight work)")
+		return nil
+	}
+	if err := inject.Do(ctx, hc, cfg.MasterAgent, tick.SweepPrompt()); err != nil {
 		if errors.Is(err, inject.ErrBlocked) {
 			return fmt.Errorf("主控 blocked，本轮巡检跳过: %w", err)
 		}
@@ -258,8 +321,22 @@ func cmdTick(args []string) error {
 	return nil
 }
 
+// sweepSignals 是注入卫生的判据来源（ADR 0022）：活跃区台账文件数、在途清单条数、
+// jobs workspace 活动 agent 数。三者皆空就不必叫醒主控。
+func sweepSignals(ctx context.Context, cfg config.Config, hc *herdr.Client) tick.Signals {
+	s := tick.Signals{ActiveJobs: countFiles(cfg.ActiveDir())}
+	if entries, err := inflight.LoadMigrating(cfg.InflightPath(), cfg.LegacyWatchlistPath()); err != nil {
+		slog.Warn("superctl: read inflight for sweep failed", "error", err)
+	} else {
+		s.Inflight = len(entries)
+	}
+	live, _ := jobsAgents(ctx, hc)
+	s.JobsAgents = len(live)
+	return s
+}
+
 func cmdCloudwatch(args []string) error {
-	cfg, _, err := loadConfig(args)
+	cfg, _, err := loadConfigWithAgents(args)
 	if err != nil {
 		return err
 	}
@@ -268,7 +345,10 @@ func cmdCloudwatch(args []string) error {
 	if _, err := ensureTopo(ctx, cfg, hc); err != nil {
 		return err
 	}
-	res, err := sentinel.Poll(ctx, hifox.New(), cfg.WatchlistPath(), cfg.CloudSnapPath(), func(text string) error {
+	if !(gate{cfg: cfg}).allowMachine() {
+		return errors.New("急停期间哨兵不注入（变化攒着，解除后补交）")
+	}
+	res, err := sentinel.Poll(ctx, hifox.New(), cfg.InflightPath(), cfg.CloudSnapPath(), func(text string) error {
 		return inject.Do(ctx, hc, cfg.MasterAgent, text)
 	})
 	if err != nil {
@@ -346,7 +426,7 @@ func requireFeishuCredentials() (string, string, error) {
 }
 
 func cmdServe(args []string) error {
-	cfg, cfgPath, err := loadConfig(args)
+	cfg, cfgPath, err := loadConfigWithAgents(args)
 	if err != nil {
 		return err
 	}
@@ -390,26 +470,20 @@ func cmdServe(args []string) error {
 		BotMentionOpenID: cfg.BotMentionOpenID,
 		DedupPath:        cfg.DedupPath(),
 	}
+	// 指令面：白名单私聊里的 /halt 与 /new 由运行时消化（ADR 0020/0022）。
+	idx := commandIndices{cfg: cfg, hc: hc, ob: ob}
+	fcfg.CommandFunc = func(cctx context.Context, chatID, _ /*sender*/ string, text string) bool {
+		return idx.absorb(cctx, chatID, text)
+	}
 	sender, err := feishu.NewSender(fcfg)
 	if err != nil {
 		return err
 	}
 
 	notifier := &blockedNotifier{ob: ob, chatID: cfg.AdminChatID, window: 30 * time.Minute}
+	g := gate{cfg: cfg}
 
-	injectFn := func(ictx context.Context, _ feishu.Source, p inject.Payload) error {
-		if _, err := ensureTopo(ictx, cfg, hc); err != nil {
-			return err
-		}
-		if err := inject.Do(ictx, hc, cfg.MasterAgent, inject.BuildFeishu(p)); err != nil {
-			if errors.Is(err, inject.ErrBlocked) {
-				// 限频提醒一次；消息本身由 feishu 侧按预算排队重试（ADR 0018）。
-				notifier.Notify()
-			}
-			return err
-		}
-		return nil
-	}
+	injectFn := feishuInjector(cfg, hc, g, notifier)
 
 	errCh := make(chan error, 5)
 	go func() { errCh <- feishu.Run(ctx, fcfg, injectFn) }()
@@ -427,18 +501,30 @@ func cmdServe(args []string) error {
 				errCh <- nil
 				return
 			case <-tk.C:
+				if !g.allowMachine() {
+					slog.Info("superctl: 急停期间跳过巡检")
+					continue
+				}
 				if _, err := ensureTopo(ctx, cfg, hc); err != nil {
 					slog.Warn("superctl: sweep ensure failed", "error", err)
 					continue
 				}
-				if err := inject.Do(ctx, hc, cfg.MasterAgent, tick.SweepPrompt(cfg.ActiveDir(), cfg.ArchivedDir())); err != nil {
+				// 轮换窗口：先换脑再巡检——换完的新会话正好接着做这一轮（顺序反了
+				// 会永远撞上「主控刚被巡检叫起来 = working」，轮换永远不触发）。
+				if err := maybeRotate(ctx, cfg, hc); err != nil {
+					slog.Warn("superctl: rotate failed", "error", err)
+				}
+				// 注入卫生（ADR 0022）：三源皆空就不叫醒主控。
+				if sig := sweepSignals(ctx, cfg, hc); !tick.Needed(sig) {
+					slog.Debug("superctl: sweep skipped (no in-flight work)", "signals", sig)
+				} else if err := inject.Do(ctx, hc, cfg.MasterAgent, tick.SweepPrompt()); err != nil {
 					if errors.Is(err, inject.ErrBlocked) {
 						// 主控 blocked：本轮巡检跳过并转私聊提醒（限频，ADR 0018）。
 						slog.Warn("superctl: master blocked, sweep skipped", "error", err)
 						notifier.Notify()
-						continue
+					} else {
+						slog.Warn("superctl: sweep inject failed", "error", err)
 					}
-					slog.Warn("superctl: sweep inject failed", "error", err)
 				}
 			}
 		}
@@ -470,19 +556,13 @@ func cmdServe(args []string) error {
 				errCh <- nil
 				return
 			case <-tk.C:
+				// 急停期间哨兵照跑（纯 CLI、零 LLM 成本）：继续轮询才能保持首见基线新鲜；
+				// 注入被闸门延后——Poll 不推进快照，变化就攒着，解除后一次性补交。
 				if _, err := ensureTopo(ctx, cfg, hc); err != nil { // 注入前幂等引导（ADR 0018）
 					slog.Warn("superctl: cloudwatch ensure failed", "error", err)
 					continue
 				}
-				if _, err := sentinel.Poll(ctx, hifox.New(), cfg.WatchlistPath(), cfg.CloudSnapPath(), func(text string) error {
-					if err := inject.Do(ctx, hc, cfg.MasterAgent, text); err != nil {
-						if errors.Is(err, inject.ErrBlocked) {
-							notifier.Notify() // 主控 blocked 转私聊提醒（与 feishu/sweep 同款）
-						}
-						return err
-					}
-					return nil
-				}); err != nil {
+				if _, err := sentinel.Poll(ctx, hifox.New(), cfg.InflightPath(), cfg.CloudSnapPath(), sentinelInjector(cfg, hc, g, notifier)); err != nil && !errors.Is(err, errDeferredInject) {
 					slog.Warn("superctl: cloudwatch poll failed", "error", err)
 				}
 			}
@@ -505,6 +585,9 @@ func cmdServe(args []string) error {
 			}
 			return subs
 		}, func(ev herdr.Event) error {
+			if !g.allowMachine() {
+				return nil // 急停期间事件唤醒静默
+			}
 			if _, err := ensureTopo(ctx, cfg, hc); err != nil { // 注入前幂等引导（ADR 0018）
 				slog.Warn("superctl: event ensure failed", "error", err)
 				return nil
@@ -562,10 +645,6 @@ func cmdProbe(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	cfg, _, err := loadConfig(fs.Args())
-	if err != nil {
-		return err
-	}
 	appID, secret, err := requireFeishuCredentials()
 	if err != nil {
 		return err
@@ -578,7 +657,6 @@ func cmdProbe(args []string) error {
 	} else {
 		fmt.Printf("bot_open_id = %s  ← 填进 superctl.toml 的 bot_open_id\n", oid)
 	}
-	_ = cfg // probe 不需要拓扑与过滤，只要凭证
 	fmt.Println("监听中：给 bot 发条私聊（或在群里 @ 它 / @ 你），每条事件一行 ID，照抄进配置；Ctrl-C 退出。")
 	return feishu.Probe(ctx, fcfg, *debug)
 }

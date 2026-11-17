@@ -15,6 +15,7 @@ type fakeHerdr struct {
 	agents     string
 	snapshot   string
 	created    []string
+	closed     []string
 	started    []string
 	prompted   []string
 	failPrompt int // 前 N 次 agent prompt 报错（模拟 prime 失败）
@@ -31,6 +32,9 @@ func (f *fakeHerdr) run(_ context.Context, args []string) (string, error) {
 			f.snapshot = `{"result":{"snapshot":{"layouts":[]}}}`
 		}
 		return f.snapshot, nil
+	case "workspace close":
+		f.closed = append(f.closed, args[2])
+		return `{"result":{"type":"ok"}}`, nil
 	case "workspace create":
 		label := ""
 		for i, a := range args {
@@ -189,8 +193,8 @@ func TestEnsureRestartAgentOnExistingWorkspace(t *testing.T) {
 }
 
 func TestPrimePromptIncludesPaths(t *testing.T) {
-	got := PrimePrompt("手册正文", Paths{CapabilitiesDir: "/cap", ActiveDir: "/active", ArchivedDir: "/archived", ResultsDir: "/results", WatchlistPath: "/watch"})
-	for _, want := range []string{"手册正文", "/cap", "/active", "/archived", "/results", "/watch", "superctl reply"} {
+	got := PrimePrompt("手册正文", Paths{CapabilitiesDir: "/cap", ActiveDir: "/active", ArchivedDir: "/archived", ResultsDir: "/results", InflightPath: "/inflight", Index: "## 云端能力\n- 戴宗：发布验收"})
+	for _, want := range []string{"手册正文", "/cap", "/active", "/archived", "/results", "/inflight", "superctl reply", "## 云端能力", "戴宗"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("prime prompt missing %q", want)
 		}

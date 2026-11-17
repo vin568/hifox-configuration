@@ -3,6 +3,7 @@ package feishu
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/config"
@@ -174,9 +175,20 @@ func (s *server) handle(event *larkim.P2MessageReceiveV1) {
 	if !s.dedup.claim(ev.messageID) {
 		return
 	}
+
+	// 指令面：白名单私聊里的 "/" 指令由运行时消化，绝不进注入队列（ADR 0020）。
+	// 排在去重之后、注入之前——重复投递不会二次执行急停/换脑。
+	text := strings.TrimSpace(ev.text)
+	if !proxyReply && kindOf(ev.chatType) == "dm" && strings.HasPrefix(text, "/") && s.cfg.CommandFunc != nil {
+		if s.cfg.CommandFunc(context.Background(), ev.chatID, ev.senderID, text) {
+			s.dedup.markDone(ev.messageID)
+			return
+		}
+	}
+
 	task := injectTask{
 		src:      SourceFeishu,
-		p:        inject.Payload{ChatID: ev.chatID, SenderID: ev.senderID, Text: ev.text, Kind: kindOf(ev.chatType), ProxyReply: proxyReply},
+		p:        inject.Payload{ChatID: ev.chatID, SenderID: ev.senderID, Text: ev.text, Kind: kindOf(ev.chatType), ProxyReply: proxyReply, ReceivedAt: time.Now()},
 		attempts: 1,
 		done:     func() { s.dedup.markDone(ev.messageID) },
 	}

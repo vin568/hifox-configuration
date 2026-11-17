@@ -78,7 +78,7 @@ func TestHandleAgentEventInjectsCapabilityChange(t *testing.T) {
 	if err != nil || !ok || len(prompted) != 1 {
 		t.Fatalf("ok=%v err=%v prompted=%v", ok, err, prompted)
 	}
-	for _, want := range []string{"jiangjing", "w12:p1", "blocked", "无事不回复用户"} {
+	for _, want := range []string{"jiangjing", "w12:p1", "blocked", "[触发器: event]"} {
 		if !strings.Contains(prompted[0], want) {
 			t.Fatalf("prompt missing %q: %s", want, prompted[0])
 		}

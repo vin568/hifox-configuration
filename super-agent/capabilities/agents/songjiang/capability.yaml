@@ -1,0 +1,8 @@
+key: songjiang
+name: 宋江
+description: 本机编排者，用户本人的替身；只做读、写、派、判四类动作，把事安排给别人干，不自己干活。
+role: master
+workspace: master
+kind: omp
+args: []
+maxConcurrent: 1

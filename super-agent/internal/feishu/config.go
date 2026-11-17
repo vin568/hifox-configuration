@@ -6,6 +6,7 @@
 package feishu
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
@@ -46,6 +47,11 @@ type Config struct {
 	// DedupExpire reclaims claim lines that never got a done line after this
 	// duration. Zero means DefaultDedupExpire.
 	DedupExpire time.Duration
+
+	// CommandFunc handles白名单私聊里以 "/" 开头的指令（/halt、/new）。返回
+	// handled=true 表示已消化，绝不再作为消息注入主控——急停这类指令不能排在
+	// 错误指令后面等主控自己读。
+	CommandFunc func(ctx context.Context, chatID, senderID, text string) bool
 }
 
 // CredentialsFromEnv reads the Feishu app credentials from

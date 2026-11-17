@@ -16,21 +16,22 @@
 
 ## 技能目录
 
-本仓有三处技能目录，消费者互斥；新增技能先按消费者判定放置：
+本仓有四处技能目录，消费者互斥；新增技能先按消费者判定放置：
 
 | 目录 | 消费者 | 机制与形态 |
 | --- | --- | --- |
 | `skills/` | 部署到远端的 xwing agent | 技能源：由 `config/<集合>/agents/<key>/skills/<skill-key>/skill.yaml` 以 `dir: "@/skills/<名>"` 引用同一源，部署为各 agent 专属实例。`SKILL.md` 是内容体、无 frontmatter（身份在 `skill.yaml`）。源目录名带产品前缀（`xwing-` / `apifox-`）：根级 `skills/` 是跨配置集合的共享命名空间，裸名会假装通用；agent 实例 `key` 保持裸名（`<agent>/<key>` 已按 agent 命名空间化，改名会动 state 身份）。当前：`xwing-task-runtime`（linchong、daizong 引用）、`apifox-staging-deploy`（yanqing、xiaorang、skadi 引用）、`apifox-web-acceptance`（eir、yanqing、xiaorang 引用） |
 | `config/<集合>/skills/` | 部署到远端的 xwing agent（Space 内共享） | Space Skill 实例，多 agent 挂载同一份；结构语义见 `./x-deploy guide contract`，不在本仓复述 |
 | `.agents/skills/` | 在本仓工作的开发 agent 与人（不部署） | 项目级工具技能（Agent Skills 开放标准位置）：`SKILL.md` 带 `name`/`description` frontmatter。CLI 自带技能（当前 `xwing-workflows`）由 `./x-deploy init` 整目录受管重置，定制须复制改名；清单外的自有技能 init 不触碰，当前自有：`worktree-dev`（本仓 git worktree 开发契约 + `worktree.sh` 助手） |
+| `super-agent/capabilities/` | 本机宋江主控（不部署） | 本地能力注册表，目录即声明（ADR 0021）：`agents/<key>/{capability.yaml,instructions.md}`（含 `role: master` 的宋江与 `role: retro` 的蒋敬；常驻 agent 的名单、启动参数与手册由它派生，workspace 布局仍是固定三件套 master/crew/jobs）、`skills/<key>/{capability.yaml,doc.md}`（主控按需读的能力文档）、`scripts/<key>.yaml`（指向 `super-agent/direct/` 实脚本）、`cloud/<key>.yaml`（hifox 云端 agent 指针，真源仍是 `config/`）。`superctl capabilities --check` 查漂移 |
 
-判定一句话：给部署的远端 agent 用 → `skills/`（源 + agent 引用）或 `config/<集合>/skills/`（Space 共享）；给在本仓干活的开发 agent 用 → `.agents/skills/<名>/`。
+判定一句话：给部署的远端 agent 用 → `skills/`（源 + agent 引用）或 `config/<集合>/skills/`（Space 共享）；给在本仓干活的开发 agent 用 → `.agents/skills/<名>/`；给本机宋江主控用 → `super-agent/capabilities/`。
 
 技能目录里随仓维护的脚本（如戴宗验收套件的 `screenshot.mjs`）有回归测试：根目录 `npm test`（node:test，零依赖，用 `test/fixtures/` 的边界 stub）；用例按源码路径镜像存放——agent 技能为 `test/<agent>/<skill>/<脚本名>.test.mjs`，根级共享源按 `skills/` 下目录名（如 `test/xwing-task-runtime/`）——改这些脚本必须先跑或补用例。
 
 ## Super Agent 本地运行时（super-agent/）
 
-`super-agent/` 是宋江（主控）super agent 的本地运行时：一个 Go 单二进制，承载飞书注入器、`superctl`、巡检 tick 与重启引导。它跑在本机 herdr 上，不经 x-deploy 部署、不进远端环境与 `state.yaml`；术语见 `GLOSSARY.md`「主控编排」节，架构与边界决策见 `docs/adr/0016`–`0019`。云端能力口径 = `config/` 已声明的 agent（未声明即不存在）；主控提示词与能力目录属运行时物料，不进 `config/`。测试在目录内 `go test` 自管；根 `npm test` 仍只管技能脚本。
+`super-agent/` 是宋江（主控）super agent 的本地运行时：一个 Go 单二进制，承载飞书注入器、`superctl`、巡检 tick 与换脑。它跑在本机 herdr 上，不经 x-deploy 部署、不进远端环境与 `state.yaml`；术语见 `GLOSSARY.md`「主控编排」节，架构与边界决策见 `docs/adr/0016`–`0022`。云端能力口径 = `config/` 已声明的 agent（未声明即不存在）；主控提示词与能力注册表属运行时物料，不进 `config/`。测试在目录内 `go test` 自管；根 `npm test` 仍只管技能脚本。
 
 ## 子模块开发（唯一允许改部署逻辑的地方）
 

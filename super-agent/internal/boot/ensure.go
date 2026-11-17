@@ -14,15 +14,18 @@ import (
 // Expected 是幂等引导的目标拓扑（ADR 0018）：master / crew / jobs 三个 workspace
 // + 主控与复盘两个常驻 agent。动态作业 agent 不在此列（jobs workspace 只建容器）。
 type Expected struct {
-	RepoDir        string
-	MasterAgent    string
-	RetroAgent     string
-	Kind           string   // 底层 CLI kind（omp）
-	MasterArgs     []string // agent start 透传参数（如指定快模型）
-	MasterPrime    string   // 新启动主控时的首条注入（操作手册 + 路径）
-	RetroPrime     string   // 新启动复盘 agent 时的首条注入
-	DynamicWS      string   // 动态作业 workspace 标签（jobs）
-	PrimeMarkerDir string   // prime 成功标记目录（state/primed）；空 = 不记标记
+	RepoDir          string
+	MasterAgent      string
+	RetroAgent       string
+	Kind             string   // 底层 CLI kind（omp）
+	MasterArgs       []string // agent start 透传参数（如指定快模型）
+	MasterSessionDir string   // 主控本轮次会话目录（换脑/首次启动都落留档目录）
+	MasterPrime      string   // 新启动主控时的首条注入（操作手册 + 能力索引 + 路径）
+	RetroArgs        []string
+	RetroSessionDir  string
+	RetroPrime       string // 新启动复盘 agent 时的首条注入
+	DynamicWS        string // 动态作业 workspace 标签（jobs）
+	PrimeMarkerDir   string // prime 成功标记目录（state/primed）；空 = 不记标记
 }
 
 // Paths 是首条注入里引用的本机路径集（由 config 派生，避免六个裸参数结伴走）。
@@ -31,7 +34,8 @@ type Paths struct {
 	ActiveDir       string
 	ArchivedDir     string
 	ResultsDir      string
-	WatchlistPath   string
+	InflightPath    string
+	Index           string // 能力注册表渲染出的索引（名字+一句话+何时用+文档路径）
 }
 
 type Report struct {
@@ -72,7 +76,12 @@ func Ensure(ctx context.Context, c *herdr.Client, exp Expected) (*Report, error)
 				panes[label] = p
 				continue
 			}
-			return nil, fmt.Errorf("workspace %s exists but has no pane", label)
+			// workspace 在、pane 没了（换脑时关 pane 的兜底路径可能留下这种残局）：
+			// 关掉空壳再按创建路径重建，避免在这里硬报错把注入路径永久卡死。
+			if err := c.WorkspaceClose(ctx, id); err != nil {
+				return nil, fmt.Errorf("workspace %s has no pane and close failed: %w", label, err)
+			}
+			delete(labelID, label)
 		}
 		ws, pane, err := c.WorkspaceCreate(ctx, exp.RepoDir, label)
 		if err != nil {
@@ -88,15 +97,11 @@ func Ensure(ctx context.Context, c *herdr.Client, exp Expected) (*Report, error)
 		return nil, fmt.Errorf("agent list: %w", err)
 	}
 	hasAgent := func(name string) bool {
-		for _, a := range agents {
-			if a.Name == name || a.Agent == name {
-				return true
-			}
-		}
-		return false
+		_, ok := herdr.FindAgent(agents, name)
+		return ok
 	}
 
-	ensureAgent := func(name, wsLabel, prime string, args []string) error {
+	ensureAgent := func(name, wsLabel, prime, sessionDir string, args []string) error {
 		primed := exp.PrimeMarkerDir != "" && primeMarkerExists(exp.PrimeMarkerDir, name)
 		if hasAgent(name) {
 			if primed || prime == "" {
@@ -115,6 +120,9 @@ func Ensure(ctx context.Context, c *herdr.Client, exp Expected) (*Report, error)
 		if !ok {
 			return fmt.Errorf("no root pane for workspace %s", wsLabel)
 		}
+		if sessionDir != "" {
+			args = append(append([]string{}, args...), "--session-dir", sessionDir)
+		}
 		if err := c.AgentStart(ctx, name, exp.Kind, pane, args); err != nil {
 			return fmt.Errorf("start %s: %w", name, err)
 		}
@@ -128,11 +136,13 @@ func Ensure(ctx context.Context, c *herdr.Client, exp Expected) (*Report, error)
 		return nil
 	}
 
-	if err := ensureAgent(exp.MasterAgent, "master", exp.MasterPrime, exp.MasterArgs); err != nil {
+	if err := ensureAgent(exp.MasterAgent, "master", exp.MasterPrime, exp.MasterSessionDir, exp.MasterArgs); err != nil {
 		return nil, err
 	}
-	if err := ensureAgent(exp.RetroAgent, "crew", exp.RetroPrime, nil); err != nil {
-		return nil, err
+	if exp.RetroAgent != "" {
+		if err := ensureAgent(exp.RetroAgent, "crew", exp.RetroPrime, exp.RetroSessionDir, exp.RetroArgs); err != nil {
+			return nil, err
+		}
 	}
 	return rep, nil
 }
@@ -145,8 +155,13 @@ func PrimePrompt(manual string, p Paths) string {
 	fmt.Fprintf(&b, "- 能力目录：%s\n", p.CapabilitiesDir)
 	fmt.Fprintf(&b, "- 作业台账活跃区：%s；归档区：%s\n", p.ActiveDir, p.ArchivedDir)
 	fmt.Fprintf(&b, "- 结果目录：能力 agent 的产出 markdown 放 %s，作业记录只回文件路径\n", p.ResultsDir)
-	fmt.Fprintf(&b, "- 云端跟踪清单：%s（派云端活登记任务号，收口移除；系统会高频替你盯状态变化）\n", p.WatchlistPath)
+	fmt.Fprintf(&b, "- 在途清单：%s（派活经 superctl dispatch 自动登记，收口自动移除；系统会替你盯云端状态变化）\n", p.InflightPath)
 	b.WriteString("- 回复用户：superctl reply --chat <会话ID> --text <内容>（可多次调用分段发）\n")
+	if strings.TrimSpace(p.Index) != "" {
+		b.WriteString("\n---\n")
+		b.WriteString(strings.TrimSpace(p.Index))
+		b.WriteString("\n")
+	}
 	return b.String()
 }
 

@@ -1,0 +1,4 @@
+key: cloud-dispatch
+name: 云端派活
+description: hifox 平台任务的派发、查询、取消与跟踪清单纪律。
+whenToUse: 要在云端派活、查进度、取消执行，或核对云端跟踪清单时。

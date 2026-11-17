@@ -52,7 +52,7 @@ func TestCommandsArentNil(t *testing.T) {
 // 冒烟：真实的 reply 命令行应走出参数解析（而非 unknown command）。
 func TestReplySmoke(t *testing.T) {
 	dir := t.TempDir()
-	cfg := "session = \"t\"\nmaster_agent = \"m\"\nretro_agent = \"r\"\nstate_dir = \"" + dir + "\"\n"
+	cfg := "session = \"t\"\nstate_dir = \"" + dir + "\"\nrepo_dir = \"/repo\"\n"
 	path := dir + "/superctl.toml"
 	if err := os.WriteFile(path, []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)

@@ -15,7 +15,7 @@ import (
 func fixture(t *testing.T, watch string, snap string) (string, string) {
 	t.Helper()
 	dir := t.TempDir()
-	w, s := filepath.Join(dir, "watchlist.json"), filepath.Join(dir, "cloud-snapshot.json")
+	w, s := filepath.Join(dir, "inflight.json"), filepath.Join(dir, "cloud-snapshot.json")
 	if watch != "" {
 		os.WriteFile(w, []byte(watch), 0o644)
 	}
