@@ -1,0 +1,611 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"log/slog"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/boot"
+	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/config"
+	feishu "apifox.github.com/vin568/hifox-configuration/super-agent/internal/feishu"
+	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/herdr"
+	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/hifox"
+	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/inject"
+	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/outbox"
+	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/sentinel"
+	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/tick"
+)
+
+const usage = `superctl — 宋江 super agent 本地运行时（super-agent/，ADR 0016–0019）
+
+用法：superctl <命令> [参数]
+
+命令：
+  ensure   幂等引导：对账 herdr 拓扑（master/crew/jobs workspace + 常驻 agent），缺则补齐
+  status   概览：session / workspaces / agents / 活跃作业 / 待发回帖
+  inject   手工注入一条 prompt 到主控（--source feishu|event|manual）
+  tick     立即注入一次作业巡检
+  reply    追加一条回帖到 outbox（主控回用户的唯一通道）
+  serve    常驻：飞书长连接 + outbox 投递 + 定时巡检
+  cloudwatch  云端哨兵一轮：读跟踪清单轮询 hifox，有状态变化才注入（serve 内置，也可 cron 单跑）
+  probe    连上飞书只打印事件 ID（取 open_id / chat_id / bot_open_id 的引导工具）
+  help     本帮助
+
+配置查找：--config 路径 > $SONGJIANG_CONFIG > ./superctl.toml > ~/.config/songjiang/superctl.toml
+飞书凭证走环境变量：SONGJIANG_FEISHU_APP_ID / SONGJIANG_FEISHU_APP_SECRET（不进配置文件）`
+
+// commands 是唯一的命令注册表：usage 文案与之对齐，dispatch 测试钉死
+// 「usage 列了但表里没有」这类漏注册（reply 曾因此在集成编辑中丢失）。
+var commands = map[string]func(args []string) error{
+	"ensure":     cmdEnsure,
+	"status":     cmdStatus,
+	"inject":     cmdInject,
+	"tick":       cmdTick,
+	"cloudwatch": cmdCloudwatch,
+	"reply":      cmdReply,
+	"serve":      cmdServe,
+	"probe":      cmdProbe,
+}
+
+func main() {
+	if len(os.Args) < 2 {
+		fmt.Fprintln(os.Stderr, usage)
+		os.Exit(2)
+	}
+	name := os.Args[1]
+	if name == "help" || name == "-h" || name == "--help" {
+		fmt.Println(usage)
+		return
+	}
+	run, ok := commands[name]
+	if !ok {
+		fmt.Fprintf(os.Stderr, "unknown command %q\n\n%s\n", name, usage)
+		os.Exit(2)
+	}
+	if err := run(os.Args[2:]); err != nil {
+		fmt.Fprintln(os.Stderr, "superctl:", err)
+		os.Exit(1)
+	}
+}
+
+func loadConfig(args []string) (config.Config, string, error) {
+	fs := flag.NewFlagSet("", flag.ContinueOnError)
+	cfgPath := fs.String("config", "", "配置文件路径")
+	if err := fs.Parse(args); err != nil {
+		return config.Config{}, "", err
+	}
+	path, err := config.Find(*cfgPath)
+	if err != nil {
+		return config.Config{}, "", err
+	}
+	cfg, err := config.Load(path)
+	return cfg, path, err
+}
+
+// ensureTopo 注入前幂等引导（ADR 0018）：缺 workspace/agent 就补，新 agent 灌首条 prompt。
+func ensureTopo(ctx context.Context, cfg config.Config, hc *herdr.Client) (*boot.Report, error) {
+	if err := cfg.EnsureDirs(); err != nil {
+		return nil, err
+	}
+	manual, err := os.ReadFile(filepath.Join(cfg.PromptsDir(), "songjiang.md"))
+	if err != nil {
+		return nil, fmt.Errorf("read songjiang.md: %w", err)
+	}
+	retro, err := os.ReadFile(filepath.Join(cfg.PromptsDir(), "jiangjing.md"))
+	if err != nil {
+		return nil, fmt.Errorf("read jiangjing.md: %w", err)
+	}
+	return boot.Ensure(ctx, hc, boot.Expected{
+		RepoDir:        cfg.RepoDir,
+		MasterAgent:    cfg.MasterAgent,
+		RetroAgent:     cfg.RetroAgent,
+		Kind:           "omp",
+		MasterArgs:     cfg.MasterAgentArgs,
+		DynamicWS:      "jobs",
+		PrimeMarkerDir: cfg.PrimeMarkerDir(),
+		MasterPrime: boot.PrimePrompt(string(manual), boot.Paths{
+			CapabilitiesDir: cfg.PromptsDir(),
+			ActiveDir:       cfg.ActiveDir(),
+			ArchivedDir:     cfg.ArchivedDir(),
+			ResultsDir:      cfg.ResultsDir(),
+			WatchlistPath:   cfg.WatchlistPath(),
+		}),
+		RetroPrime: string(retro),
+	})
+}
+
+func cmdEnsure(args []string) error {
+	cfg, path, err := loadConfig(args)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	rep, err := ensureTopo(ctx, cfg, herdr.New(cfg.Session))
+	if err != nil {
+		return err
+	}
+	fmt.Printf("config=%s\n", path)
+	return jsonPrint(rep)
+}
+
+func cmdStatus(args []string) error {
+	cfg, _, err := loadConfig(args)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	hc := herdr.New(cfg.Session)
+	ws, err := hc.WorkspaceList(ctx)
+	if err != nil {
+		return fmt.Errorf("herdr session %s 不可达（先 herdr session attach %s）: %w", cfg.Session, cfg.Session, err)
+	}
+	agents, err := hc.AgentList(ctx)
+	if err != nil {
+		return err
+	}
+	active := countFiles(cfg.ActiveDir())
+	ob, err := outbox.Open(cfg.OutboxPath())
+	if err != nil {
+		return err
+	}
+	type status struct {
+		Session        string   `json:"session"`
+		Workspaces     []string `json:"workspaces"`
+		Agents         []string `json:"agents"`
+		ActiveJobs     int      `json:"active_jobs"`
+		PendingReplies int      `json:"pending_replies"`
+	}
+	labels := make([]string, 0, len(ws))
+	for _, w := range ws {
+		labels = append(labels, w.Label)
+	}
+	names := make([]string, 0, len(agents))
+	for _, a := range agents {
+		n := a.Name
+		if n == "" {
+			n = a.Agent
+		}
+		names = append(names, n+"("+a.AgentStatus+")")
+	}
+	return jsonPrint(status{
+		Session:        cfg.Session,
+		Workspaces:     labels,
+		Agents:         names,
+		ActiveJobs:     active,
+		PendingReplies: ob.Pending(outbox.DefaultMaxAttempts),
+	})
+}
+
+func cmdInject(args []string) error {
+	fs := flag.NewFlagSet("inject", flag.ContinueOnError)
+	source := fs.String("source", "manual", "feishu|event|manual")
+	chatID := fs.String("chat", "", "来源会话 ID")
+	kind := fs.String("kind", "dm", "dm|group")
+	sender := fs.String("sender", "", "发送者 ID")
+	proxy := fs.Bool("proxy-reply", false, "代答场景")
+	text := fs.String("text", "", "注入文本（event=状态变化描述）")
+	cfgPath := fs.String("config", "", "配置文件路径")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*text) == "" {
+		return errors.New("--text required")
+	}
+	cfg, _, err := loadConfig([]string{"--config", *cfgPath})
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	hc := herdr.New(cfg.Session)
+	if _, err := ensureTopo(ctx, cfg, hc); err != nil {
+		return err
+	}
+	prompt, err := buildInjectPrompt(*source, inject.Payload{ChatID: *chatID, SenderID: *sender, Text: *text, Kind: *kind, ProxyReply: *proxy})
+	if err != nil {
+		return err
+	}
+	if err := inject.Do(ctx, hc, cfg.MasterAgent, prompt); err != nil {
+		if errors.Is(err, inject.ErrBlocked) {
+			return fmt.Errorf("主控在等确认界面，注入被拒；先在 herdr 里处理主控的 blocked 状态: %w", err)
+		}
+		return err
+	}
+	fmt.Println("injected")
+	return nil
+}
+
+// buildInjectPrompt 按 --source 拼注入文本；未知 source 拒绝（闭集 feishu|event|manual）。
+func buildInjectPrompt(source string, p inject.Payload) (string, error) {
+	switch source {
+	case "feishu":
+		return inject.BuildFeishu(p), nil
+	case "event":
+		return inject.BuildEvent(p.Text), nil
+	case "manual":
+		return p.Text, nil
+	default:
+		return "", fmt.Errorf("unknown --source %q", source)
+	}
+}
+
+func cmdTick(args []string) error {
+	cfg, _, err := loadConfig(args)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	hc := herdr.New(cfg.Session)
+	if _, err := ensureTopo(ctx, cfg, hc); err != nil {
+		return err
+	}
+	if err := inject.Do(ctx, hc, cfg.MasterAgent, tick.SweepPrompt(cfg.ActiveDir(), cfg.ArchivedDir())); err != nil {
+		if errors.Is(err, inject.ErrBlocked) {
+			return fmt.Errorf("主控 blocked，本轮巡检跳过: %w", err)
+		}
+		return err
+	}
+	fmt.Println("sweep injected")
+	return nil
+}
+
+func cmdCloudwatch(args []string) error {
+	cfg, _, err := loadConfig(args)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	hc := herdr.New(cfg.Session)
+	if _, err := ensureTopo(ctx, cfg, hc); err != nil {
+		return err
+	}
+	res, err := sentinel.Poll(ctx, hifox.New(), cfg.WatchlistPath(), cfg.CloudSnapPath(), func(text string) error {
+		return inject.Do(ctx, hc, cfg.MasterAgent, text)
+	})
+	if err != nil {
+		return err
+	}
+	return jsonPrint(res)
+}
+
+func cmdReply(args []string) error {
+	fs := flag.NewFlagSet("reply", flag.ContinueOnError)
+	chatID := fs.String("chat", "", "目标会话 ID")
+	text := fs.String("text", "", "回帖内容")
+	cfgPath := fs.String("config", "", "配置文件路径")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *chatID == "" || *text == "" {
+		return errors.New("--chat and --text required")
+	}
+	cfg, _, err := loadConfig([]string{"--config", *cfgPath})
+	if err != nil {
+		return err
+	}
+	ob, err := outbox.Open(cfg.OutboxPath())
+	if err != nil {
+		return err
+	}
+	e, err := ob.Append(*chatID, *text)
+	if err != nil {
+		return err
+	}
+	fmt.Println(e.ID)
+	return nil
+}
+
+// blockedNote 是主控卡在确认界面时发给用户的私聊提醒（一体人设：第一人称、
+// 口语、不出口内部术语）。
+const blockedNote = "我卡在一个要确认的界面上了，等你来点一下我才能继续。"
+
+// blockedNotifier 限频发送 blockedNote：feishu 重试与巡检 tick 都会撞
+// blocked，同一窗口内只发一条，避免刷屏（窗口取 30 分钟）。
+type blockedNotifier struct {
+	ob     *outbox.Outbox
+	chatID string
+	window time.Duration
+
+	mu   sync.Mutex
+	last time.Time
+}
+
+func (n *blockedNotifier) Notify() {
+	if n.chatID == "" {
+		return
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if time.Since(n.last) < n.window {
+		return
+	}
+	if _, err := n.ob.Append(n.chatID, blockedNote); err != nil {
+		slog.Warn("superctl: append blocked note failed", "error", err)
+		return
+	}
+	n.last = time.Now()
+}
+
+// requireFeishuCredentials 是 serve/probe 共用的凭证门：缺凭证硬报错
+// （密钥卫生：凭证只走环境变量）。
+func requireFeishuCredentials() (string, string, error) {
+	id, secret := feishu.CredentialsFromEnv()
+	if id == "" || secret == "" {
+		return "", "", errors.New("缺少飞书凭证：设置 SONGJIANG_FEISHU_APP_ID / SONGJIANG_FEISHU_APP_SECRET（自建应用，见 super-agent/README.md）")
+	}
+	return id, secret, nil
+}
+
+func cmdServe(args []string) error {
+	cfg, cfgPath, err := loadConfig(args)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("config=%s\nallowed_users=%v\nproxy_reply_groups=%v any_message_groups=%v\nadmin_chat_id=%q bot_open_id_set=%t\n",
+		cfgPath, cfg.AllowedUsers, cfg.ProxyReplyGroups, cfg.AnyMessageGroups, cfg.AdminChatID, cfg.BotMentionOpenID != "")
+	for _, u := range cfg.AllowedUsers {
+		if strings.Contains(u, "pending") {
+			fmt.Println("警告：allowed_users 仍是占位符，所有私聊都会被过滤丢弃——用 superctl probe 取真实 open_id 后替换")
+			break
+		}
+	}
+	appID, secret, err := requireFeishuCredentials()
+	if err != nil {
+		return err
+	}
+	if err := cfg.EnsureDirs(); err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	hc := herdr.New(cfg.Session)
+	if _, err := ensureTopo(ctx, cfg, hc); err != nil {
+		return err
+	}
+	ob, err := outbox.Open(cfg.OutboxPath())
+	if err != nil {
+		return err
+	}
+
+	proxy := map[string]bool{}
+	for _, g := range cfg.ProxyReplyGroups {
+		proxy[g] = true
+	}
+	fcfg := feishu.Config{
+		AppID:            appID,
+		AppSecret:        secret,
+		AllowedUserIDs:   cfg.AllowedUsers,
+		ProxyReplyGroups: proxy,
+		AnyMessageGroups: cfg.AnyMessageGroups,
+		BotMentionOpenID: cfg.BotMentionOpenID,
+		DedupPath:        cfg.DedupPath(),
+	}
+	sender, err := feishu.NewSender(fcfg)
+	if err != nil {
+		return err
+	}
+
+	notifier := &blockedNotifier{ob: ob, chatID: cfg.AdminChatID, window: 30 * time.Minute}
+
+	injectFn := func(ictx context.Context, _ feishu.Source, p inject.Payload) error {
+		if _, err := ensureTopo(ictx, cfg, hc); err != nil {
+			return err
+		}
+		if err := inject.Do(ictx, hc, cfg.MasterAgent, inject.BuildFeishu(p)); err != nil {
+			if errors.Is(err, inject.ErrBlocked) {
+				// 限频提醒一次；消息本身由 feishu 侧按预算排队重试（ADR 0018）。
+				notifier.Notify()
+			}
+			return err
+		}
+		return nil
+	}
+
+	errCh := make(chan error, 5)
+	go func() { errCh <- feishu.Run(ctx, fcfg, injectFn) }()
+
+	interval, err := cfg.SweepInterval()
+	if err != nil {
+		return err
+	}
+	go func() {
+		tk := time.NewTicker(interval)
+		defer tk.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				errCh <- nil
+				return
+			case <-tk.C:
+				if _, err := ensureTopo(ctx, cfg, hc); err != nil {
+					slog.Warn("superctl: sweep ensure failed", "error", err)
+					continue
+				}
+				if err := inject.Do(ctx, hc, cfg.MasterAgent, tick.SweepPrompt(cfg.ActiveDir(), cfg.ArchivedDir())); err != nil {
+					if errors.Is(err, inject.ErrBlocked) {
+						// 主控 blocked：本轮巡检跳过并转私聊提醒（限频，ADR 0018）。
+						slog.Warn("superctl: master blocked, sweep skipped", "error", err)
+						notifier.Notify()
+						continue
+					}
+					slog.Warn("superctl: sweep inject failed", "error", err)
+				}
+			}
+		}
+	}()
+	go func() {
+		tk := time.NewTicker(5 * time.Second)
+		defer tk.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				errCh <- nil
+				return
+			case <-tk.C:
+				_, _, _ = ob.Drain(ctx, sender.Send, outbox.DefaultMaxAttempts)
+			}
+		}
+	}()
+	go func() {
+		cloudInterval, err := cfg.CloudInterval()
+		if err != nil {
+			errCh <- err
+			return
+		}
+		tk := time.NewTicker(cloudInterval)
+		defer tk.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				errCh <- nil
+				return
+			case <-tk.C:
+				if _, err := ensureTopo(ctx, cfg, hc); err != nil { // 注入前幂等引导（ADR 0018）
+					slog.Warn("superctl: cloudwatch ensure failed", "error", err)
+					continue
+				}
+				if _, err := sentinel.Poll(ctx, hifox.New(), cfg.WatchlistPath(), cfg.CloudSnapPath(), func(text string) error {
+					if err := inject.Do(ctx, hc, cfg.MasterAgent, text); err != nil {
+						if errors.Is(err, inject.ErrBlocked) {
+							notifier.Notify() // 主控 blocked 转私聊提醒（与 feishu/sweep 同款）
+						}
+						return err
+					}
+					return nil
+				}); err != nil {
+					slog.Warn("superctl: cloudwatch poll failed", "error", err)
+				}
+			}
+		}
+	}()
+	go func() {
+		err := herdr.Subscribe(ctx, cfg.Session, func() []herdr.Subscription {
+			// 订阅面 = 除主控外所有带 agent 的 pane（herdr 按 pane 订阅，不通配；
+			// 主控 pane 按 master workspace 拓扑解析，不依赖 agent 名字存活）。
+			idx, err := hc.PaneIndex(ctx, "master")
+			if err != nil {
+				return nil
+			}
+			subs := make([]herdr.Subscription, 0, len(idx.ByPane))
+			for pane, a := range idx.ByPane {
+				if pane == idx.MasterPane || a.Name == cfg.MasterAgent {
+					continue
+				}
+				subs = append(subs, herdr.Subscription{"type": "pane.agent_status_changed", "pane_id": pane})
+			}
+			return subs
+		}, func(ev herdr.Event) error {
+			if _, err := ensureTopo(ctx, cfg, hc); err != nil { // 注入前幂等引导（ADR 0018）
+				slog.Warn("superctl: event ensure failed", "error", err)
+				return nil
+			}
+			idx, err := hc.PaneIndex(ctx, "master")
+			if err != nil {
+				slog.Warn("superctl: event pane index failed", "error", err)
+				return nil
+			}
+			if _, err := handleAgentEvent(ctx, cfg, hc, idx, ev); err != nil {
+				if errors.Is(err, inject.ErrBlocked) {
+					notifier.Notify()
+				}
+				slog.Warn("superctl: event inject failed", "error", err)
+			}
+			return nil // 订阅循环不因单条注入失败而断
+		})
+		if err != nil && !errors.Is(err, context.Canceled) {
+			errCh <- err
+			return
+		}
+		errCh <- nil
+	}()
+
+	fmt.Printf("superctl serve: session=%s master=%s tick=%s\n", cfg.Session, cfg.MasterAgent, cfg.TickInterval)
+	return <-errCh
+}
+
+func countFiles(dir string) int {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, e := range entries {
+		if !e.IsDir() {
+			n++
+		}
+	}
+	return n
+}
+
+func jsonPrint(v any) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(b))
+	return nil
+}
+
+func cmdProbe(args []string) error {
+	fs := flag.NewFlagSet("probe", flag.ContinueOnError)
+	debug := fs.Bool("debug", false, "SDK 日志开到 Debug（打印连接与每条 frame）")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	cfg, _, err := loadConfig(fs.Args())
+	if err != nil {
+		return err
+	}
+	appID, secret, err := requireFeishuCredentials()
+	if err != nil {
+		return err
+	}
+	fcfg := feishu.Config{AppID: appID, AppSecret: secret}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if oid, berr := feishu.BotOpenID(ctx, fcfg); berr != nil {
+		fmt.Printf("bot_open_id 获取失败：%v（继续监听事件）\n", berr)
+	} else {
+		fmt.Printf("bot_open_id = %s  ← 填进 superctl.toml 的 bot_open_id\n", oid)
+	}
+	_ = cfg // probe 不需要拓扑与过滤，只要凭证
+	fmt.Println("监听中：给 bot 发条私聊（或在群里 @ 它 / @ 你），每条事件一行 ID，照抄进配置；Ctrl-C 退出。")
+	return feishu.Probe(ctx, fcfg, *debug)
+}
+
+// handleAgentEvent 处理一条本地能力 agent 状态变化事件：只认
+// pane.agent_status_changed；主控 pane（按 master workspace 拓扑解析）与
+// 主控大名的翻转是常态不是信号；陌生 pane（其他 session）跳过；其余注入主控。
+func handleAgentEvent(ctx context.Context, cfg config.Config, hc *herdr.Client, idx herdr.PaneIndex, ev herdr.Event) (bool, error) {
+	if ev.Event != "pane.agent_status_changed" || ev.Data.AgentStatus == "" || ev.Data.PaneID == "" {
+		return false, nil
+	}
+	if ev.Data.PaneID == idx.MasterPane {
+		return false, nil
+	}
+	a, known := idx.ByPane[ev.Data.PaneID]
+	if !known {
+		return false, nil
+	}
+	name := a.Name
+	if name == "" {
+		name = a.Agent
+	}
+	if name == cfg.MasterAgent {
+		return false, nil
+	}
+	if err := inject.Do(ctx, hc, cfg.MasterAgent, inject.BuildEvent(fmt.Sprintf("%s（%s）状态 → %s", name, ev.Data.PaneID, ev.Data.AgentStatus))); err != nil {
+		return false, err
+	}
+	return true, nil
+}

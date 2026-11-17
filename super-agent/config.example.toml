@@ -1,0 +1,29 @@
+# superctl 配置样例。复制为 superctl.toml（查找顺序见 README）。
+# 密钥不进此文件：飞书凭证读环境变量 SONGJIANG_FEISHU_APP_ID / SONGJIANG_FEISHU_APP_SECRET。
+
+session          = "super-agent"   # herdr 命名 session
+master_agent     = "songjiang"     # 主控具名 agent
+retro_agent      = "jiangjing"     # 复盘能力 agent（crew workspace 常驻）
+state_dir        = "~/.local/state/songjiang"
+repo_dir         = "~/code/apifox/hifox-configuration-super-agent"  # agent pane 的 cwd
+
+tick_interval       = "10m"  # 作业巡检兜底周期（低频；云端由哨兵盯，本地由事件订阅加速）
+cloud_poll_interval = "60s"  # 云端哨兵轮询周期（纯 CLI 轮询零 LLM 成本，有变化才唤醒主控）
+
+# 飞书放行面：open_id 白名单，私聊只放行白名单成员（其他人不注入）
+allowed_users = ["ou_replace_me"]
+
+# 代答群：群内 @ 白名单成员（而非 @bot）也放行，按代答处理
+proxy_reply_groups = []
+
+# 全收群：所有消息放行（慎用）
+any_message_groups = []
+
+# bot 自己的 open_id（识别 @bot 用；建好自建应用后从开发者后台取，留空则只靠白名单/全收群）
+bot_open_id = ""
+
+# 私聊通知兜底会话（主控 blocked 等场景的提醒落点；填你与 bot 的 chat_id，可留空）
+admin_chat_id = ""
+
+# agent start 透传给主控底层 CLI（omp）的参数，如指定快模型；留空用默认
+master_agent_args = []
