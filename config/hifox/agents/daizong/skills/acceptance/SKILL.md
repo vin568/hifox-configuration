@@ -13,7 +13,7 @@
 
 另需 `node ≥ 18`、`yq`（doctor 场景）。
 任务 CLI 按产品品牌派生连接变量前缀（`PRODUCT=hifox` 起的服务读 `HIFOX_*`；缺省 sharkly 品牌不读），`APP_*` 是任何品牌都认的兼容前缀。套件内部会把 `HIFOX_SERVER_URL` / `HIFOX_TOKEN` / `HIFOX_ORGANIZATION_ID` 同值透传为 `APP_SERVER_URL` / `APP_TOKEN` / `APP_ORGANIZATION_ID`（调用方已显式设置时不覆盖），调用方无需自行导出。
-fixture agents 声明运行目标（`target.computer` + `target.runtimeProvider`）：套件运行时经任务 CLI `agent target list` 解析 task-local 唯一 active computer lease（web 启动默认由 task daemon 自动注册）并统一注入所有建 agent 的场景；零个或多个 active lease → fail fast，按环境问题归因。
+fixture agents 声明运行目标（`target.computer` + `target.runtime` 的 provider 名形态）：套件运行时经任务 CLI `agent target list` 解析 task-local 唯一 active computer lease（web 启动默认由 task daemon 自动注册）并统一注入所有建 agent 的场景；零个或多个 active lease → fail fast，按环境问题归因。
 
 ## 用法
 
@@ -36,7 +36,7 @@ node scripts/run-acceptance.mjs --cleanup-report <dir>/report.json
 套件按**链**编排：链内按序执行、首败即中止本链（后续场景依赖前置状态）；**链间相互独立**，一条链失败不遮蔽其余链——每轮成本一整套环境，必须产出完整故障面。执行顺序：`offline → main → workflow → journey → smoke`。
 
 - **A 契约钉子（offline / main / workflow 链）**：手写的语义契约断言，含阴性对照（见下节编目）。这是套件的核心价值，**写死即契约**。
-- **B 用户旅程（journey 链）**：模拟真实消费者的第一公里——`init` 脚手架 → 手写一份真实形状的配置（双 agent：显式 target + 环境级默认 target、avatar、仓库、skill、crew 角色、automation）→ `bind` 按名采纳 org/space → `validate`/`plan`/`create` → 用户式二次编辑（改名 + 加 automation）经 `apply` 收敛 → `backup`。同时产出 `journey.json`（UI 验证规格）。
+- **B 用户旅程（journey 链）**：模拟真实消费者的第一公里——`init` 脚手架 → 手写一份真实形状的配置（双 agent：显式 target + 环境级默认 target、avatar、仓库、skill、crew 角色、automation）→ `bind` 按名采纳 org/space → `validate`/`plan`/`create` → 用户式二次编辑（改名 + 加 automation）经 `deploy` 收敛 → `backup`。同时产出 `journey.json`（UI 验证规格）。
 - **C 派生冒烟 + 覆盖矩阵（smoke 链）**：命令面**运行时**解析自 candidate 自己的 `--help`（其注册表单源渲染，ADR 0013），本仓不维护命令清单。按 usage 形状分三层（无命令名知识，唯一例外是 direct 变更者拒绝表，见 `scripts/lib/surface.mjs`）：`bare`（空参调用必须干净失败或出信息，无堆栈、无副作用）、`preview`（带 `[--apply]` 门禁的命令不带 `--apply` 跑，state.yaml 必须字节不变）、`read`（只读命令对 fixture 跑必须 exit 0）。report.json 的 `coverage` 矩阵按**实际调用日志**度量每个命令被哪些钉子/旅程场景覆盖、冒烟到哪层、是否零覆盖——覆盖是量出来的，不是宣称的。
 - **D UI 验证（`screenshot.mjs --verify`）**：按 `journey.json` 断言终端用户在 app 里**看得见**的东西（agents 列表出现带后缀的新 agent、详情页 instructions/skill/仓库渲染、crew 成员与角色），纯文本断言（无 CSS 选择器、无像素比对），每断言一张截图证据，产出 `ui-verdict.json` 计入门禁（基建缺失降级为 skipped 并标注）。
 
@@ -49,10 +49,10 @@ node scripts/run-acceptance.mjs --cleanup-report <dir>/report.json
 2. `doctor`：自检通过；未知 `cli.app` 的环境失败（负例）。
 
 **main 链**（主 fixture 生命周期，按序）：
-1. `create`：`create --apply` 落地 crew / 两 agent / Space skill / Agent skill，state.yaml 注册 ID，远端名称带后缀（含 Agent Skill 部署名），模板变量已渲染（含 crew instructions），仓库清单 replace-all 语义成立。agents 声明运行目标（computer + runtimeProvider，运行时解析注入；平台契约——新 agent 必须带成对运行目标，后续建 agent 场景同此）。
-2. `plan`：变更集视图预览（`+ agent <key> "<name>" (id known after apply)`）且不写 state。
-3. `apply-drift`：新增 agent（名称与指令读回）、crew 角色变更、skill 附属文件删除、仓库清单收缩后 `apply --apply` 一次收敛；同轮断言 automation 已注册（同轮首发）。
-4. `apply-idempotent`：二次 apply 幂等（ID 不变、无 mutation 回显——ADR 0021 漂移门控、远端名称不漂移）。
+1. `create`：`create --apply` 落地 crew / 两 agent / Space skill / Agent skill，state.yaml 注册 ID，远端名称带后缀（含 Agent Skill 部署名），模板变量已渲染（含 crew instructions），仓库清单 replace-all 语义成立。agents 声明运行目标（computer + provider 名，运行时解析注入；平台契约——新 agent 必须带成对运行目标，后续建 agent 场景同此）。
+2. `plan`：变更集视图预览（`+ agent <key> "<name>" (id known after deploy)`）且不写 state。
+3. `deploy-drift`：新增 agent（名称与指令读回）、crew 角色变更、skill 附属文件删除、仓库清单收缩后 `deploy --apply` 一次收敛；同轮断言 automation 已注册（同轮首发）。
+4. `deploy-idempotent`：二次 deploy 幂等（ID 不变、无 mutation 回显——ADR 0021 漂移门控、远端名称不漂移）。
 5. `pull`：快照文件落盘；陈旧快照条目先清空（负例）。
 6. `backup-restore`：备份目录成形；原地恢复还原被破坏的 prompt；`--to` 异地恢复物化外部引用。
 7. `automation-lifecycle`：主 fixture 自带 automation（`deployed` 缺省，钉缺省 true 契约）——apply 与 agent 同轮首发（state 注册 + 引擎读回 title/status/assignee/trigger）→ 二次 apply 幂等（apply 输出契约：in-sync 资源零动作行——断言无 `~`/`+ automation` 行 + 收口计数收敛 + title/assignee 复验）→ cron 漂移经 trigger edit 收敛（trigger id 稳定，非删+重建）→ 删除配置后 `prune automations` **硬删**并注销（事后 `automation view` 必须失败）。

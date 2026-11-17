@@ -189,11 +189,11 @@ function resolveAgentTarget() {
   if (!preferred.runtimeProvider) {
     fail("env: the active computer lease reports no runtimeProvider (environment problem, not a contract result)");
   }
-  return { computerId: preferred.computerId, runtimeProvider: preferred.runtimeProvider };
+  return { computerId: preferred.computerId, computerName: preferred.computerName, runtimeProvider: preferred.runtimeProvider };
 }
 
 function targetYaml(target) {
-  return `target:\n  computer: ${target.computerId}\n  runtimeProvider: ${target.runtimeProvider}`;
+  return `target:\n  computer: ${JSON.stringify(target.computerName ?? target.computerId)}\n  runtime: ${JSON.stringify(target.runtimeProvider)}`;
 }
 // The embedded convention IS the settings mechanism (ADR 0027): a root
 // x-deploy.yaml pointing the four directories under .xwing/. The CLI root of
@@ -212,8 +212,8 @@ function buildMainRoot() {
   const files = {
     "x-deploy.yaml": SETTINGS_YAML,
     ".xwing/environments/e2e/environment.yaml": [
-      `organizationId: ${ORG_ID}`,
-      `spaceId: ${SPACE_ID}`,
+      `organization: ${ORG_ID}`,
+      `space: ${SPACE_ID}`,
       "configSet: test",
       "cli:",
       "  app: hifox",
@@ -346,8 +346,8 @@ function buildWorkflowRoot(suffix) {
   const files = {
     "x-deploy.yaml": SETTINGS_YAML,
     ".xwing/environments/e2e/environment.yaml": [
-      `organizationId: ${ORG_ID}`,
-      `spaceId: ${SPACE_ID}`,
+      `organization: ${ORG_ID}`,
+      `space: ${SPACE_ID}`,
       "configSet: test",
       "cli:",
       "  app: hifox",
@@ -547,8 +547,8 @@ scenario("offline", "validate: fixture root passes offline validation, bad confi
   const badRoot = mkdtempSync(join(tmpdir(), "xwd-acc-bad-"));
   const badFiles = {
     "environments/e2e/environment.yaml": [
-      `organizationId: ${ORG_ID}`,
-      `spaceId: ${SPACE_ID}`,
+      `organization: ${ORG_ID}`,
+      `space: ${SPACE_ID}`,
       "configSet: test",
       "cli:",
       "  app: hifox",
@@ -641,7 +641,7 @@ scenario("offline", "doctor: self-check passes, broken environment fails", () =>
   mkdirSync(dirname(envPath), { recursive: true });
   writeFileSync(
     envPath,
-    [`organizationId: ${ORG_ID}`, `spaceId: ${SPACE_ID}`, "configSet: test", "cli:", "  app: nosuchapp", ""].join("\n"),
+    [`organization: ${ORG_ID}`, `space: ${SPACE_ID}`, "configSet: test", "cli:", "  app: nosuchapp", ""].join("\n"),
   );
   const bad = deployRun(badApp, ["doctor", "--environment", "e2e"]);
   assert(bad.status !== 0, "doctor must fail on an unknown cli.app");
@@ -660,24 +660,24 @@ scenario("main", "plan: previews without writing state", () => {
   writeFileSync(join(main.root, ".xwing/config/test/agents/gamma/instructions.md"), `Gamma runs in ${mustache("environment")}.\n`);
   const planned = mustPass(deployRun(main.deployRoot, ["plan", "--environment", "e2e"]), "plan");
   // ADR 0021 change-set view: pending creates render as
-  // `+ agent <key> "<name>" (id known after apply)` plus a summary line.
+  // `+ agent <key> "<name>" (id known after deploy)` plus a summary line.
   const suffixEsc = main.suffix.replace(/[-\s]/g, "\\$&");
   assertMatch(
     planned.stdout,
-    new RegExp(`\\+ agent gamma "Gamma${suffixEsc}" \\(id known after apply\\)`),
+    new RegExp(`\\+ agent gamma "Gamma${suffixEsc}" \\(id known after deploy\\)`),
     "plan must preview the gamma provision in the change-set view",
   );
   assertMatch(planned.stdout, /Plan: [0-9]+ to create/, "plan summary must count pending creates");
   assertEqual(readState(main.deployRoot).agents.gamma, undefined, "plan must not write state.yaml");
 });
 
-scenario("main", "apply-drift: additions, role change, file prune and repo shrink converge", () => {
+scenario("main", "deploy-drift: additions, role change, file prune and repo shrink converge", () => {
   // Add gamma (from the plan scenario), delete an obsolete skill file, shrink
   // the declared repository list: one apply must converge all three.
   rmSync(join(main.root, "skills/echo/references/obsolete.md"));
   const alphaYaml = join(main.root, ".xwing/config/test/agents/alpha/agent.yaml");
   writeFileSync(alphaYaml, readFileSync(alphaYaml, "utf8").replace("  - https://example.com/auxiliary.git\n", ""));
-  mustPass(deployRun(main.deployRoot, ["apply", "--environment", "e2e", "--apply"]), "apply --apply (drift)");
+  mustPass(deployRun(main.deployRoot, ["deploy", "--environment", "e2e", "--apply"]), "deploy --apply (drift)");
   // Same-apply 首发契约: the first full apply must provision the automation
   // alongside the agents (apply reconcile order: agents before automations).
   assert(
@@ -700,16 +700,16 @@ scenario("main", "apply-drift: additions, role change, file prune and repo shrin
   // Role edit lands; emptied role must not be sent as an empty override.
   const crewYaml = join(main.root, ".xwing/config/test/crews/team/crew.yaml");
   writeFileSync(crewYaml, readFileSync(crewYaml, "utf8").replace("role: Reviewer", "role: Reviewer-plus"));
-  mustPass(deployRun(main.deployRoot, ["apply", "--environment", "e2e", "--apply"]), "apply --apply (role)");
+  mustPass(deployRun(main.deployRoot, ["deploy", "--environment", "e2e", "--apply"]), "deploy --apply (role)");
   const role = () => (cliJson(["crew", "member", "list", crewId]) || []).find((m) => m.member.id === betaId)?.role;
   assertEqual(role(), "Reviewer-plus", "member role change must reach the remote");
   writeFileSync(crewYaml, readFileSync(crewYaml, "utf8").replace(/^\s*role: Reviewer-plus.*\n/m, ""));
-  mustPass(deployRun(main.deployRoot, ["apply", "--environment", "e2e", "--apply"]), "apply --apply (role cleared)");
+  mustPass(deployRun(main.deployRoot, ["deploy", "--environment", "e2e", "--apply"]), "deploy --apply (role cleared)");
   assertEqual(role(), "Reviewer-plus", "an emptied role must not be sent as an empty --role");
 });
 
-scenario("main", "apply-idempotent: second apply keeps ids and skips in-sync pushes", () => {
-  const reapplied = mustPass(deployRun(main.deployRoot, ["apply", "--environment", "e2e", "--apply"]), "re-apply");
+scenario("main", "deploy-idempotent: second apply keeps ids and skips in-sync pushes", () => {
+  const reapplied = mustPass(deployRun(main.deployRoot, ["deploy", "--environment", "e2e", "--apply"]), "re-apply");
   assertEqual(readState(main.deployRoot).crew.team.id, crewId, "crew id changed on re-apply");
   assertEqual(readState(main.deployRoot).agents.alpha.id, alphaId, "agent id changed on re-apply");
   assertEqual(readState(main.deployRoot).skills.echo.id, skillId, "skill id changed on re-apply");
@@ -775,11 +775,11 @@ scenario("main", "backup-restore: backup dir forms, in-place and --to restores w
   assert(readFileSync(promptPath, "utf8") === pristine, "in-place restore did not restore the external prompt");
 });
 
-scenario("workflow", "workflow-lifecycle: apply converges, re-applies in sync, drift-edits while locked, prune archives", () => {
+scenario("workflow", "workflow-lifecycle: deploy converges, re-deploys in sync, drift-edits while locked, prune archives", () => {
   workflowFixture = buildWorkflowRoot(main.suffix);
   const deployRoot = workflowFixture.deployRoot;
   mustPass(deployRun(deployRoot, ["validate", "--environment", "e2e"]), "workflow validate");
-  const applied = mustPass(deployRun(deployRoot, ["apply", "--apply", "--environment", "e2e"]), "workflow apply");
+  const applied = mustPass(deployRun(deployRoot, ["deploy", "--apply", "--environment", "e2e"]), "workflow deploy");
   // Apply-output contract (candidate README 变更集与收口): creates stream
   // `+ kind key` lines carrying ids; in-sync resources emit NOTHING (the
   // closing count is the evidence). The old `/in sync/` match pinned a
@@ -820,8 +820,8 @@ scenario("workflow", "workflow-lifecycle: apply converges, re-applies in sync, d
     "run_agent executor agent:<key> must resolve to agent:<uuid> in the pushed graph",
   );
 
-  const reapply = mustPass(deployRun(deployRoot, ["apply", "--apply", "--environment", "e2e"]), "workflow re-apply");
-  assertMatch(reapply.stdout, /Apply complete: .*in sync/, "re-apply closing count must report convergence");
+  const reapply = mustPass(deployRun(deployRoot, ["deploy", "--apply", "--environment", "e2e"]), "workflow re-apply");
+  assertMatch(reapply.stdout, /Deploy complete: .*in sync/, "re-apply closing count must report convergence");
   // Change-set marks are documented (+ create / ~ update / = in sync): no demo
   // drift may appear. Symbol-anchored, not prose-anchored, so a wording change
   // cannot silently disable this check.
@@ -831,7 +831,7 @@ scenario("workflow", "workflow-lifecycle: apply converges, re-applies in sync, d
     join(deployRoot, ".xwing/config/test/workflows/demo/workflow.yaml"),
     ['key: demo', 'name: "Demo Flow"', 'description: "edited while locked"', "deployed: false", "source: ui", ""].join("\n"),
   );
-  mustPass(deployRun(deployRoot, ["apply", "--apply", "--environment", "e2e"]), "workflow locked drift-edit");
+  mustPass(deployRun(deployRoot, ["deploy", "--apply", "--environment", "e2e"]), "workflow locked drift-edit");
   const updated = cliJson(["workflow", "view", id, "--space", SPACE_ID]);
   const updatedRow = updated?.data ?? updated;
   assertEqual(updatedRow.description, "edited while locked", "metadata edit must land on a locked workflow");
@@ -854,7 +854,7 @@ scenario("workflow", "workflow-lifecycle: apply converges, re-applies in sync, d
   );
 });
 
-scenario("main", "automation-lifecycle: created by apply, re-applies in sync, drift-edits, prune hard-deletes", () => {
+scenario("main", "automation-lifecycle: created by deploy, re-applies in sync, drift-edits, prune hard-deletes", () => {
   // The automation ships in the main fixture: the first full apply (scenario
   // apply-drift) must have created it alongside the agents (same-apply 首发).
   const deployRoot = main.deployRoot;
@@ -868,13 +868,13 @@ scenario("main", "automation-lifecycle: created by apply, re-applies in sync, dr
   assert(trigger, "the schedule trigger must exist");
   assertEqual(trigger.cronExpression, "0 0 1 1 *", "trigger cron must land");
 
-  const reapply = mustPass(deployRun(deployRoot, ["apply", "--environment", "e2e", "--apply"]), "automation re-apply");
+  const reapply = mustPass(deployRun(deployRoot, ["deploy", "--environment", "e2e", "--apply"]), "automation re-apply");
   // Apply-output contract: in-sync resources emit no streaming lines — the
   // pin is the ABSENCE of automation action lines plus a converging closing
   // count (the old `/automation heartbeat: in sync/` matched a render the
   // candidate no longer produces; crew may legitimately show `~`).
   assert(!/^ [+~] automation heartbeat/m.test(reapply.stdout), "in-sync automation must emit no action line on re-apply");
-  assertMatch(reapply.stdout, /Apply complete: .*in sync/, "re-apply closing count must report convergence");
+  assertMatch(reapply.stdout, /Deploy complete: .*in sync/, "re-apply closing count must report convergence");
   const reread = cliJson(["automation", "view", id, "-y"]);
   assertEqual(reread?.automation?.title, `Heartbeat${main.suffix}`, "re-apply must not alter the rendered title");
   assertEqual(
@@ -887,7 +887,7 @@ scenario("main", "automation-lifecycle: created by apply, re-applies in sync, dr
   const triggerIdBefore = trigger.id;
   assert(triggerIdBefore, "schedule trigger must expose a stable id");
   writeFileSync(configPath, readFileSync(configPath, "utf8").replace('"0 0 1 1 *"', '"0 0 2 2 *"'));
-  mustPass(deployRun(deployRoot, ["apply", "--environment", "e2e", "--apply"]), "automation drift apply");
+  mustPass(deployRun(deployRoot, ["deploy", "--environment", "e2e", "--apply"]), "automation drift apply");
   const edited = cliJson(["automation", "view", id, "-y"]);
   const editedTrigger = (edited?.triggers || []).find((item) => item.kind === "schedule");
   assertEqual(
@@ -924,7 +924,7 @@ scenario("main", "automation-lifecycle: created by apply, re-applies in sync, dr
 // ---------------------------------------------------------------------------
 let journeyProject = null;
 let journeySuffix = "";
-scenario("journey", "user-journey: init scaffolds, bind adopts, create lands, apply converges, backup forms", () => {
+scenario("journey", "user-journey: init scaffolds, bind adopts, create lands, deploy converges, backup forms", () => {
   journeyProject = mkdtempSync(join(tmpdir(), "xwd-acc-journey-"));
   mustPass(candidateRun(undefined, ["init", journeyProject, "--layout", "embedded", "--config-set", "prod", "--environment", "e2e"]), "init");
   // Candidate contract (ADR 0027): --layout embedded writes a root
@@ -950,8 +950,8 @@ scenario("journey", "user-journey: init scaffolds, bind adopts, create lands, ap
   // for bind to fill; suffix/naming/visibility stay exactly as init wrote
   // them; only the runtime target is authored here.
   writeFileSync(envPath, [
-    "organizationId: replace-with-organization-id",
-    "spaceId: replace-with-space-id",
+    "organization: null",
+    "space: null",
     "configSet: prod",
     "cli:",
     "  app: hifox",
@@ -961,8 +961,8 @@ scenario("journey", "user-journey: init scaffolds, bind adopts, create lands, ap
     "  crew: personal",
     "  agents: personal",
     "target:",
-    `  computer: ${agentTarget.computerId}`,
-    `  runtimeProvider: ${agentTarget.runtimeProvider}`,
+    `  computer: ${JSON.stringify(agentTarget.computerName ?? agentTarget.computerId)}`,
+    `  runtime: ${JSON.stringify(agentTarget.runtimeProvider)}`,
     "",
   ].join("\n"));
   const statePath = join(jd, "environments/e2e/state.yaml");
@@ -979,19 +979,19 @@ scenario("journey", "user-journey: init scaffolds, bind adopts, create lands, ap
   mustPass(
     deployRun(journeyProject, [
       "bind", "--environment", "e2e",
-      "--organization-name", orgs[0].name, "--space-name", general.name, "--apply",
+      "--organization", orgs[0].name, "--space", general.name, "--apply",
     ]),
     "bind --apply",
   );
   const bound = readFileSync(envPath, "utf8");
-  assert(bound.includes(`organizationId: ${ORG_ID}`), "bind must write the resolved organization id");
-  assert(bound.includes(`spaceId: ${SPACE_ID}`), "bind must write the resolved space id");
+  assert(bound.includes(`organization: ${orgs[0].slug || ORG_ID}`), "bind must write the resolved organization slug");
+  assert(bound.includes(`space: ${general.identifier || SPACE_ID}`), "bind must write the resolved space identifier");
   assert(bound.includes(`nameSuffix: ${JSON.stringify(journeySuffix)}`), "bind must preserve unrelated lines");
 
   // Realistic consumer config in this repo's own shape, just smaller: two
   // agents (leader with avatar/repositories/skill; member riding the
   // environment-level default target), a space skill, a crew with a role,
-  // an automation that only apply (not create) provisions — added by the
+  // an automation that only deploy (not create) provisions — added by the
   // user's second edit, exactly like real usage.
   const files = {
     ".xwing/config/prod/agents/marlin/agent.yaml": [
@@ -1103,7 +1103,7 @@ scenario("journey", "user-journey: init scaffolds, bind adopts, create lands, ap
     "",
   ].join("\n"));
   writeFileSync(join(journeyProject, ".xwing/config/prod/automations/watch/description.md"), "Journey watch automation.\n");
-  mustPass(deployRun(journeyProject, ["apply", "--environment", "e2e", "--apply"]), "journey apply --apply (edit)");
+  mustPass(deployRun(journeyProject, ["deploy", "--environment", "e2e", "--apply"]), "journey apply --apply (edit)");
 
   const renamed = cliJson(["agent", "view", marlinId]);
   assertEqual(renamed?.name, `Marlin Prime${journeySuffix}`, "journey rename must converge via apply");
@@ -1242,8 +1242,8 @@ const report = {
   suite: "x-deploy-acceptance",
   verdict,
   candidate: candidateFull,
-  spaceId: SPACE_ID,
-  organizationId: ORG_ID,
+  space: SPACE_ID,
+  organization: ORG_ID,
   startedAt,
   finishedAt: now(),
   chains: CHAINS,

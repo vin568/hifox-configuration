@@ -11,8 +11,9 @@
 //   node contract-snapshot.mjs --update --cli hifox --space <id>
 //
 // The snapshot lives at .contract-snapshots/catalog.tsv (commit it). cli.app and
-// spaceId are auto-detected from environments/*/environment.yaml (first
-// environment), same convention as catalog-doc.mjs.
+// space (identifier or UUID, ADR 0033) are auto-detected from
+// environments/*/environment.yaml (first environment), same convention as
+// catalog-doc.mjs.
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -40,9 +41,11 @@ function detect() {
       const file = join(envDirs, name, "environment.yaml");
       if (!existsSync(file)) continue;
       const text = readFileSync(file, "utf8");
-      const space = text.match(/^spaceId:\s*(\S+)/m)?.[1];
-      const app = text.match(/^\s+app:\s*(\S+)/m)?.[1];
-      if (space && app) return { cli: app, space };
+      const space = text.match(/^space:\s*(\S+)/m)?.[1];
+      if (space && space !== "null") {
+        const app = text.match(/^\s+app:\s*(\S+)/m)?.[1];
+        if (app) return { cli: app, space };
+      }
     }
   }
   return { cli: "hifox", space: undefined };
@@ -52,7 +55,7 @@ const detected = detect();
 const CLI = flag("cli") || detected.cli;
 const SPACE = flag("space") || detected.space;
 if (!SPACE) {
-  console.error("contract-snapshot: no spaceId found (pass --space <id> or run inside an x-deploy repo)");
+  console.error("contract-snapshot: no space declaration found (pass --space <id> or run bind first)");
   process.exit(2);
 }
 
@@ -101,7 +104,7 @@ for (const type of removed) console.error(`  - ${currentRows.get(type)}`);
 for (const type of moved) console.error(`  ~ ${currentRows.get(type)} -> ${nextRows.get(type)}`);
 if (removed.length) {
   console.error("drift is not a broken workflow: deployed instances keep running; only the next apply of declarations can break.");
-  console.error("removed types are the only hard risk: if one is used in config/*/workflows/**, migrate that declaration before apply (removals usually pair with a rename — see the + entries).");
+  console.error("removed types are the only hard risk: if one is used in config/*/workflows/**, migrate that declaration before deploy (removals usually pair with a rename — see the + entries).");
   console.error("then re-run with --update to re-stamp the baseline and commit it; new structural families (sugar, roundtrip fixtures) are handled in the x-deploy repo.");
   process.exit(1);
 }

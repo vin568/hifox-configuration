@@ -15,11 +15,11 @@ const HELP = `Usage:
   x-deploy create        --environment NAME --suffix TEXT [--apply]
   x-deploy clone         --environment NAME --suffix TEXT [--apply]
   x-deploy plan          [--environment NAME] [--suffix TEXT] [--verbose] [--json] [--no-color] [--detailed-exitcode] [--diff[=N]] [--diff-tool CMD] [--only KIND/KEY]
-  x-deploy apply         --apply [--environment NAME] [--suffix TEXT] [--verbose]
+  x-deploy deploy        [--environment NAME] [--suffix TEXT] [--verbose] [--apply]
   x-deploy pull          [--environment NAME]
   x-deploy backup        [--environment NAME] [--output-dir PATH]
   x-deploy capture       --environment NAME --kind (workflow|automation|agent|crew|skill) ((--id ID | --name NAME)… | --user NAME)… [--key KEY] [--form graph|yaml] [--refresh] [--allow-lossy] [--apply]
-  x-deploy bind          [--environment NAME] (--organization-name NAME | --space-name NAME)… [--apply]
+  x-deploy bind          [--environment NAME] (--organization NAME|SLUG | --space NAME|IDENTIFIER | --computer NAME --runtime PROVIDER)… [--apply]
   x-deploy restore       --from PATH [--to PATH] [--environment NAME] [--apply]
   x-deploy model         <model-id|default> [--environment NAME] [--apply]
   x-deploy prune         (backups [--keep N] | snapshots | workflows | automations) [--environment NAME] [--output-dir PATH] [--apply]
@@ -34,7 +34,7 @@ test("parseCommandSurface: every command line parses, non-command lines do not",
   assert.deepEqual(
     commands.map((c) => c.name),
     [
-      "init", "update", "validate", "build", "create", "clone", "plan", "apply",
+      "init", "update", "validate", "build", "create", "clone", "plan", "deploy",
       "pull", "backup", "capture", "bind", "restore", "model", "prune", "doctor", "guide",
     ],
   );
@@ -58,7 +58,7 @@ test("hasRequiredArgs: brackets stripped, choice groups and bare words count", (
   assert.equal(hasRequiredArgs("--environment NAME --suffix TEXT [--apply]"), true);
   assert.equal(hasRequiredArgs("<workflow-key> [--environment NAME] [--out PATH]"), true);
   assert.equal(hasRequiredArgs("(backups [--keep N] | snapshots) [--apply]"), true);
-  assert.equal(hasRequiredArgs("[--environment NAME] (--organization-name NAME | --space-name NAME)… [--apply]"), true);
+  assert.equal(hasRequiredArgs("[--environment NAME] (--organization NAME|SLUG | --space NAME|IDENTIFIER)… [--apply]"), true);
   assert.equal(hasRequiredArgs("--apply [--environment NAME]"), true);
 });
 
@@ -90,7 +90,7 @@ test("tiersFor: direct denylist is the only name knowledge allowed", () => {
 test("buildCoverage: measured provenance — pinned from invocations, smoke from tier results", () => {
   const commands = parseCommandSurface(HELP);
   const invocations = [
-    { command: "apply", scenario: "create: full provisioning lands and state registers ids", chain: "main" },
+    { command: "deploy", scenario: "create: full provisioning lands and state registers ids", chain: "main" },
     { command: "create", scenario: "create: full provisioning lands and state registers ids", chain: "main" },
     { command: "backup", scenario: "user-journey: init → bind → create → converge → backup", chain: "journey" },
     { command: "bind", scenario: "user-journey: init → bind → create → converge → backup", chain: "journey" },
@@ -104,7 +104,7 @@ test("buildCoverage: measured provenance — pinned from invocations, smoke from
   const coverage = buildCoverage(commands, invocations, smokeResults);
   const by = Object.fromEntries(coverage.map((c) => [c.command, c]));
   // Pinned + smoke.
-  assert.ok(by.apply.pinnedBy.length === 1 && by.apply.exercised);
+  assert.ok(by.deploy.pinnedBy.length === 1 && by.deploy.exercised);
   // Journey provenance is pinned provenance too.
   assert.deepEqual(by.bind.pinnedBy, ["user-journey: init → bind → create → converge → backup"]);
   // Smoke-only commands stay visible instead of silently uncovered.

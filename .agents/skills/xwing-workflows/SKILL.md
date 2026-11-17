@@ -1,6 +1,6 @@
 ---
 name: xwing-workflows
-description: Create, inspect, update, trigger and delete xwing workflows entirely without the GUI — author workflows as declarative graph.yaml + shell block sources (compiled deterministically by x-deploy), adopt existing platform workflows via capture (graph.json or decompile to graph.yaml), discover block types and field structures via the workflow catalog, deploy with apply (workflow import, one-shot), iterate via archive-and-reimport, and operate scheduled runs. Use when authoring or operating workflows in a repository managed by x-deploy.
+description: Create, inspect, update, trigger and delete xwing workflows entirely without the GUI — author workflows as declarative graph.yaml + shell block sources (compiled deterministically by x-deploy), adopt existing platform workflows via capture (graph.json or decompile to graph.yaml), discover block types and field structures via the workflow catalog, deploy with the x-deploy deploy command (workflow import, one-shot), iterate via archive-and-reimport, and operate scheduled runs. Use when authoring or operating workflows in a repository managed by x-deploy.
 ---
 
 # xwing workflows（无 GUI 全生命周期）
@@ -20,7 +20,7 @@ description: Create, inspect, update, trigger and delete xwing workflows entirel
 
 ## 1. 编写型：graph.yaml
 
-图骨架是纯数据；function 块的命令式代码住在同目录 `*.sh`（图里只写文件引用，加载时编译内联——.sh 是代码唯一宿主）。管线（validate/plan/apply）加载时确定性编译，**不产出也不提交 graph.json**。
+图骨架是纯数据；function 块的命令式代码住在同目录 `*.sh`（图里只写文件引用，加载时编译内联——.sh 是代码唯一宿主）。管线（validate/plan/deploy）加载时确定性编译，**不产出也不提交 graph.json**。
 
 ```yaml
 # graph.yaml
@@ -47,7 +47,7 @@ blocks:
       # else 兜底行编译器自动补；也可显式声明
   - id: tester
     name: Tester
-    agent: ci-tester           # 配置键：apply 解析为该环境 state 的 UUID；
+    agent: ci-tester           # 配置键：deploy 解析为该环境 state 的 UUID；
     work: |                    # 字面 agent:<uuid> 透传（引用非本配置集合的 agent）
       x-deploy 发布验收轮次。Check 输出：<check.result>。
 
@@ -67,7 +67,7 @@ state:
 ```bash
 ./x-deploy validate --environment <env>      # 编译 + 全部校验（无需 graph.json）
 ./x-deploy plan --environment <env>
-./x-deploy apply --environment <env> --apply # import 一次成型（无 UI）
+./x-deploy deploy --environment <env> --apply # import 一次成型（无 UI）
 ./x-deploy build <key> --out /tmp/g.json     # 调试转储编译产物（别提交、别写进 config 目录）
 ```
 
@@ -90,7 +90,7 @@ node scripts/catalog-doc.mjs view <blockType>     # 单块全量：字段/控件
 node scripts/catalog-doc.mjs options <type> <字段> # 动态选项
 ```
 
-脚本自动从 `environments/*/environment.yaml` 解析 cli.app 与 spaceId（可用 `--cli`/`--space` 覆盖）。**不要凭记忆写块字段**——先 `view`。
+脚本自动从 `environments/*/environment.yaml` 解析 cli.app 与 space（identifier 或 UUID；可用 `--cli`/`--space` 覆盖）。**不要凭记忆写块字段**——先 `view`。
 
 ## 4. 关键不变式（踩过坑的实证）
 
@@ -109,7 +109,7 @@ node scripts/catalog-doc.mjs options <type> <字段> # 动态选项
 ```bash
 ./x-deploy validate --environment <env>          # 离线校验（含密钥扫描；编写型含编译）
 ./x-deploy plan --environment <env>              # 漂移预览
-./x-deploy apply --environment <env> --apply     # 创建/收敛（import 一次成型 + deploy + lock）
+./x-deploy deploy --environment <env> --apply     # 创建/收敛（import 一次成型 + deploy + lock）
 <cli> workflow run <id> --space <space> --async      # 无 GUI 手动触发（id 见 state.yaml）
 <cli> workflow runs view <wf-id> <execution-id> --space <space>   # 执行状态
 <cli> workflow logs list --space <space> --workflow <wf-id>       # 运行日志
@@ -117,7 +117,7 @@ node scripts/catalog-doc.mjs options <type> <字段> # 动态选项
 ./x-deploy prune workflows --environment <env> --apply        # 归档配置中已删除的 workflow
 ```
 
-**改图迭代**：改源 → `plan` → `apply --apply` 增量推送（已部署实例不换 id、webhook URL 不变）。
+**改图迭代**：改源 → `plan` → `deploy --apply` 增量推送（已部署实例不换 id、webhook URL 不变）。
 
 ## 6. 运行时事实
 
@@ -131,4 +131,4 @@ node scripts/catalog-doc.mjs options <type> <字段> # 动态选项
 node .agents/skills/xwing-workflows/scripts/contract-snapshot.mjs [--update]
 ```
 
-The baseline lives at the repo root `.contract-snapshots/catalog.tsv` (committed). Drift only indicates "the engine surface has changed", not an error in your own workflow. Exit codes are tiered: `-` type deleted (the only compatibility risk; if used in `config/*/workflows/**` declarations, migrate before apply — deletions are usually renames, see the `+` counterpart in the same output) → exit 1; `+` new type / `~` copy or category tweaks → informational, exit 0. After review, rerun `--update` to re-stamp and commit; new structural families (sugar/roundtrip fixtures) are handled in the x-deploy repo.
+The baseline lives at the repo root `.contract-snapshots/catalog.tsv` (committed). Drift only indicates "the engine surface has changed", not an error in your own workflow. Exit codes are tiered: `-` type deleted (the only compatibility risk; if used in `config/*/workflows/**` declarations, migrate before deploy — deletions are usually renames, see the `+` counterpart in the same output) → exit 1; `+` new type / `~` copy or category tweaks → informational, exit 0. After review, rerun `--update` to re-stamp and commit; new structural families (sugar/roundtrip fixtures) are handled in the x-deploy repo.

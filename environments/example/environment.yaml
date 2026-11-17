@@ -1,6 +1,6 @@
 # Copy this directory to environments/<your-environment>.
-organizationId: 86555f76-3f5b-4f7a-93c6-406074110a59
-spaceId: fcb74b8e-d801-42f5-b3e9-787c13577112
+organization: rayfox
+space: AF
 # Configuration-set name under config/ (bound by name, no paths; ADR 0028).
 # Change when cloning a different configuration set.
 configSet: apifox
@@ -13,6 +13,6 @@ namingPattern: "{{name}}{{suffix}}"
 visibility:
   crew: personal
   agents: personal
-target:
-  computer: replace-with-computer-id
-  runtime: replace-with-runtime-id
+# Environment-level run target default; null = no default (agents declare
+# their own, or bind one here: --computer <name> --runtime <provider>).
+target: null

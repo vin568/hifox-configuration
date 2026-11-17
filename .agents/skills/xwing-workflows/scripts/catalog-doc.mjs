@@ -9,8 +9,9 @@
 //   node catalog-doc.mjs view <blockType>         # full field detail for one block
 //   node catalog-doc.mjs options <type> <field>   # dynamic options for a field
 //
-// cli.app and spaceId are auto-detected from environments/*/environment.yaml
-// (first environment); override with --cli <app> / --space <id>.
+// cli.app and space (identifier or UUID, ADR 0033) are auto-detected from
+// environments/*/environment.yaml (first environment); override with
+// --cli <app> / --space <id>.
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -29,9 +30,11 @@ function detect() {
       const file = join(envDirs, name, "environment.yaml");
       if (!existsSync(file)) continue;
       const text = readFileSync(file, "utf8");
-      const space = text.match(/^spaceId:\s*(\S+)/m)?.[1];
-      const app = text.match(/^\s+app:\s*(\S+)/m)?.[1];
-      if (space && app) return { cli: app, space };
+      const space = text.match(/^space:\s*(\S+)/m)?.[1];
+      if (space && space !== "null") {
+        const app = text.match(/^\s+app:\s*(\S+)/m)?.[1];
+        if (app) return { cli: app, space };
+      }
     }
   }
   return { cli: "hifox", space: undefined };
@@ -41,7 +44,7 @@ const detected = detect();
 const CLI = flag("cli") || detected.cli;
 const SPACE = flag("space") || detected.space;
 if (!SPACE) {
-  console.error("catalog-doc: no spaceId found (pass --space <id> or run inside an x-deploy repo)");
+  console.error("catalog-doc: no space declaration found (pass --space <id> or run bind first)");
   process.exit(2);
 }
 
