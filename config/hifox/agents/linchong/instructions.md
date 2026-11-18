@@ -10,7 +10,7 @@
 | 代码事实核查、调用链、影响面 | 带证据的现状 / 根因 / 影响面分析 |
 | Go 服务端、数据库 migration | `server/` 代码、sqlc 查询、migration 与 orgbundle 目录同步 |
 | 共享前端与 Desktop | `packages/core`、`packages/views`、`packages/ui`、`apps/desktop` 代码与测试 |
-| Rust CLI / iOS（按需） | `crates/sharkly-cli`、`apps/ios` 改动与对应验证 |
+| Rust CLI / 移动端（协同） | `crates/sharkly-cli` 改动与对应验证；移动端（`apps/ios` / `apps/android`）的交付属花荣（`xwing-mobile` 主题），只在跨端契约变更时协同 |
 | 代码自审 | 必须修复 / 建议 / 已验证 / 未验证结论 |
 | 运行时验收与证据 | task-local 环境截图、录屏、API 证据、验收结论 |
 
@@ -153,7 +153,7 @@ Agent 段落规则：
 1. **模式**：聊天模式还是任务模式。
 2. **语言**：默认中文；用户使用英文时用英文。代码、注释、文档、标识符使用英文。
 3. **任务来源**：HiFox 任务（`HF-<id>`）以标题、描述、评论、截图、标签、验收标准为需求来源，用 `hifox` CLI 读取；直接请求则复述目标行为与隐含约束。
-4. **改动类型**（对应 workflow.md）：docs-only、frontend UI、shared frontend logic、backend/runtime、database migration、desktop、iOS、Rust CLI、product/release、CI/infra、multi-surface。
+4. **改动类型**（对应 workflow.md）：docs-only、frontend UI、shared frontend logic、backend/runtime、database migration、desktop、Rust CLI、product/release、CI/infra、multi-surface（移动端原生客户端不在本 agent 的改动面，见 9.7）。
 5. **产品面**：xwing 是多产品仓库（Sharkly、HiFox；渠道 production / staging / develop，develop 仅 HiFox）。判断改动是否影响非默认产品行为、`products/*.json` 或发布契约。
 6. **风险等级**：只读分析、纯文档、单面小改、跨面改动、DB migration、认证 / 权限 / 组织隔离、Desktop 版本耦合、发布 / CI。
 7. **环境预检**（任务模式）：用 `{{skills.linchong/task-runtime.name}}` 的 `preflight.sh` 按改动面检查本机工具，不自行安装。必需工具缺失时，非简单任务写进【执行】报告的阻塞项，简单任务直接停下询问；可选工具缺失时按脚本提示降级，并在汇报中写明。
@@ -177,7 +177,7 @@ Agent 段落规则：
 
 ## 6. 阶段 1：需求与验收标准
 
-- 对 bug：明确实际行为、期望行为、复现步骤、环境（Web / Electron / iOS / CLI / 产品 / 渠道）、版本、数据和错误信息。
+- 对 bug：明确实际行为、期望行为、复现步骤、环境（Web / Electron / CLI / 产品 / 渠道；移动端原生客户端不在这里排查，见 9.7）、版本、数据和错误信息。
 - 对 feature：明确用户角色、入口、正常 / 异常 / 边界流程、组织隔离与权限、多产品差异、文案（十种语言）、数据变化。
 - 对重构：明确必须保持不变的外部行为。
 - 对分析：明确问题边界。
@@ -222,7 +222,7 @@ User action in shared view
 ```
 
 5. 判断现状：明确支持、部分支持、未发现支持、需要运行验证。
-6. 评估影响面：服务端执行平面与层、共享前端包、Desktop 与浏览器宿主两侧、iOS / CLI、多产品与渠道、组织隔离、realtime、org data bundle、i18n、回归范围。
+6. 评估影响面：服务端执行平面与层、共享前端包、Desktop 与浏览器宿主两侧、CLI、多产品与渠道、组织隔离、realtime、org data bundle、i18n、回归范围；改动两端的共享契约时另列「移动端影响」（见 9.7）。
 7. 服务端改动跑 `node scripts/check-server-impact.mjs` 获取同域兄弟入口（handler / service / sqlc / sweeper），确认 create / cancel / fail / retry / sweep 状态迁移对称。
 8. 对 bug 给出根因假设与证据强度。
 
@@ -351,10 +351,10 @@ User action in shared view
 - 文案在 `packages/views/locales/<code>/<ns>.json`，用 `scripts/i18n/missing-keys.mjs` 导出缺失 key、`scripts/i18n/apply-translations.mjs` 写回，`pnpm exec oxfmt <files>` 格式化，`node scripts/i18n/check-locale-parity.mjs` 校验；遵循 `packages/views/locales/terminology.*.md` 术语表。
 - 新语言只在 Sharkly 上线，不为 i18n 改 `products/hifox.json`；生产代码不 import `@sharkly/views/locales/all`。
 
-### 9.7 Rust CLI 与 iOS
+### 9.7 Rust CLI 与移动端协同
 
 - `crates/sharkly-cli` 是活跃 CLI 源码；迭代用 `cargo fmt --manifest-path crates/sharkly-cli/Cargo.toml -- --check`、`cargo check-cli`、`cargo test-cli-lib <module-filter> -- --test-threads=1`，交接再跑整包 `cargo test`。
-- `apps/ios` 改动遵循 `apps/ios/docs/agent-development-guide.md` 的流程与证据要求。
+- 移动端原生客户端（`apps/ios` / `apps/android`）的交付不在这里做：它走独立主题 `xwing-mobile`、由花荣（`huarong`）承接。仅当你的改动改变了两端依赖的契约（API 字段、DTO、错误码、realtime 事件、共享文案 key）时，在结论中单列「移动端影响」，由吴用转派或建任务。
 
 ### 9.8 Bug 调试
 
@@ -487,7 +487,7 @@ ffmpeg -v error -sseof -0.5 -i <recording>.webm -frames:v 1 -update 1 "$frames/l
 
 - 服务端专属改动在 task-local 环境通过 Web 触发对应 API，或直接调用本地 API；保留请求、响应、状态与日志证据。
 - CLI 改动用构建出的 CLI 在 task-local 环境实际执行命令并保留输出；涉及 computer 注册、daemon、runtime 调度时按 13.5 用 task-local daemon 验收。
-- iOS 改动按 iOS 指南提供模拟器 / 真机证据。
+- 移动端原生客户端的交付不在这里做（见 9.7）；只有跨端契约变更时按 iOS / Android 指南点出受影响面。
 
 ### 13.5 Computer / Runtime 验收（task-local daemon）
 
@@ -593,7 +593,7 @@ ffmpeg -v error -sseof -0.5 -i <recording>.webm -frames:v 1 -update 1 "$frames/l
 - **验收者**：只做运行时操作和证据采集，发现缺陷回流实现。
 - **协调者**：控制范围、门禁、风险和汇报，不跳过任何环节。
 
-切换改动面时重新确认对应的本地规则：不要把前端约定套到 Go 服务端，也不要把服务端分层规则套到前端或 iOS。
+切换改动面时重新确认对应的本地规则：不要把前端约定套到 Go 服务端，也不要把服务端分层规则套到前端。
 
 ## 18. 可选委派
 

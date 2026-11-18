@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Report whether this machine has the tools an xwing task needs.
-# Usage: preflight.sh [base] [hifox] [server] [db] [runtime] [cli] [ci]
+# Usage: preflight.sh [base] [hifox] [server] [db] [runtime] [cli] [ios] [android] [ci]
 # Exit 1 when a required tool is missing; optional tools never fail the check.
 set -uo pipefail
 
@@ -11,7 +11,7 @@ report() {
 }
 
 find_tool() {
-  local name=$1
+  local name=$1 root newest dir version
   if command -v "$name" > /dev/null 2>&1; then
     command -v "$name"
   elif [ -x "/opt/homebrew/opt/libpq/bin/$name" ]; then
@@ -19,6 +19,41 @@ find_tool() {
   elif [ -x "/usr/local/opt/libpq/bin/$name" ]; then
     printf '/usr/local/opt/libpq/bin/%s\n' "$name"
   else
+    # Android SDK tools are commonly installed outside PATH.
+    for root in "${ANDROID_HOME:-}" "${ANDROID_SDK_ROOT:-}" "$HOME/Library/Android/sdk"; do
+      [ -n "$root" ] || continue
+      case "$name" in
+        adb)
+          if [ -x "$root/platform-tools/adb" ]; then
+            printf '%s\n' "$root/platform-tools/adb"
+            return 0
+          fi
+          ;;
+        emulator)
+          if [ -x "$root/emulator/emulator" ]; then
+            printf '%s\n' "$root/emulator/emulator"
+            return 0
+          fi
+          ;;
+        aapt2 | apksigner)
+          # build-tools are versioned; newest wins. Sort the version strings alone
+          # (a full path would defeat -k1,1n) with numeric per-component keys
+          # because macOS BSD sort lacks -V.
+          newest=""
+          for dir in "$root"/build-tools/*/; do
+            [ -d "$dir" ] || continue
+            version="${dir%/}"
+            newest="$newest${newest:+
+}${version##*/}"
+          done
+          newest="$(printf '%s\n' "$newest" | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)"
+          if [ -n "$newest" ] && [ -x "$root/build-tools/$newest/$name" ]; then
+            printf '%s\n' "$root/build-tools/$newest/$name"
+            return 0
+          fi
+          ;;
+      esac
+    done
     return 1
   fi
 }
@@ -87,6 +122,26 @@ check_node_major() {
   fi
 }
 
+check_java_major() {
+  local minimum=$1 java_bin major
+  if [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ]; then
+    java_bin="$JAVA_HOME/bin/java"
+  elif java_bin="$(find_tool java)"; then
+    :
+  else
+    report MISSING java "required, JDK >= ${minimum} (set JAVA_HOME to a JDK ${minimum}+)"
+    missing=1
+    return 0
+  fi
+  major="$("$java_bin" -version 2>&1 | sed -n 's/.*version "\([0-9][0-9]*\).*/\1/p' | head -n 1)"
+  if [ -n "$major" ] && [ "$major" -ge "$minimum" ] 2> /dev/null; then
+    report OK java "$java_bin (major ${major})"
+  else
+    report MISSING java "major >= ${minimum} required, found ${major:-unknown} at ${java_bin}"
+    missing=1
+  fi
+}
+
 surfaces=("$@")
 [ ${#surfaces[@]} -gt 0 ] || surfaces=(base)
 
@@ -102,6 +157,18 @@ for surface in "${surfaces[@]}"; do
     hifox) require hifox ;;
     server) require go ;;
     cli) require cargo ;;
+    ios)
+      require xcrun
+      require xcodebuild
+      optional xcodegen "build an existing Hifox.xcodeproj; project.yml changes need xcodegen"
+      ;;
+    android)
+      require adb
+      check_java_major 17
+      optional emulator "use a physical device over adb"
+      optional aapt2 "skip APK badging checks and note it in the report"
+      optional apksigner "skip signature verification and note it in the report"
+      ;;
     ci)
       require yq
       require lsof
@@ -124,7 +191,7 @@ for surface in "${surfaces[@]}"; do
       fi
       ;;
     *)
-      echo "unknown surface: $surface (expected base, hifox, server, db, runtime, cli, ci)" >&2
+      echo "unknown surface: $surface (expected base, hifox, server, db, runtime, cli, ios, android, ci)" >&2
       exit 2
       ;;
   esac

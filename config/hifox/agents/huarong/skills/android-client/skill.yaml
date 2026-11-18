@@ -1,0 +1,6 @@
+key: android-client
+name: XWing Android Client Platform
+description: "apps/android 的命令与平台事实：gradlew 编译与单测、模拟器资源参数、adb 装机与取证命令、金样生成器守卫、装包冲突诊断、release alpha 打包与验签。改 Android 代码或出包时按需查；流程与门禁在 agent 指令里。"
+contentFile: SKILL.md
+config: {}
+namingPattern: "{{name}}"

@@ -164,6 +164,7 @@ const agents = asArray(agentsRaw).filter((agent) => !agent.archivedAt);
 const team = [
   { base: "吴用", space: "hifox" },
   { base: "林冲", space: "hifox" },
+  { base: "花荣", space: "hifox" },
   { base: "武松", space: "hifox" },
   { base: "戴宗", space: "hifox" },
   { base: "燕青", space: "apifox" },

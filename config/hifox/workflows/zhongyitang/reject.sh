@@ -4,4 +4,4 @@
 # hygiene), diagnostics on stderr — same convention as release-gate blocks.
 set -eu
 exec 3>&1 1>&2
-printf '%s\n' '{"status":"rejected","reason":"topic outside closed set: xwing | x-deploy"}' >&3
+printf '%s\n' '{"status":"rejected","reason":"topic outside closed set: xwing | xwing-mobile | x-deploy"}' >&3

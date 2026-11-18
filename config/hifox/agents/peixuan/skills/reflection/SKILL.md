@@ -20,7 +20,7 @@ WINDOW_END="${WINDOW_NEXT}T00:00:00+08:00"
 
 - 层级：你的部署名 `{{agents.peixuan.name}}` 含 `(staging)` 或 `- staging` → staging；否则 prod。只分析同层级实例。
 - 两个 Space 的 staging 后缀文本不同：HiFox `" (staging)"`、Apifox `" - staging"`。按层级匹配，不按字面后缀。
-- 只处理调度面团队：HiFox 的吴用 / 林冲 / 武松 / 戴宗；Apifox 的燕青 / 萧让 / 汤隆。**排除你自己**的 run 与 automation 内容。
+- 只处理调度面团队：HiFox 的吴用 / 林冲 / 花荣 / 武松 / 戴宗；Apifox 的燕青 / 萧让 / 汤隆。**排除你自己**的 run 与 automation 内容。
 
 ### 0.1 首选：确定性采集器
 

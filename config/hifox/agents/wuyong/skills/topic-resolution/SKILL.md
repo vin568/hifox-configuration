@@ -17,10 +17,12 @@ description: "吴用主题与实例判定细则：弱信号与易混反例、品
 
 | 轴 | 值域 | 路由键 | 消费者 |
 |---|---|---|---|
-| 主题 | `xwing` / `x-deploy` / `apifox` / `docs-site` / `apifox-cli`（+ `杂活` / 超范围） | **是** | 堂 / 舵 condition、任务承接人、任务落哪块板 |
+| 主题 | `xwing` / `xwing-mobile` / `x-deploy` / `apifox` / `docs-site` / `apifox-cli`（+ `杂活` / 超范围） | **是** | 堂 / 舵 condition、任务承接人、任务落哪块板 |
 | 实例 | 品牌 × 区域，或私有化形态 | 否 | `context` 前缀、任务正文、台账字段 |
 
 **实例绝不作主题判据**：`PDV/docs-site` 不代表主题是 `docs-site`——主题看「主要改动落在哪个仓」，实例看「现象出现在哪一层」。两者背离时以主题路由、实例保留观察值。
+
+`xwing-mobile` 是这条规则的**显式例外**（ADR 0026）：移动端代码与 xwing 同仓（`apps/ios` / `apps/android`），但改动面、验收方式（模拟器 / 真机）、交付节奏与承接专家都独立，因此按**交付面**而非仓库切一个主题。它不是一个新仓库：用户说「网页端 / 桌面端 / 服务端」时仍归 `xwing`。
 
 ## 2. 弱信号与易混反例（步骤 1 不得单独定案）
 
@@ -28,6 +30,7 @@ description: "吴用主题与实例判定细则：弱信号与易混反例、品
 |---|---|---|
 | CLI / 命令行（无产品限定） | `xwing`（xwing CLI）↔ `apifox-cli` | 问「是在 HiFox/Apifox 应用里，还是命令行里跑」 |
 | Web / 网页 / 页面 | `xwing` 网页端 ↔ `docs-site` | 问现象出现的产品名 |
+| App / 客户端 / 手机（无端限定） | `xwing`（网页端 / Desktop）↔ `xwing-mobile` | 问「是手机上装的 App，还是浏览器 / 桌面客户端里打开的页面」 |
 | 文档 | `apifox`（应用内文档）↔ `docs-site` | 走 §4 文档站双义问句 |
 | 文档站 | `apifox`（应用内的文档站设置）↔ `docs-site`（站点本身） | 走 §4 文档站双义问句 |
 | 部署 / 私有化部署 | `x-deploy`（**不是**它的强信号）↔ 客户私有化环境形态 | 「部署」单独出现不算 `x-deploy`；先看有没有配置仓库 / `apply` / `state` / 环境绑定 |
@@ -62,17 +65,18 @@ description: "吴用主题与实例判定细则：弱信号与易混反例、品
 
 - 可多值（「apifox 和 apidog 都有」→ `apifox, apidog`），写全，不拆成两次派发。
 - 咨询缺实例**不阻塞**：写 `未指定`。交付缺实例**必须显式写**（含「未指定（由承接人按现象判断）」）——CLI 交付留空会被按语言猜发行形态（`apifox-cli` / `apidog-cli`）。
-- 已知实例集：xwing `hifox` / `sharkly`；apifox 与 docs-site `apifox` / `apidog` / `apidog-eu` / `PDV/<产品线>`；apifox-cli `apifox-cli` / `apidog-cli` / `PDV/apifox-cli`。新增实例先补 `GLOSSARY.md` 再进判定。
+- 已知实例集：xwing 与 xwing-mobile `hifox` / `sharkly`；apifox 与 docs-site `apifox` / `apidog` / `apidog-eu` / `PDV/<产品线>`；apifox-cli `apifox-cli` / `apidog-cli` / `PDV/apifox-cli`。新增实例先补 `GLOSSARY.md` 再进判定。
 
 ## 4. 切分问句库
 
-歧义只可能出在三对（外加私有化带来的「哪一层」），**一次消息只问一个问题**，选项即答案：
+歧义只可能出在四对（外加私有化带来的「哪一层」），**一次消息只问一个问题**，选项即答案：
 
 | 歧义对 | 问句（只讲现象，不讲仓库与内部术语） | 判定 |
 |---|---|---|
 | `apifox` ↔ `docs-site`（双义） | 「是在 Apifox 应用里设置文档站时出问题（保存失败、选项不生效、域名校验），还是打开文档站页面不对（显示、导航、搜索、链接）？」 | 应用内设置 → `apifox`；站点页面 → `docs-site`；配置成功但站点不生效 → `apifox`（全栈闭环）+ 实例记现象层 |
 | `apifox` ↔ `docs-site`（数据面） | 「只有文档页显示不对，还是接口数据本身也不对？」 | 只文档页 → `docs-site`；数据也不对 → `apifox` |
 | `apifox` ↔ `apifox-cli` | 「是在网页 / Apifox 应用里操作，还是在命令行里跑？」 | 命令行 → `apifox-cli`；应用内 → `apifox` |
+| `xwing` ↔ `xwing-mobile`（同仓不同交付面） | 「是在手机上装的 App 里，还是浏览器 / 桌面客户端里？」 | 手机 App → `xwing-mobile`；浏览器 / Desktop → `xwing`；两端都错 → 先 `xwing`（全栈闭环）+ context 写明两端现象 |
 | 私有化「哪一层」 | 「是私有化应用层的问题（保存、校验、接口数据），还是私有化文档站页面不对（显示、导航、链接）？」 | 按现象层填 `PDV/<产品线>` |
 | 主题与实例同时不清 | 组合问句（选项即组合），如「Apidog 国际站的文档页显示问题，还是 Apifox 里文档站设置保存问题？」 | 答完主题与实例同时确定 |
 
@@ -88,7 +92,7 @@ description: "吴用主题与实例判定细则：弱信号与易混反例、品
 ## 6. 入账口径
 
 ```markdown
-- 主题：xwing | x-deploy | apifox | docs-site | apifox-cli | 杂活
+- 主题：xwing | xwing-mobile | x-deploy | apifox | docs-site | apifox-cli | 杂活
 - 实例：hifox | sharkly | apifox | apidog | apidog-eu | apifox-cli | apidog-cli | PDV/<产品线> | 未指定
 - 判定依据：主题=<显式词|指代事项|会话焦点|唯一未完结|澄清> · 实例=<显式词|指代事项|会话焦点|澄清>
 ```
@@ -109,6 +113,9 @@ description: "吴用主题与实例判定细则：弱信号与易混反例、品
 | 「私有化部署的接口站首页白屏」（前文在聊 issues 页） | docs-site（会话焦点） | `PDV/docs-site` | 咨询 | 派二龙山 |
 | 「私有化里文档站配置保存失败」 | apifox | `PDV/apifox` | 咨询 | 派二龙山（topic=apifox） |
 | 「Hifox 桌面端启动不了」 | xwing | `hifox` | 咨询 | 派忠义堂 |
+| 「iOS 上任务详情页附件打不开」 | xwing-mobile | `hifox` | 咨询 | 派忠义堂（topic=xwing-mobile，花荣） |
+| 「安卓真机上设置页那行和 iOS 不一样」 | xwing-mobile | `hifox` | 咨询 | 派忠义堂（topic=xwing-mobile，花荣） |
+| 「App 里聊天发不出去」（未说哪个端） | 未定 | `未指定` | 咨询 | 先澄清（手机 App 还是浏览器 / 桌面客户端） |
 | 「那个任务怎么样了」 | 指代事项 `主题` | 指代事项 `实例` | 咨询 | 查台账 + 重查真值 |
 | 「就按你说的建吧」（上一轮提议在台账 `等待用户`） | 该事项 `主题` | 该事项 `实例` | 交付 | 建任务 |
 | 「就按你说的建吧」（`/new` 后，无对应事项） | 未定 | 未指定 | 咨询 | 澄清：指的是哪件事 |

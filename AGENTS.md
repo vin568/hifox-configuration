@@ -2,7 +2,7 @@
 
 ## 仓库定位与分工
 
-本仓库是 xwing 家族 CLI 应用（部署实例）的声明式配置仓库（配置集合与环境绑定清单见根 `README.md`），同时是部署 CLI 的开发配置仓库：`vendor/x-deploy` 是 git 子模块，部署行为改动只在子模块内开发，本仓库跟踪指针与配置。2026-11 起本仓兼载宋江 super agent 的本地运行时（`super-agent/`，见「Super Agent 本地运行时」与 ADR 0016–0025）。
+本仓库是 xwing 家族 CLI 应用（部署实例）的声明式配置仓库（配置集合与环境绑定清单见根 `README.md`），同时是部署 CLI 的开发配置仓库：`vendor/x-deploy` 是 git 子模块，部署行为改动只在子模块内开发，本仓库跟踪指针与配置。2026-11 起本仓兼载宋江 super agent 的本地运行时（`super-agent/`，见「Super Agent 本地运行时」与 ADR 0016–0026）。
 
 ## 文档职责判定
 
@@ -20,14 +20,14 @@
 
 | 目录 | 消费者 | 机制与形态 |
 | --- | --- | --- |
-| `skills/` | 部署到远端的 xwing agent | 技能源：由 `config/<集合>/agents/<key>/skills/<skill-key>/skill.yaml` 以 `dir: "@/skills/<名>"` 引用同一源，部署为各 agent 专属实例。`SKILL.md` 是内容体、无 frontmatter（身份在 `skill.yaml`）。源目录名带产品前缀（`xwing-` / `apifox-`）：根级 `skills/` 是跨配置集合的共享命名空间，裸名会假装通用；agent 实例 `key` 保持裸名（`<agent>/<key>` 已按 agent 命名空间化，改名会动 state 身份）。当前：`xwing-task-runtime`（linchong、daizong 引用）、`apifox-staging-deploy`（yanqing、xiaorang、skadi 引用）、`apifox-web-acceptance`（eir、yanqing、xiaorang 引用） |
+| `skills/` | 部署到远端的 xwing agent | 技能源：由 `config/<集合>/agents/<key>/skills/<skill-key>/skill.yaml` 以 `dir: "@/skills/<名>"` 引用同一源，部署为各 agent 专属实例。`SKILL.md` 是内容体、无 frontmatter（身份在 `skill.yaml`）。源目录名带产品前缀（`xwing-` / `apifox-`）：根级 `skills/` 是跨配置集合的共享命名空间，裸名会假装通用；agent 实例 `key` 保持裸名（`<agent>/<key>` 已按 agent 命名空间化，改名会动 state 身份）。当前：`xwing-task-runtime`（linchong、daizong、huarong 引用）、`apifox-staging-deploy`（yanqing、xiaorang、skadi 引用）、`apifox-web-acceptance`（eir、yanqing、xiaorang 引用） |
 | `config/<集合>/skills/` | 部署到远端的 xwing agent（Space 内共享） | Space Skill 实例，多 agent 挂载同一份；结构语义见 `./x-deploy guide contract`，不在本仓复述 |
 | `.agents/skills/` | 在本仓工作的开发 agent 与人（不部署） | 项目级工具技能（Agent Skills 开放标准位置）：`SKILL.md` 带 `name`/`description` frontmatter。CLI 自带技能（当前 `xwing-workflows`）由 `./x-deploy init` 整目录受管重置，定制须复制改名；清单外的自有技能 init 不触碰，当前自有：`worktree-dev`（本仓 git worktree 开发契约 + `worktree.sh` 助手） |
 | `super-agent/capabilities/` | 本机宋江主控（不部署） | 本地能力注册表，目录即声明（ADR 0021）：`agents/<key>/{capability.yaml,instructions.md}`（含 `role: master` 的宋江与 `role: retro` 的蒋敬；常驻 agent 的名单、启动参数与手册由它派生，workspace 布局仍是固定三件套 master/crew/jobs）、`skills/<key>/SKILL.md`（多 agent 共享的能力技能）与 `agents/<key>/skills/<key>/SKILL.md`（该 agent 专属；当前三份岗位技能都在宋江专属下）——标准 Agent Skills 形态，位置即归属，与 `config/` 的 `skills/` ↔ `agents/<key>/skills/` 分法一致；真源目录直接交给底层 CLI 的 `skills.customDirectories`，不复制（ADR 0025）、`scripts/<key>.yaml`（指向 `super-agent/direct/` 实脚本）、`platforms/<平台>/<key>.yaml`（平台侧 agent 指针，平台 = 平台 CLI 应用名如 hifox；真源仍是 `config/`）。`superctl capabilities --check` 查漂移 |
 
 判定一句话：给部署的远端 agent 用 → `skills/`（源 + agent 引用）或 `config/<集合>/skills/`（Space 共享）；给在本仓干活的开发 agent 用 → `.agents/skills/<名>/`；给本机宋江主控用 → `super-agent/capabilities/`。
 
-技能目录里随仓维护的脚本（如戴宗验收套件的 `screenshot.mjs`）有回归测试：根目录 `npm test`（node:test，零依赖，用 `test/fixtures/` 的边界 stub）；用例按源码路径镜像存放——agent 技能为 `test/<agent>/<skill>/<脚本名>.test.mjs`，根级共享源按 `skills/` 下目录名（如 `test/xwing-task-runtime/`）——改这些脚本必须先跑或补用例。
+技能目录里随仓维护的脚本（如戴宗验收套件的 `screenshot.mjs`、`xwing-task-runtime` 的 `preflight.sh`）有回归测试：根目录 `npm test`（node:test，零依赖，用 `test/fixtures/` 的边界 stub）；用例按源码路径镜像存放——agent 技能为 `test/<agent>/<skill>/<脚本名>.test.mjs`，根级共享源按 `skills/` 下目录名（如 `test/xwing-task-runtime/`）——改这些脚本必须先跑或补用例。
 
 ## Super Agent 本地运行时（super-agent/）
 

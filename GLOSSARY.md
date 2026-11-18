@@ -58,7 +58,7 @@ _Avoid_: 忠义堂的别名、常驻进程、群聊
 _Avoid_: 同后缀（字面不成立，各 Space 后缀文本不同）
 
 **主题闭集（Topic Closed Set）**:
-调度面接受的主题枚举（当前：xwing 产品、x-deploy、apifox 产品、文档站 `docs-site`、Apifox CLI `apifox-cli`）；堂 / 舵分支、统筹入口路由表、统筹入口判定词表、任务委派映射共同持有（完整清单见 ADR 0012），扩展须同步——漏一处即「派了但堂 / 舵里没人接」，或（漏词表时）「新主题永远判不出来」。实例不在闭集内（非路由键，见「实例」）。
+调度面接受的主题枚举（当前：xwing 产品、xwing 移动端 `xwing-mobile`、x-deploy、apifox 产品、文档站 `docs-site`、Apifox CLI `apifox-cli`）；堂 / 舵分支、统筹入口路由表、统筹入口判定词表、任务委派映射共同持有（完整清单见 ADR 0012，最近一次扩展见 ADR 0026），扩展须同步——漏一处即「派了但堂 / 舵里没人接」，或（漏词表时）「新主题永远判不出来」。实例不在闭集内（非路由键，见「实例」）。
 _Avoid_: 标签、分类（不表达多处同步不变量）
 
 **主题判定（Topic Resolution）**:
@@ -66,7 +66,7 @@ _Avoid_: 标签、分类（不表达多处同步不变量）
 _Avoid_: 意图判定（那是咨询 / 交付，另一轴）、分类器（不是独立模型）、置信度阈值（阶梯可逐条核对）
 
 **实例（Instance）**:
-被调度产品在**品牌 × 区域**上的独立部署，或私有化交付形态；统筹入口用于定位现象的取值，**不是路由键**——只进触发载荷的 `context`、任务正文与台账，绝不变 Space、承接人与任务落板。取值：xwing `hifox`(CN) / `sharkly`(GLOBAL)；apifox 产品与文档站 `apifox`(CN) / `apidog`(GLOBAL) / `apidog-eu`(EU)；Apifox CLI 的「实例」实为发行形态 `apifox-cli` / `apidog-cli`；私有化写 `PDV/<产品线>`，`<产品线>` 取**现象所在层**（`PDV/apifox` / `PDV/docs-site` / `PDV/apifox-cli`）。缺实例不阻塞咨询，交付必须显式声明（含 `未指定`）。与「中枢实例」（堂 / 舵在某 Space 的部署副本，如「忠义堂」「二龙山 - staging」）同词不同义——判读时以「品牌 × 区域 / 私有化」为准。
+被调度产品在**品牌 × 区域**上的独立部署，或私有化交付形态；统筹入口用于定位现象的取值，**不是路由键**——只进触发载荷的 `context`、任务正文与台账，绝不变 Space、承接人与任务落板。取值：xwing 与 xwing-mobile 共用 `hifox`(CN) / `sharkly`(GLOBAL)；apifox 产品与文档站 `apifox`(CN) / `apidog`(GLOBAL) / `apidog-eu`(EU)；Apifox CLI 的「实例」实为发行形态 `apifox-cli` / `apidog-cli`；私有化写 `PDV/<产品线>`，`<产品线>` 取**现象所在层**（`PDV/apifox` / `PDV/docs-site` / `PDV/apifox-cli`）。缺实例不阻塞咨询，交付必须显式声明（含 `未指定`）。与「中枢实例」（堂 / 舵在某 Space 的部署副本，如「忠义堂」「二龙山 - staging」）同词不同义——判读时以「品牌 × 区域 / 私有化」为准。
 _Avoid_: 主题（路由键，按交付物划分）、环境（部署绑定，x-deploy 的 environment）、标签、中枢实例、部署实例（README 的 `hifox` / `sharkly` 是产品部署；台账目录里的「部署名」实为 agent 副本）
 
 **会话焦点（Session Focus）**:
