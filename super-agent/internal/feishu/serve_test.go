@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/inject"
+	"super-agent/internal/inject"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 )

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/config"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/inject"
+	"super-agent/internal/config"
+	"super-agent/internal/inject"
 
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher"

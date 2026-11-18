@@ -5,10 +5,10 @@ import (
 	"log/slog"
 	"strings"
 
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/config"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/halt"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/herdr"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/outbox"
+	"super-agent/internal/config"
+	"super-agent/internal/halt"
+	"super-agent/internal/herdr"
+	"super-agent/internal/outbox"
 )
 
 // commandIndices 是运行时自处理的私聊指令（ADR 0020/0022）。

@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/config"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/herdr"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/inject"
+	"super-agent/internal/config"
+	"super-agent/internal/herdr"
+	"super-agent/internal/inject"
 )
 
 func injectClient(prompted *[]string) *herdr.Client {

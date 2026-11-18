@@ -1,4 +1,4 @@
-module apifox.github.com/vin568/hifox-configuration/super-agent
+module super-agent
 
 go 1.26
 

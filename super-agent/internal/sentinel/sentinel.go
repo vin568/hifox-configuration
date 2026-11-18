@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/hifox"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/inflight"
+	"super-agent/internal/hifox"
+	"super-agent/internal/inflight"
 )
 
 // Change 是一次探测到的状态变化。

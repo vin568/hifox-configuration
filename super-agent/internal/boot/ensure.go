@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/herdr"
+	"super-agent/internal/herdr"
 )
 
 // Expected 是幂等引导的目标拓扑（ADR 0018）：master / crew / jobs 三个 workspace

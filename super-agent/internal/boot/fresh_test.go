@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/herdr"
+	"super-agent/internal/herdr"
 )
 
 // freshFake 模拟 herdr：agent 在册/退出、按键、关 pane、以及「每次 start 都是新会话」。

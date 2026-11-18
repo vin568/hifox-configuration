@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/herdr"
+	"super-agent/internal/herdr"
 )
 
 // ErrBlocked：主控停在审批/提问 UI，prompt 被整体拒绝——调用方应通知用户，不要原样重试。

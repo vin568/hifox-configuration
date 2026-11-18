@@ -8,9 +8,9 @@ import (
 	"sort"
 	"time"
 
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/boot"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/config"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/herdr"
+	"super-agent/internal/boot"
+	"super-agent/internal/config"
+	"super-agent/internal/herdr"
 )
 
 // freshBrain 执行一次换脑：首条注入 = 该 agent 自己的手册（+ 附加意图），

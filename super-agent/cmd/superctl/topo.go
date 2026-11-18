@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/boot"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/capability"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/config"
+	"super-agent/internal/boot"
+	"super-agent/internal/capability"
+	"super-agent/internal/config"
 )
 
 // deriveAgentNames 从能力注册表取主控/复盘 agent 的 key（注册表是它们的唯一声明处）。

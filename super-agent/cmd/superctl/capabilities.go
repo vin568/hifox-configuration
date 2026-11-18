@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/capability"
+	"super-agent/internal/capability"
 )
 
 // cmdCapabilities 打印能力注册表索引（与注入主控的那份同源），--check 查漂移。

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/hifox"
+	"super-agent/internal/hifox"
 )
 
 func fixture(t *testing.T, watch string, snap string) (string, string) {

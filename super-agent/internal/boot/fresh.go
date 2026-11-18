@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/herdr"
+	"super-agent/internal/herdr"
 )
 
 // 换脑（ADR 0020/0022）：停掉主控进程 → 保证拓扑 → 同 pane 起新会话 → 灌首条 prompt。

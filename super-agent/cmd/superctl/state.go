@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/config"
-	feishu "apifox.github.com/vin568/hifox-configuration/super-agent/internal/feishu"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/herdr"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/inflight"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/inject"
+	"super-agent/internal/config"
+	feishu "super-agent/internal/feishu"
+	"super-agent/internal/herdr"
+	"super-agent/internal/inflight"
+	"super-agent/internal/inject"
 )
 
 // errDeferredInject 表示「注入被急停闸门延后」：哨兵据此不推进快照，变化留到解除后补交。

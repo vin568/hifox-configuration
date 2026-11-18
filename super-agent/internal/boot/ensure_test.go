@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/herdr"
+	"super-agent/internal/herdr"
 )
 
 type fakeHerdr struct {

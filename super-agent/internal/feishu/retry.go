@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/inject"
+	"super-agent/internal/inject"
 )
 
 // retryMaxAttempts is the total attempt budget per message (1 immediate + 7

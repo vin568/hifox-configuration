@@ -9,16 +9,16 @@ import (
 	"testing"
 	"time"
 
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/boot"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/config"
-	feishu "apifox.github.com/vin568/hifox-configuration/super-agent/internal/feishu"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/halt"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/herdr"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/hifox"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/inflight"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/inject"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/outbox"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/tick"
+	"super-agent/internal/boot"
+	"super-agent/internal/config"
+	feishu "super-agent/internal/feishu"
+	"super-agent/internal/halt"
+	"super-agent/internal/herdr"
+	"super-agent/internal/hifox"
+	"super-agent/internal/inflight"
+	"super-agent/internal/inject"
+	"super-agent/internal/outbox"
+	"super-agent/internal/tick"
 )
 
 // testRepo 造一个最小仓库：能力注册表（含一个 role=job 的本地能力）+ config/ 云端指针。

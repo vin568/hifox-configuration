@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/inject"
+	"super-agent/internal/inject"
 )
 
 var errTransient = errors.New("transient")

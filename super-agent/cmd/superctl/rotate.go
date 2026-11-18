@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"os"
 
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/config"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/herdr"
+	"super-agent/internal/config"
+	"super-agent/internal/herdr"
 )
 
 // cmdNew 人工换脑：不比阈值，立刻换新会话（/new 的命令行等价物）。

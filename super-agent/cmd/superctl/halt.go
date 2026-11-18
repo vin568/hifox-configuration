@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/boot"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/config"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/halt"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/herdr"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/inject"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/outbox"
+	"super-agent/internal/boot"
+	"super-agent/internal/config"
+	"super-agent/internal/halt"
+	"super-agent/internal/herdr"
+	"super-agent/internal/inject"
+	"super-agent/internal/outbox"
 )
 
 // cmdHalt 执行急停：落闸 → 秒级回执 → 换脑（首条注入=急停意图）。

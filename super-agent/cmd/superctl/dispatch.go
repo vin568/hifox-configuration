@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/capability"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/config"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/herdr"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/hifox"
-	"apifox.github.com/vin568/hifox-configuration/super-agent/internal/inflight"
+	"super-agent/internal/capability"
+	"super-agent/internal/config"
+	"super-agent/internal/herdr"
+	"super-agent/internal/hifox"
+	"super-agent/internal/inflight"
 )
 
 // ensureTopoFn 是幂等引导的测试接缝：本地派发必须先补拓扑，这条前置不能被静默跳过。
