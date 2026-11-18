@@ -9,7 +9,7 @@ repo_dir  = "~/code/apifox/hifox-configuration-super-agent"  # agent pane 的 cw
 # （super-agent/capabilities/agents/<key>/capability.yaml，ADR 0021）。
 
 tick_interval       = "10m"  # 作业巡检兜底周期（三源皆空不发，见 ADR 0022）
-cloud_poll_interval = "60s"  # 云端哨兵轮询周期（纯 CLI 轮询零 LLM 成本，有变化才唤醒主控）
+platform_poll_interval = "60s"  # 平台哨兵轮询周期（纯 CLI 轮询零 LLM 成本，有变化才唤醒主控）
 
 # 上下文轮换：主控会话文件超过这个字节数且主控 idle 时换脑（0 = 关闭）
 session_max_bytes = 8388608

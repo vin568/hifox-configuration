@@ -6,10 +6,10 @@
 //	agents/<key>/{capability.yaml,instructions.md}
 //	skills/<key>/{capability.yaml,doc.md}
 //	scripts/<key>.yaml
-//	cloud/<key>.yaml
+//	platforms/<platform>/<key>.yaml
 //
-// 云端能力的真源仍是 config/（config/hifox/agents/<key>、config/apifox/agents/<key>）；
-// cloud/ 条目只写指针，Check 校验指针在 config/ 里确实存在。
+// 平台能力的真源仍是 config/（config/hifox/agents/<key>、config/apifox/agents/<key>）；
+// platforms/<平台>/ 条目只写指针，Check 校验指针在 config/ 里确实存在。
 package capability
 
 import (
@@ -22,6 +22,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"super-agent/internal/hifox"
 )
 
 // Agent 是 <workspace> 里一个常驻或按需拉起的能力 agent。
@@ -54,22 +56,24 @@ type Script struct {
 	Path        string `yaml:"path"` // 相对 repoDir 或绝对
 }
 
-// Cloud 是 hifox 云端 agent 的指针，真源在 config/。
-type Cloud struct {
-	Key   string `yaml:"key"`
-	Name  string `yaml:"name"`
-	Space string `yaml:"space"`
-	Org   string `yaml:"org"` // 平台组织 slug 或完整 UUID；空 = 用 CLI 当前组织
-	Note  string `yaml:"note"`
+// PlatformAgent 是某个平台（CLI 应用实例，如 hifox；将来 sharkly）上一个 agent 的
+// 指针，真源在 config/<配置集合>/。
+type PlatformAgent struct {
+	Platform string `yaml:"-"` // 目录名 platforms/<platform>/，以目录为准
+	Key      string `yaml:"key"`
+	Name     string `yaml:"name"`
+	Space    string `yaml:"space"`
+	Org      string `yaml:"org"` // 平台组织完整 UUID（slug 会被平台判 404）；空 = 用 CLI 当前组织
+	Note     string `yaml:"note"`
 }
 
-// Registry 是一次加载得到的全部声明，切片按 key 排序。
+// Registry 是一次加载得到的全部声明，切片按 key 排序（平台能力先按平台、再按 key）。
 type Registry struct {
-	Root    string
-	Agents  []Agent
-	Skills  []Skill
-	Scripts []Script
-	Cloud   []Cloud
+	Root      string
+	Agents    []Agent
+	Skills    []Skill
+	Scripts   []Script
+	Platforms []PlatformAgent
 }
 
 // Load 读 <repoDir>/super-agent/capabilities。声明内容缺失或解析失败是硬错误；
@@ -110,12 +114,12 @@ func (r *Registry) Retro() (Agent, bool) {
 func (r *Registry) Index() string {
 	var b strings.Builder
 
-	b.WriteString("## 云端能力\n\n")
-	if len(r.Cloud) == 0 {
+	b.WriteString("## 平台能力\n\n")
+	if len(r.Platforms) == 0 {
 		b.WriteString("（无）\n")
 	}
-	for _, c := range r.Cloud {
-		fmt.Fprintf(&b, "- %s %s（%s）：%s\n", c.Key, c.Name, c.Space, c.Note)
+	for _, c := range r.Platforms {
+		fmt.Fprintf(&b, "- [%s] %s %s（%s）：%s\n", c.Platform, c.Key, c.Name, c.Space, c.Note)
 	}
 
 	b.WriteString("\n## 本地能力\n\n")
@@ -145,14 +149,14 @@ func (r *Registry) Index() string {
 	return b.String()
 }
 
-// CloudByKey 按 key 取云端指针条目。
-func (r *Registry) CloudByKey(key string) (Cloud, bool) {
-	for _, c := range r.Cloud {
-		if c.Key == key {
+// PlatformByKey 按平台 + key 取平台能力指针条目。
+func (r *Registry) PlatformByKey(platform, key string) (PlatformAgent, bool) {
+	for _, c := range r.Platforms {
+		if c.Platform == platform && c.Key == key {
 			return c, true
 		}
 	}
-	return Cloud{}, false
+	return PlatformAgent{}, false
 }
 
 // AgentByKey 按 key 取 agent 条目。
@@ -173,7 +177,7 @@ func (r *Registry) Check(repoDir string) []string {
 	}
 	reg, fatal, problems := scan(root)
 
-	out := make([]string, 0, len(fatal)+len(problems)+len(reg.Agents)+len(reg.Scripts)+len(reg.Cloud))
+	out := make([]string, 0, len(fatal)+len(problems)+len(reg.Agents)+len(reg.Scripts)+len(reg.Platforms))
 	for _, err := range fatal {
 		out = append(out, err.Error())
 	}
@@ -247,21 +251,224 @@ func (r *Registry) Check(repoDir string) []string {
 		}
 	}
 
-	for _, c := range reg.Cloud {
-		var found string
-		for _, space := range []string{"hifox", "apifox"} {
-			p := filepath.Join(repoDir, "config", space, "agents", c.Key, "agent.yaml")
-			if _, err := os.Stat(p); err == nil {
-				found = p
-				break
+	// 平台归属：environments 声明「哪个平台覆盖哪个配置集合」（cli.app + configSet），
+	// 双向同步与部署记录都以它为准。没写 cli.app 的环境推不出平台，不参与归属。
+	envs, envProblems := loadEnvironments(repoDir)
+	// 环境的 organizationId 也必须是完整 UUID：它被当作 HIFOX_ORGANIZATION_ID 透传给
+	// 平台 CLI（`--check --live` 真值查询就用它），写 slug 会以「agent list 失败」
+	// 的形式冒出来，看不到根因。
+	for _, env := range envs {
+		if env.OrgID != "" && !isOrgUUID(env.OrgID) {
+			out = append(out, fmt.Sprintf("environments/%s/environment.yaml：organizationId 是 %q，必须是平台组织完整 UUID（slug 在 HIFOX_ORGANIZATION_ID 下会 404）", env.Name, env.OrgID))
+		}
+	}
+	covered := map[string]map[string]bool{} // 配置集合 -> 覆盖它的平台
+	for _, env := range envs {
+		if env.Platform == "" || env.ConfigSet == "" {
+			continue
+		}
+		if covered[env.ConfigSet] == nil {
+			covered[env.ConfigSet] = map[string]bool{}
+		}
+		covered[env.ConfigSet][env.Platform] = true
+	}
+	configSets := configSetsOnDisk(repoDir)
+
+	// 平台指针 → config：指针声明的 agent 必须在 config/ 里有真源。
+	configSpaces := map[string]map[string]bool{} // key -> config 里声明了它的配置集合
+	for _, c := range reg.Platforms {
+		if found := findConfigAgent(repoDir, configSets, c.Key); found != "" {
+			if configSpaces[c.Key] == nil {
+				configSpaces[c.Key] = map[string]bool{}
+			}
+			configSpaces[c.Key][found] = true
+		} else {
+			out = append(out, fmt.Sprintf("%s：config 里找不到 %s", pointerLabel(c), candidatesLabel(configSets, c.Key)))
+		}
+		// org 必须是完整 UUID：HIFOX_ORGANIZATION_ID 喂 slug 会被平台判 404
+		// ORGANIZATION_NOT_FOUND（2026-11 实测）——派活时才发现就晚了。
+		if c.Org != "" && !isOrgUUID(c.Org) {
+			out = append(out, fmt.Sprintf("%s：org 是 %q，必须写平台组织完整 UUID（slug 在 HIFOX_ORGANIZATION_ID 下会 404）", pointerLabel(c), c.Org))
+		}
+	}
+
+	// 双向同步（ADR 0023）：config/ 是平台 agent 的真源，主控能力目录必须跟着走。
+	// 这里管 config→platform 方向：覆盖该集合的每个平台都得有一份指针；
+	// platform→config 方向由上面的指针检查负责。
+	for _, space := range configSets {
+		agentDir := filepath.Join(repoDir, "config", space, "agents")
+		entries, err := os.ReadDir(agentDir)
+		if err != nil {
+			continue // 该集合不存在不算漂移：不是每个仓都带全部集合
+		}
+		var keys []string
+		for _, e := range entries {
+			if e.IsDir() {
+				keys = append(keys, e.Name())
 			}
 		}
-		if found == "" {
-			out = append(out, fmt.Sprintf("cloud/%s.yaml：config 里找不到 config/hifox/agents/%s/agent.yaml 或 config/apifox/agents/%s/agent.yaml", c.Key, c.Key, c.Key))
+		if len(keys) == 0 {
+			continue // 这个集合还没有 agent，谈不上「同步了吗」
+		}
+		platforms := sortedSet(covered[space])
+		if len(platforms) == 0 {
+			// 平台归属只在 environment.yaml 的 cli.app。没有任何环境声明这个集合部署在
+			// 哪个平台，config→平台方向的指针同步就无从对账——静默跳过等于让这条规则
+			// 失效（agent 加了、指针对不上，谁也不报）。一条集合一条，不按 agent 刷。
+			out = append(out, fmt.Sprintf("config/%s/：没有环境声明它部署在哪个平台（environments/*/environment.yaml 缺 cli.app 或 configSet），config→平台指针同步无法对账", space))
+			continue
+		}
+		for _, key := range keys {
+			for _, platform := range platforms {
+				if _, ok := reg.PlatformByKey(platform, key); !ok {
+					out = append(out, fmt.Sprintf("config/%s/agents/%s：缺 super-agent/capabilities/platforms/%s/%s.yaml（config 的 agent 变更必须同步到主控能力目录，见 ADR 0023）", space, key, platform, key))
+				}
+			}
+		}
+	}
+
+	// name 一致：注册表里的名字就是派活解析平台 ref 的主干，与 config 声明不同名
+	// 会让「注册表说的 agent」和「config 部署的 agent」悄悄变成两个。
+	for _, c := range reg.Platforms {
+		spaces := sortedSet(configSpaces[c.Key])
+		if len(spaces) == 0 {
+			continue // 指针缺失已在别处报过，这里没有可比对的 config
+		}
+		rel := fmt.Sprintf("config/%s/agents/%s/agent.yaml", spaces[0], c.Key)
+		name, err := readConfigAgentName(filepath.Join(repoDir, filepath.FromSlash(rel)))
+		if err != nil {
+			out = append(out, fmt.Sprintf("%s：读 %s 失败：%v", pointerLabel(c), rel, err))
+			continue
+		}
+		if !hifox.NameMatches(c.Name, name) {
+			out = append(out, fmt.Sprintf("%s：name 是 %q，%s 里是 %q", pointerLabel(c), c.Name, rel, name))
+		}
+	}
+
+	// 有部署记录：环境只绑部分 agent 是常态（不算漂移），所以该平台下的环境里
+	// 任一 environments/*/state.yaml 的 agents.<key> 有记录就算部署过。
+	// 但只对「至少有一个环境声明了它」的平台查：没有任何环境接入该平台时，
+	// 「没有部署记录」是必然的，报出来只是噪声（平台还没接）。
+	out = append(out, envProblems...)
+	declaredPlatforms := map[string]bool{}   // 至少被一个环境的 cli.app 点名的平台
+	deployed := map[string]map[string]bool{} // 平台 -> 部署过的 key
+	for _, env := range envs {
+		if env.Platform == "" {
+			continue
+		}
+		declaredPlatforms[env.Platform] = true
+		if deployed[env.Platform] == nil {
+			deployed[env.Platform] = map[string]bool{}
+		}
+		for key := range env.Agents {
+			deployed[env.Platform][key] = true
+		}
+	}
+	for _, c := range reg.Platforms {
+		if !declaredPlatforms[c.Platform] {
+			continue
+		}
+		if !deployed[c.Platform][c.Key] {
+			out = append(out, fmt.Sprintf("%s：environments/ 下没有任何部署记录（声明了但没部署）", pointerLabel(c)))
 		}
 	}
 
 	return out
+}
+
+// pointerLabel 是一条平台能力指针在人话里的位置（问题行前缀）。
+func pointerLabel(c PlatformAgent) string {
+	return fmt.Sprintf("platforms/%s/%s.yaml", c.Platform, c.Key)
+}
+
+// candidatesLabel 拼「指针该在 config 的哪里找到真源」的候选列表（报错用）。
+func candidatesLabel(configSets []string, key string) string {
+	if len(configSets) == 0 {
+		return "config/ 下任何配置集合里的 agents/" + key + "/agent.yaml"
+	}
+	paths := make([]string, 0, len(configSets))
+	for _, space := range configSets {
+		paths = append(paths, fmt.Sprintf("config/%s/agents/%s/agent.yaml", space, key))
+	}
+	return strings.Join(paths, " 或 ")
+}
+
+// findConfigAgent 在 config/ 的各个配置集合里找该 key 的真源，返回配置集合名（空 = 没找到）。
+func findConfigAgent(repoDir string, configSets []string, key string) string {
+	for _, space := range configSets {
+		if _, err := os.Stat(filepath.Join(repoDir, "config", space, "agents", key, "agent.yaml")); err == nil {
+			return space
+		}
+	}
+	return ""
+}
+
+// configSetsOnDisk 列出 config/ 下的配置集合（目录），排序；没有 config/ 视为没有集合。
+func configSetsOnDisk(repoDir string) []string {
+	entries, err := os.ReadDir(filepath.Join(repoDir, "config"))
+	if err != nil {
+		return nil
+	}
+	var sets []string
+	for _, e := range entries {
+		if e.IsDir() {
+			sets = append(sets, e.Name())
+		}
+	}
+	sort.Strings(sets)
+	return sets
+}
+
+// sortedSet 把一个字符串集合排成有序切片（报错与遍历都要确定性顺序）。
+func sortedSet(set map[string]bool) []string {
+	keys := make([]string, 0, len(set))
+	for k := range set {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// configAgent 是 config/ 下 agent.yaml 的核对子集；这里只取对账要用的 name。
+type configAgent struct {
+	Name string `yaml:"name"`
+}
+
+// readConfigAgentName 解析 config agent.yaml 的 name。不用 KnownFields：那份
+// schema 归 x-deploy 管，字段远多于这里要的一项，认全它只会让对账跟着它碎。
+func readConfigAgentName(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	var a configAgent
+	if err := yaml.Unmarshal(data, &a); err != nil {
+		return "", err
+	}
+	return a.Name, nil
+}
+
+// isOrgUUID 判定组织标识是不是完整 UUID（8-4-4-4-12 十六进制）。
+// slug 只做人读，喂给 HIFOX_ORGANIZATION_ID 会被平台判 404。
+func isOrgUUID(s string) bool {
+	groups := []int{8, 4, 4, 4, 12}
+	parts := strings.Split(s, "-")
+	if len(parts) != len(groups) {
+		return false
+	}
+	for i, p := range parts {
+		if len(p) != groups[i] {
+			return false
+		}
+		for _, r := range p {
+			switch {
+			case r >= '0' && r <= '9', r >= 'a' && r <= 'f', r >= 'A' && r <= 'F':
+			default:
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // scan 扫四类目录。fatal 是读不到/解析不了的硬错误，problems 是可继续的漂移。
@@ -336,30 +543,42 @@ func scan(root string) (*Registry, []error, []string) {
 		reg.Scripts = append(reg.Scripts, s)
 	}
 
-	for _, e := range readDir(root, "cloud", &fatal) {
-		if e.IsDir() {
+	for _, p := range readDir(root, "platforms", &fatal) {
+		if !p.IsDir() {
 			continue
 		}
-		key, ok := yamlKey(e.Name())
-		if !ok {
-			continue
+		platform := p.Name()
+		for _, e := range readDir(filepath.Join(root, "platforms"), platform, &fatal) {
+			if e.IsDir() {
+				continue
+			}
+			key, ok := yamlKey(e.Name())
+			if !ok {
+				continue
+			}
+			var c PlatformAgent
+			if err := readYAML(filepath.Join(root, "platforms", platform, e.Name()), &c); err != nil {
+				fatal = append(fatal, err)
+				continue
+			}
+			c.Platform = platform
+			if c.Key != key {
+				problems = append(problems, fmt.Sprintf("platforms/%s/%s：key 是 %q，与文件名不符", platform, e.Name(), c.Key))
+				c.Key = key
+			}
+			reg.Platforms = append(reg.Platforms, c)
 		}
-		var c Cloud
-		if err := readYAML(filepath.Join(root, "cloud", e.Name()), &c); err != nil {
-			fatal = append(fatal, err)
-			continue
-		}
-		if c.Key != key {
-			problems = append(problems, fmt.Sprintf("cloud/%s：key 是 %q，与文件名不符", e.Name(), c.Key))
-			c.Key = key
-		}
-		reg.Cloud = append(reg.Cloud, c)
 	}
 
 	sort.Slice(reg.Agents, func(i, j int) bool { return reg.Agents[i].Key < reg.Agents[j].Key })
 	sort.Slice(reg.Skills, func(i, j int) bool { return reg.Skills[i].Key < reg.Skills[j].Key })
 	sort.Slice(reg.Scripts, func(i, j int) bool { return reg.Scripts[i].Key < reg.Scripts[j].Key })
-	sort.Slice(reg.Cloud, func(i, j int) bool { return reg.Cloud[i].Key < reg.Cloud[j].Key })
+	sort.Slice(reg.Platforms, func(i, j int) bool {
+		if reg.Platforms[i].Platform != reg.Platforms[j].Platform {
+			return reg.Platforms[i].Platform < reg.Platforms[j].Platform
+		}
+		return reg.Platforms[i].Key < reg.Platforms[j].Key
+	})
 	return reg, fatal, problems
 }
 

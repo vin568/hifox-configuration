@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,6 +11,22 @@ import (
 	"super-agent/internal/herdr"
 	"super-agent/internal/inject"
 )
+
+// 升级兼容的接线：哨兵两个调用点都要拿到「新快照 + 旧名快照」。旧名只在升级窗口里
+// 当基线——把它漏成空串，升级首轮会把在途任务全部重打基线，窗口内的变化不注入。
+func TestSnapshotPathsIncludeLegacyName(t *testing.T) {
+	cfg := config.Config{StateDir: t.TempDir()}
+	snap, legacy := snapshotPaths(cfg)
+	if filepath.Base(snap) != "platform-snapshot.json" {
+		t.Errorf("新快照名 = %q", snap)
+	}
+	if filepath.Base(legacy) != "cloud-snapshot.json" {
+		t.Errorf("旧名快照 = %q", legacy)
+	}
+	if filepath.Dir(snap) != cfg.StateDir || filepath.Dir(legacy) != cfg.StateDir {
+		t.Errorf("快照该落在状态目录: %q %q", snap, legacy)
+	}
+}
 
 func injectClient(prompted *[]string) *herdr.Client {
 	return &herdr.Client{Run: func(_ context.Context, args []string) (string, error) {

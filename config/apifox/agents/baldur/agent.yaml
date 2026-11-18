@@ -5,7 +5,6 @@ description: 专门负责 server-apps 仓库中的后端开发、调试、代码
 instructionsFile: instructions.md
 runtime:
   model: hifox/glm-5.3
-  customArguments: []
 permissions:
   taskAssignment: true
   directMessage: true

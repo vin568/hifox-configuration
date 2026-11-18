@@ -10,6 +10,17 @@ import (
 	"super-agent/internal/config"
 )
 
+// runtimeCmdPath 是当前这个 superctl 可执行文件的绝对路径。手册里到处写裸 `superctl`，
+// 而本机 superctl 未必在 PATH 上（实测 which superctl 为空），主控照着手册敲会扑空——
+// 把真实路径给它是唯一能让手册落地的办法。取不到就留空（那段不打印）。
+func runtimeCmdPath() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return exe
+}
+
 // deriveAgentNames 从能力注册表取主控/复盘 agent 的 key（注册表是它们的唯一声明处）。
 func deriveAgentNames(cfg config.Config) (master, retro string, err error) {
 	reg, err := capability.Load(cfg.RepoDir)
@@ -58,6 +69,7 @@ func expectedTopo(cfg config.Config) (boot.Expected, error) {
 			ArchivedDir:     cfg.ArchivedDir(),
 			ResultsDir:      cfg.ResultsDir(),
 			InflightPath:    cfg.InflightPath(),
+			RuntimeCmd:      runtimeCmdPath(),
 			Index:           reg.Index(),
 		}),
 		PrimeMarkerDir: cfg.PrimeMarkerDir(),

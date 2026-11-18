@@ -26,28 +26,31 @@ type Config struct {
 	// 一致时警告后忽略），不让「改了不生效」变成静默悬案，也不让升级直接把人打死。
 	LegacyMasterAgent string `toml:"master_agent"`
 	LegacyRetroAgent  string `toml:"retro_agent"`
+	// LegacyCloudPollInterval 是 platform_poll_interval 的旧名（cloud 曾当 hifox 的同义词）；
+	// 由 loadConfigWithAgents 按「值是否等于新键」决定警告还是报错。
+	LegacyCloudPollInterval string `toml:"cloud_poll_interval"`
 
-	TickInterval      string   `toml:"tick_interval"`
-	AllowedUsers      []string `toml:"allowed_users"`
-	ProxyReplyGroups  []string `toml:"proxy_reply_groups"`
-	AnyMessageGroups  []string `toml:"any_message_groups"`
-	BotMentionOpenID  string   `toml:"bot_open_id"`
-	AdminChatID       string   `toml:"admin_chat_id"`
-	CloudPollInterval string   `toml:"cloud_poll_interval"`
-	MasterAgentArgs   []string `toml:"master_agent_args"`
-	SessionMaxBytes   int64    `toml:"session_max_bytes"` // 会话文件超过它且主控 idle 时换脑（0 = 关）
-	SessionsKeep      int      `toml:"sessions_keep"`     // 会话留档目录保留轮数（0 = 默认 5）
+	TickInterval         string   `toml:"tick_interval"`
+	AllowedUsers         []string `toml:"allowed_users"`
+	ProxyReplyGroups     []string `toml:"proxy_reply_groups"`
+	AnyMessageGroups     []string `toml:"any_message_groups"`
+	BotMentionOpenID     string   `toml:"bot_open_id"`
+	AdminChatID          string   `toml:"admin_chat_id"`
+	PlatformPollInterval string   `toml:"platform_poll_interval"`
+	MasterAgentArgs      []string `toml:"master_agent_args"`
+	SessionMaxBytes      int64    `toml:"session_max_bytes"` // 会话文件超过它且主控 idle 时换脑（0 = 关）
+	SessionsKeep         int      `toml:"sessions_keep"`     // 会话留档目录保留轮数（0 = 默认 5）
 }
 
 func Default() Config {
 	return Config{
-		Session:           "super-agent",
-		StateDir:          "~/.local/state/songjiang",
-		RepoDir:           "~/code/apifox/hifox-configuration-super-agent",
-		TickInterval:      "10m",
-		CloudPollInterval: "60s",
-		SessionMaxBytes:   8 << 20, // 8 MiB：约两千条消息；超过它就换脑重置上下文
-		SessionsKeep:      5,
+		Session:              "super-agent",
+		StateDir:             "~/.local/state/songjiang",
+		RepoDir:              "~/code/apifox/hifox-configuration-super-agent",
+		TickInterval:         "10m",
+		PlatformPollInterval: "60s",
+		SessionMaxBytes:      8 << 20, // 8 MiB：约两千条消息；超过它就换脑重置上下文
+		SessionsKeep:         5,
 	}
 }
 
@@ -88,8 +91,8 @@ func (c Config) Validate() error {
 	if len(missing) > 0 {
 		return fmt.Errorf("config missing: %s", strings.Join(missing, ", "))
 	}
-	if _, err := c.CloudInterval(); err != nil {
-		return fmt.Errorf("cloud_poll_interval: %w", err)
+	if _, err := c.PlatformInterval(); err != nil {
+		return fmt.Errorf("platform_poll_interval: %w", err)
 	}
 	if _, err := c.SweepInterval(); err != nil {
 		return fmt.Errorf("tick_interval: %w", err)
@@ -102,20 +105,24 @@ func (c Config) SweepInterval() (time.Duration, error) {
 	return parsePositiveDuration("tick_interval", c.TickInterval)
 }
 
-// CloudInterval 解析云端哨兵轮询周期（纯 CLI 轮询，零 LLM 成本）。
-func (c Config) CloudInterval() (time.Duration, error) {
-	return parsePositiveDuration("cloud_poll_interval", c.CloudPollInterval)
+// PlatformInterval 解析平台哨兵轮询周期（纯 CLI 轮询，零 LLM 成本）。
+func (c Config) PlatformInterval() (time.Duration, error) {
+	return parsePositiveDuration("platform_poll_interval", c.PlatformPollInterval)
 }
 
 func (c Config) InflightPath() string { return filepath.Join(c.StateDir, "inflight.json") }
 
-// LegacyWatchlistPath 是改名前的云端跟踪清单；只在 inflight.json 尚未生成时用作迁移源。
+// LegacyWatchlistPath 是改名前的平台跟踪清单；只在 inflight.json 尚未生成时用作迁移源。
 func (c Config) LegacyWatchlistPath() string { return filepath.Join(c.StateDir, "watchlist.json") }
 func (c Config) HaltPath() string            { return filepath.Join(c.StateDir, "halt.json") }
 func (c Config) SessionsDir() string         { return filepath.Join(c.StateDir, "sessions") }
 func (c Config) HandoffPath() string         { return filepath.Join(c.StateDir, "handoff.md") }
-func (c Config) CloudSnapPath() string       { return filepath.Join(c.StateDir, "cloud-snapshot.json") }
-func (c Config) PrimeMarkerDir() string      { return filepath.Join(c.StateDir, "primed") }
+func (c Config) PlatformSnapPath() string    { return filepath.Join(c.StateDir, "platform-snapshot.json") }
+
+// LegacySnapPath 是改名前的哨兵快照（cloud 曾当 hifox 的同义词）。只在新的
+// platform-snapshot.json 还没生成时作迁移基线：否则升级后首轮会重打基线、丢掉变化。
+func (c Config) LegacySnapPath() string { return filepath.Join(c.StateDir, "cloud-snapshot.json") }
+func (c Config) PrimeMarkerDir() string { return filepath.Join(c.StateDir, "primed") }
 func (c Config) CapabilitiesDir() string {
 	return filepath.Join(c.RepoDir, "super-agent", "capabilities")
 }

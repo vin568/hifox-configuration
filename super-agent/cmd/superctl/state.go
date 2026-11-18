@@ -30,7 +30,7 @@ type liveAgent struct {
 // truth 是在途面的两种视图：给主控的（含 pane/路径，用于处置）与给用户的（只留人话，
 // 一体人设：不出口 agent 名、pane id、文件名）。两者同源，避免一处泄漏、一处缺失。
 type truth struct {
-	cloud        []string // "HF-1：note"
+	platform     []string // "HF-1：note"
 	local        []string // note
 	ledger       []string // 人读的台账标签（去掉日期前缀与 .md）
 	live         []liveAgent
@@ -50,12 +50,12 @@ func collectTruth(ctx context.Context, cfg config.Config, hc *herdr.Client) trut
 	seen := map[string]bool{}
 	for _, e := range entries {
 		switch e.Kind {
-		case "local":
+		case inflight.KindLocal:
 			t.local = append(t.local, noteOr(e.Note, "一件本机活"))
 			t.notes[e.Agent] = noteOr(e.Note, "已登记")
 			seen[e.Agent] = true
 		default:
-			t.cloud = append(t.cloud, fmt.Sprintf("%s：%s", e.TaskID, noteOr(e.Note, "云端任务")))
+			t.platform = append(t.platform, fmt.Sprintf("%s：%s", e.TaskID, noteOr(e.Note, "平台任务")))
 		}
 	}
 	for _, name := range ledgerFiles(cfg.ActiveDir()) {
@@ -73,8 +73,8 @@ func collectTruth(ctx context.Context, cfg config.Config, hc *herdr.Client) trut
 // forUser 是回执正文：只留人能懂的东西（任务号、一句话说明、在办的标签）。
 func (t truth) forUser() string {
 	var b strings.Builder
-	for _, line := range t.cloud {
-		fmt.Fprintf(&b, "- 云端任务 %s\n", line)
+	for _, line := range t.platform {
+		fmt.Fprintf(&b, "- 平台任务 %s\n", line)
 	}
 	for _, line := range t.local {
 		fmt.Fprintf(&b, "- %s\n", line)
@@ -94,8 +94,8 @@ func (t truth) forUser() string {
 // forMaster 是机器真值：pane、agent、文件路径全给，主控据此处置与取消。
 func (t truth) forMaster(cfg config.Config) string {
 	var b strings.Builder
-	for _, line := range t.cloud {
-		fmt.Fprintf(&b, "- 云端任务 %s（在途清单在册）\n", line)
+	for _, line := range t.platform {
+		fmt.Fprintf(&b, "- 平台任务 %s（在途清单在册）\n", line)
 	}
 	for _, a := range t.live {
 		note := ""
@@ -200,7 +200,7 @@ func feishuInjector(cfg config.Config, hc *herdr.Client, g gate, notifier *block
 	}
 }
 
-// sentinelInjector 是云端哨兵的注入回调：急停期间只延迟（不推进快照），解除后补交。
+// sentinelInjector 是平台哨兵的注入回调：急停期间只延迟（不推进快照），解除后补交。
 func sentinelInjector(cfg config.Config, hc *herdr.Client, g gate, notifier *blockedNotifier) func(text string) error {
 	return func(text string) error {
 		if !g.allowMachine() {

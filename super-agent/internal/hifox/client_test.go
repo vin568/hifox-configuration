@@ -136,16 +136,114 @@ func TestActiveRun(t *testing.T) {
 	}
 }
 
-// 指定实例时，裸名「戴宗」不算命中——否则 --instance 会既报歧义又给不出解法。
-func TestResolveDelegateInstanceExcludesBareName(t *testing.T) {
+// --instance 的语义：prod 是「无后缀」那份（平台上的裸名），staging 是带后缀那份；
+// 不指定时多实例必须报歧义，别替人猜。
+func TestResolveDelegateInstanceSemantics(t *testing.T) {
 	agents := []AgentRef{{ID: "a", Name: "戴宗"}, {ID: "b", Name: "戴宗 (staging)"}}
-	if _, err := ResolveDelegate(agents, "戴宗", "staging"); err != nil {
-		t.Fatalf("指定 staging 应唯一命中: %v", err)
+	if ref, err := ResolveDelegate(agents, "戴宗", "staging"); err != nil || ref.ID != "b" {
+		t.Fatalf("指定 staging 应命中带后缀那份: %+v %v", ref, err)
+	}
+	if ref, err := ResolveDelegate(agents, "戴宗", "prod"); err != nil || ref.ID != "a" {
+		t.Fatalf("指定 prod 应命中无后缀那份: %+v %v", ref, err)
 	}
 	if _, err := ResolveDelegate(agents, "戴宗", ""); err == nil {
 		t.Fatal("不指定实例且有裸名+实例名时应报歧义")
 	}
-	if _, err := ResolveDelegate(agents, "戴宗", "prod"); err == nil {
-		t.Fatal("没有 prod 实例时应报找不到")
+}
+
+// 只有 staging 那一份时，--instance prod 必须如实报找不到：prod 指的是「无后缀」这个
+// 具体实例，不是「随便哪一份」（旧实现把两者混为一谈，prod 反而恒零命中）。
+func TestResolveDelegateProdMissingOnStagingOnly(t *testing.T) {
+	agents := []AgentRef{{ID: "b", Name: "戴宗 (staging)"}}
+	if _, err := ResolveDelegate(agents, "戴宗", "prod"); err == nil || !strings.Contains(err.Error(), "找不到") {
+		t.Fatalf("只有 staging 时指定 prod 应报找不到: %v", err)
+	}
+	if ref, err := ResolveDelegate(agents, "戴宗", "staging"); err != nil || ref.ID != "b" {
+		t.Fatalf("staging 仍应命中: %+v %v", ref, err)
+	}
+}
+
+// 注册表对账（capability.Check）与派活解析共用这一套「同名」判定，边界行为要有表。
+func TestNameMatches(t *testing.T) {
+	cases := []struct {
+		declared, candidate string
+		want                bool
+	}{
+		{"巴德尔", "巴德尔 Baldur", true},
+		{"萧", "萧让", false},
+		{"吴用", "吴用改", false},
+		{"吴用", "吴用", true},
+		{"吴用", "吴", false},
+	}
+	for _, c := range cases {
+		if got := NameMatches(c.declared, c.candidate); got != c.want {
+			t.Errorf("NameMatches(%q, %q) = %v, want %v", c.declared, c.candidate, got, c.want)
+		}
+	}
+}
+
+// 平台名字带实例后缀（两种写法）时先剥后缀再比——线上对账用这条。
+func TestPlatformNameMatches(t *testing.T) {
+	cases := []struct {
+		declared, platformName string
+		want                   bool
+	}{
+		{"吴用", "吴用 (staging)", true},
+		{"燕青", "燕青 - staging", true},
+		{"巴德尔", "巴德尔 Baldur - staging", true},
+		{"萧", "萧让 (staging)", false},
+		{"吴用", "卢克 Luke", false},
+	}
+	for _, c := range cases {
+		if got := PlatformNameMatches(c.declared, c.platformName); got != c.want {
+			t.Errorf("PlatformNameMatches(%q, %q) = %v, want %v", c.declared, c.platformName, got, c.want)
+		}
+	}
+}
+
+// AgentListAll 走 --include-archived（对账要看归档状态），并解析出对账用的字段。
+func TestAgentListAllIncludesArchivedAndParsesFields(t *testing.T) {
+	out := `[{"id":"a1","name":"戴宗 (staging)","jobTitle":"验收","spaceIds":["s1","s2"],` +
+		`"archivedAt":"2026-01-01T00:00:00Z","allowTaskAssignment":true,"canManage":false,"status":"active"}]`
+	c, got := stubClient(t, out, nil)
+	refs, err := c.AgentListAll(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "agent list --include-archived --output json"; strings.Join(*got, " ") != want {
+		t.Fatalf("args=%v", *got)
+	}
+	if len(refs) != 1 {
+		t.Fatalf("refs=%+v", refs)
+	}
+	r := refs[0]
+	if r.ID != "a1" || r.Name != "戴宗 (staging)" || len(r.SpaceIDs) != 2 || r.ArchivedAt == "" ||
+		!r.AllowTaskAssignment || r.CanManage || r.Status != "active" {
+		t.Fatalf("ref=%+v", r)
+	}
+}
+
+// AgentList 不带 --include-archived：派活只认在册项。
+func TestAgentListStaysWithoutArchivedFlag(t *testing.T) {
+	c, got := stubClient(t, `[]`, nil)
+	if _, err := c.AgentList(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if want := "agent list --output json"; strings.Join(*got, " ") != want {
+		t.Fatalf("args=%v", *got)
+	}
+}
+
+// JSON null 解成零值即可：平台上没归档/没配空间不该让对账炸掉。
+func TestAgentListToleratesNullFields(t *testing.T) {
+	out := `[{"id":"a1","name":"奥丁","jobTitle":null,"spaceIds":null,"archivedAt":null,` +
+		`"allowTaskAssignment":false,"canManage":null,"status":null}]`
+	c, _ := stubClient(t, out, nil)
+	refs, err := c.AgentList(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refs) != 1 || refs[0].Name != "奥丁" || refs[0].ArchivedAt != "" || refs[0].SpaceIDs != nil {
+		t.Fatalf("refs=%+v", refs)
 	}
 }

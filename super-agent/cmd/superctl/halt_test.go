@@ -18,10 +18,11 @@ import (
 	"super-agent/internal/inflight"
 	"super-agent/internal/inject"
 	"super-agent/internal/outbox"
+	"super-agent/internal/platform"
 	"super-agent/internal/tick"
 )
 
-// testRepo 造一个最小仓库：能力注册表（含一个 role=job 的本地能力）+ config/ 云端指针。
+// testRepo 造一个最小仓库：能力注册表（含一个 role=job 的本地能力）+ config/ 平台指针。
 func testRepo(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -39,8 +40,11 @@ func testRepo(t *testing.T) string {
 	write("super-agent/capabilities/agents/worker/capability.yaml",
 		"key: worker\nname: 工人\ndescription: 测试用本地能力\nrole: job\nworkspace: jobs\nkind: omp\nmaxConcurrent: 1\n")
 	write("super-agent/capabilities/agents/worker/instructions.md", "工人手册")
-	write("super-agent/capabilities/cloud/daizong.yaml", "key: daizong\nname: 戴宗\nspace: HiFox\nnote: 验收\n")
+	write("super-agent/capabilities/platforms/hifox/daizong.yaml", "key: daizong\nname: 戴宗\nspace: HiFox\nnote: 验收\n")
 	write("config/hifox/agents/daizong/agent.yaml", "key: daizong\nname: 戴宗\n")
+	// 平台指针要有部署记录才算闭环（capabilities --check 的第三条），平台归属看 cli.app。
+	write("environments/dev/environment.yaml", "organizationId: 11111111-1111-4111-8111-111111111111\nspaceId: space-1\nconfigSet: hifox\ncli:\n  app: hifox\n")
+	write("environments/dev/state.yaml", "version: 1\nagents:\n  daizong:\n    id: agent-1\n    deployedName: 戴宗\n")
 	return root
 }
 
@@ -131,11 +135,16 @@ func TestDispatchLocalStartsRegistersAndDraftsLedger(t *testing.T) {
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("应自动登记在途清单: %+v err=%v", entries, err)
 	}
-	if entries[0].Kind != "local" || entries[0].Agent != f.started[0] {
+	if entries[0].Kind != inflight.KindLocal || entries[0].Agent != f.started[0] {
 		t.Fatalf("在途清单条目不对: %+v", entries[0])
 	}
 	if len(f.prompts) != 1 || !strings.Contains(f.prompts[0], cfg.ResultsDir()) {
 		t.Fatalf("注入任务里应带结果路径: %v", f.prompts)
+	}
+	// 接线（不是 localPrompt 单测）：注入的 prompt 必须真的带上该 agent 的手册正文，
+	// 退回「只喂任务正文」这条用例当场红。
+	if !strings.Contains(f.prompts[0], "工人手册") {
+		t.Fatalf("注入的 prompt 必须带该 agent 的手册正文: %v", f.prompts)
 	}
 	files, _ := os.ReadDir(cfg.ActiveDir())
 	if len(files) != 1 {
@@ -147,7 +156,7 @@ func TestDispatchLocalRespectsMaxConcurrent(t *testing.T) {
 	repo := testRepo(t)
 	cfg := testCfg(t, repo)
 	for i := 0; i < 1; i++ {
-		if err := inflight.Add(cfg.InflightPath(), inflight.Entry{Kind: "local", Agent: "worker-old"}); err != nil {
+		if err := inflight.Add(cfg.InflightPath(), inflight.Entry{Kind: inflight.KindLocal, Agent: "worker-old"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -294,10 +303,10 @@ func TestGateSilencesGroupDuringHalt(t *testing.T) {
 func TestTruthMasterVsUser(t *testing.T) {
 	repo := testRepo(t)
 	cfg := testCfg(t, repo)
-	if err := inflight.Add(cfg.InflightPath(), inflight.Entry{Kind: "cloud", TaskID: "HF-1", Note: "云端活"}); err != nil {
+	if err := inflight.Add(cfg.InflightPath(), inflight.Entry{Kind: inflight.KindPlatform, Platform: platform.Hifox, TaskID: "HF-1", Note: "平台活"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := inflight.Add(cfg.InflightPath(), inflight.Entry{Kind: "local", Agent: "worker-1", Pane: "w3:p1", Note: "跑一遍"}); err != nil {
+	if err := inflight.Add(cfg.InflightPath(), inflight.Entry{Kind: inflight.KindLocal, Agent: "worker-1", Pane: "w3:p1", Note: "跑一遍"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(cfg.ActiveDir(), "20261117-活.md"), []byte("x"), 0o644); err != nil {
@@ -308,13 +317,13 @@ func TestTruthMasterVsUser(t *testing.T) {
 	tr := collectTruth(context.Background(), cfg, hc)
 
 	master := tr.forMaster(cfg)
-	for _, want := range []string{"HF-1", "云端活", "20261117-活.md", "worker-1", "w3:p1"} {
+	for _, want := range []string{"HF-1", "平台活", "20261117-活.md", "worker-1", "w3:p1"} {
 		if !strings.Contains(master, want) {
 			t.Fatalf("主控视图缺 %q:\n%s", want, master)
 		}
 	}
 	user := tr.forUser()
-	for _, want := range []string{"HF-1", "云端活", "跑一遍", "活"} {
+	for _, want := range []string{"HF-1", "平台活", "跑一遍", "活"} {
 		if !strings.Contains(user, want) {
 			t.Fatalf("用户视图缺 %q:\n%s", want, user)
 		}
@@ -331,7 +340,7 @@ func TestHaltReceiptWording(t *testing.T) {
 	if got := haltReceipt(""); !strings.Contains(got, "没有正在跑的事") {
 		t.Fatalf("空清单要说清楚: %s", got)
 	}
-	got := haltReceipt("- 云端任务 HF-1：验收")
+	got := haltReceipt("- 平台任务 HF-1：验收")
 	if !strings.Contains(got, "HF-1") || !strings.Contains(got, "要停哪些") {
 		t.Fatalf("有在途要带清单并问要不要停: %s", got)
 	}
@@ -367,7 +376,7 @@ func TestDispatchLocalLimitIsPerCapability(t *testing.T) {
 	cfg := testCfg(t, repo)
 	// 另一个能力已占掉 3 个额度（超过 worker 的 maxConcurrent:1）。
 	for i := 0; i < 3; i++ {
-		if err := inflight.Add(cfg.InflightPath(), inflight.Entry{Kind: "local", Agent: "other-" + string(rune('a'+i)), Capability: "other"}); err != nil {
+		if err := inflight.Add(cfg.InflightPath(), inflight.Entry{Kind: inflight.KindLocal, Agent: "other-" + string(rune('a'+i)), Capability: "other"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -383,10 +392,10 @@ func TestDispatchLocalLimitIsPerCapability(t *testing.T) {
 // 旧条目没有 capability 字段时用 agent 名前缀兜底认领，升级后额度不会突然清零。
 func TestCountActiveLocalFallsBackToPrefix(t *testing.T) {
 	entries := []inflight.Entry{
-		{Kind: "local", Agent: "worker-101500"},
-		{Kind: "local", Agent: "worker-101600", Capability: "worker"},
-		{Kind: "local", Agent: "other-101700", Capability: "other"},
-		{Kind: "cloud", TaskID: "HF-1"},
+		{Kind: inflight.KindLocal, Agent: "worker-101500"},
+		{Kind: inflight.KindLocal, Agent: "worker-101600", Capability: "worker"},
+		{Kind: inflight.KindLocal, Agent: "other-101700", Capability: "other"},
+		{Kind: inflight.KindPlatform, Platform: platform.Hifox, TaskID: "HF-1"},
 	}
 	if got := countActiveLocal(entries, "worker"); got != 2 {
 		t.Fatalf("countActiveLocal(worker) = %d, want 2", got)
@@ -621,8 +630,8 @@ func (f *rotateFake) run(_ context.Context, args []string) (string, error) {
 	return "", nil
 }
 
-// 云端派活：注册表 key → 平台 ref 的解析（歧义拒绝、实例可指定、显式 delegate 直通）。
-func TestDispatchCloudResolvesPlatformRef(t *testing.T) {
+// 平台派活：注册表 key → 平台 ref 的解析（歧义拒绝、实例可指定、显式 delegate 直通）。
+func TestDispatchHifoxResolvesPlatformRef(t *testing.T) {
 	repo := testRepo(t)
 	cfg := testCfg(t, repo)
 	agentsJSON := `[{"id":"id-prod","name":"戴宗 (prod)"},{"id":"id-staging","name":"戴宗 (staging)"}]`
@@ -638,11 +647,11 @@ func TestDispatchCloudResolvesPlatformRef(t *testing.T) {
 		return "", nil
 	}}
 
-	if _, err := dispatchCloud(context.Background(), cfg, func(string) *hifox.Client { return stub }, cloudReq{Title: "验收", AgentKey: "daizong"}, nil); err == nil {
+	if _, err := dispatchHifox(context.Background(), cfg, func(string) *hifox.Client { return stub }, platformReq{Platform: platform.Hifox, Title: "验收", AgentKey: "daizong"}, nil); err == nil {
 		t.Fatal("实例歧义时必须拒绝，而不是随便挑一个")
 	}
 
-	out, err := dispatchCloud(context.Background(), cfg, func(string) *hifox.Client { return stub }, cloudReq{Title: "验收", AgentKey: "daizong", Instance: "staging"}, nil)
+	out, err := dispatchHifox(context.Background(), cfg, func(string) *hifox.Client { return stub }, platformReq{Platform: platform.Hifox, Title: "验收", AgentKey: "daizong", Instance: "staging"}, nil)
 	if err != nil {
 		t.Fatalf("指定实例后应成功: %v", err)
 	}
@@ -664,28 +673,28 @@ func TestDispatchCloudResolvesPlatformRef(t *testing.T) {
 		}
 		return `{"id":"uuid-2","identifier":"HF-10"}`, nil
 	}}
-	if _, err := dispatchCloud(context.Background(), cfg, func(string) *hifox.Client { return noList }, cloudReq{Title: "t", AgentKey: "daizong", Delegate: "戴宗 (staging)"}, nil); err != nil {
+	if _, err := dispatchHifox(context.Background(), cfg, func(string) *hifox.Client { return noList }, platformReq{Platform: platform.Hifox, Title: "t", AgentKey: "daizong", Delegate: "戴宗 (staging)"}, nil); err != nil {
 		t.Fatalf("显式 delegate 应直通: %v", err)
 	}
 }
 
-// 云端派活：未在注册表声明的能力 key 必须拒绝（避免拼错 key 静默派错）。
-func TestDispatchCloudUnknownCapability(t *testing.T) {
+// 平台派活：未在注册表声明的能力 key 必须拒绝（避免拼错 key 静默派错）。
+func TestDispatchHifoxUnknownCapability(t *testing.T) {
 	repo := testRepo(t)
 	cfg := testCfg(t, repo)
-	_, err := dispatchCloud(context.Background(), cfg, func(string) *hifox.Client {
+	_, err := dispatchHifox(context.Background(), cfg, func(string) *hifox.Client {
 		return &hifox.Client{Run: func(context.Context, []string) (string, error) { return "", nil }}
-	}, cloudReq{Title: "t", AgentKey: "nobody"}, nil)
-	if err == nil || !strings.Contains(err.Error(), "没有云端能力") {
-		t.Fatalf("未声明的云端能力必须拒绝: %v", err)
+	}, platformReq{Platform: platform.Hifox, Title: "t", AgentKey: "nobody"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "没有平台") {
+		t.Fatalf("未声明的平台能力必须拒绝: %v", err)
 	}
 }
 
-// 云端撤销：有在跑/排队的 run 就取消并移出清单；没有就只移出并如实说明。
-func TestCancelCloud(t *testing.T) {
+// 平台撤销：有在跑/排队的 run 就取消并移出清单；没有就只移出并如实说明。
+func TestCancelPlatformTask(t *testing.T) {
 	repo := testRepo(t)
 	cfg := testCfg(t, repo)
-	if err := inflight.Add(cfg.InflightPath(), inflight.Entry{Kind: "cloud", TaskID: "HF-9"}); err != nil {
+	if err := inflight.Add(cfg.InflightPath(), inflight.Entry{Kind: inflight.KindPlatform, Platform: platform.Hifox, TaskID: "HF-9"}); err != nil {
 		t.Fatal(err)
 	}
 	var cancelled string
@@ -699,7 +708,7 @@ func TestCancelCloud(t *testing.T) {
 		}
 		return "", nil
 	}}
-	out, err := cancelCloud(context.Background(), cfg, stub, "HF-9")
+	out, err := cancelPlatformTask(context.Background(), cfg, stub, "HF-9")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -718,12 +727,77 @@ func TestCancelCloud(t *testing.T) {
 		t.Fatalf("无活跃 run 不该调 %v", args)
 		return "", nil
 	}}
-	out2, err := cancelCloud(context.Background(), cfg, quiet, "HF-404")
+	out2, err := cancelPlatformTask(context.Background(), cfg, quiet, "HF-404")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if out2["cancelled"] != false {
 		t.Fatalf("无活跃 run 不应谎报取消: %+v", out2)
+	}
+}
+
+// 撤销入口看条目上的平台：别的平台的任务不能拿 hifox 的 CLI 去撤（撤不掉，还会
+// 按错误的理解改动在途清单）。
+func TestCancelRejectsOtherPlatformTask(t *testing.T) {
+	repo := testRepo(t)
+	cfg := testCfg(t, repo)
+	if err := inflight.Add(cfg.InflightPath(), inflight.Entry{Kind: inflight.KindPlatform, Platform: "sharkly", TaskID: "SH-1"}); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "superctl.toml")
+	toml := "session = \"t\"\nstate_dir = \"" + cfg.StateDir + "\"\nrepo_dir = \"" + repo + "\"\n"
+	if err := os.WriteFile(cfgPath, []byte(toml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := cmdCancel([]string{"--task", "SH-1", "--config", cfgPath})
+	if err == nil || !strings.Contains(err.Error(), `平台 "sharkly" 的撤销还没有实现（任务 SH-1）`) {
+		t.Fatalf("别的平台的任务必须拒绝撤销: %v", err)
+	}
+	if entries, _ := inflight.Load(cfg.InflightPath()); len(entries) != 1 {
+		t.Fatalf("拒绝撤销时不该改动在途清单: %+v", entries)
+	}
+}
+
+// 同一任务号被写成两条（一条 hifox、一条别的平台）时，别让那条孤儿条目挡住正常的
+// hifox 撤销：守卫只在「这条任务号没有任何 hifox 归属」时才拦。
+func TestCancelHifoxTaskUnderForeignDuplicateEntry(t *testing.T) {
+	repo := testRepo(t)
+	cfg := testCfg(t, repo)
+	for _, e := range []inflight.Entry{
+		{Kind: inflight.KindPlatform, Platform: "sharkly", TaskID: "HF-777", Note: "孤儿"},
+		{Kind: inflight.KindPlatform, Platform: platform.Hifox, TaskID: "HF-777", Note: "真的"},
+	} {
+		if err := inflight.Add(cfg.InflightPath(), e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "superctl.toml")
+	toml := "session = \"t\"\nstate_dir = \"" + cfg.StateDir + "\"\nrepo_dir = \"" + repo + "\"\n"
+	if err := os.WriteFile(cfgPath, []byte(toml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	restore := taskClient
+	taskClient = func() *hifox.Client {
+		return &hifox.Client{Run: func(_ context.Context, args []string) (string, error) {
+			if len(args) > 1 && args[0] == "run" && args[1] == "list" {
+				return "[]", nil
+			}
+			return "", nil
+		}}
+	}
+	defer func() { taskClient = restore }()
+
+	if err := cmdCancel([]string{"--task", "HF-777", "--config", cfgPath}); err != nil {
+		t.Fatalf("有 hifox 归属时不该被拦: %v", err)
+	}
+	entries, err := inflight.Load(cfg.InflightPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Platform != "sharkly" {
+		t.Fatalf("只该移出 hifox 那条: %+v", entries)
 	}
 }
 
@@ -739,7 +813,7 @@ func TestSweepSignalsCountsThreeSources(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cfg.ActiveDir(), "20261117-a.md"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := inflight.Add(cfg.InflightPath(), inflight.Entry{Kind: "cloud", TaskID: "HF-1"}); err != nil {
+	if err := inflight.Add(cfg.InflightPath(), inflight.Entry{Kind: inflight.KindPlatform, Platform: platform.Hifox, TaskID: "HF-1"}); err != nil {
 		t.Fatal(err)
 	}
 	sig := sweepSignals(context.Background(), cfg, hc)
@@ -859,11 +933,11 @@ func TestDispatchLocalRunsEnsureFirst(t *testing.T) {
 }
 
 // --space 缺省时用声明里的 space（注册表已经知道它在哪个 Space）。
-func TestDispatchCloudDefaultsSpaceFromDeclaration(t *testing.T) {
+func TestDispatchHifoxDefaultsSpaceFromDeclaration(t *testing.T) {
 	repo := testRepo(t)
 	cfg := testCfg(t, repo)
-	// testRepo 的 cloud 指针没有 space 字段，补一个。
-	writeCap(t, repo, "super-agent/capabilities/cloud/daizong.yaml",
+	// testRepo 的平台指针没有 space 字段，补一个。
+	writeCap(t, repo, "super-agent/capabilities/platforms/hifox/daizong.yaml",
 		"key: daizong\nname: 戴宗\nspace: HF\nnote: 验收\n")
 	var created []string
 	stub := &hifox.Client{Run: func(_ context.Context, args []string) (string, error) {
@@ -876,7 +950,7 @@ func TestDispatchCloudDefaultsSpaceFromDeclaration(t *testing.T) {
 		}
 		return "", nil
 	}}
-	if _, err := dispatchCloud(context.Background(), cfg, func(string) *hifox.Client { return stub }, cloudReq{Title: "t", AgentKey: "daizong"}, nil); err != nil {
+	if _, err := dispatchHifox(context.Background(), cfg, func(string) *hifox.Client { return stub }, platformReq{Platform: platform.Hifox, Title: "t", AgentKey: "daizong"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(strings.Join(created, " "), "--space HF") {
@@ -901,6 +975,14 @@ func TestCapabilitiesRejectsPositionalArgs(t *testing.T) {
 	}
 }
 
+// --live 是 --check 的加强档：单独给它会让人以为它还能查别的，直接报错说清。
+func TestCapabilitiesLiveRequiresCheck(t *testing.T) {
+	err := cmdCapabilities([]string{"--live"})
+	if err == nil || !strings.Contains(err.Error(), "--live 需要与 --check 同用") {
+		t.Fatalf("--live 单独用应报错: %v", err)
+	}
+}
+
 // 已下线键：值一致 → 放行（存量配置平滑升级）；值不一致 → 硬报错（有人以为它还在生效）。
 func TestLegacyAgentKeysMustMatchRegistry(t *testing.T) {
 	repo := testRepo(t)
@@ -918,5 +1000,28 @@ func TestLegacyAgentKeysMustMatchRegistry(t *testing.T) {
 	}
 	if _, _, err := loadConfigWithAgents([]string{"--config", writeCfg("master_agent = \"oldname\"\n")}); err == nil || !strings.Contains(err.Error(), "不再生效") {
 		t.Fatalf("值不一致必须报错: %v", err)
+	}
+}
+
+// cloud_poll_interval 是 platform_poll_interval 的旧名：值一致 → 放行（存量配置平滑升级）；
+// 值不一致 → 硬报错并点名新键，否则「改了周期却不生效」会变成悬案。
+func TestLegacyCloudPollIntervalMustMatchNewKey(t *testing.T) {
+	repo := testRepo(t)
+	dir := t.TempDir()
+	writeCfg := func(extra string) string {
+		p := filepath.Join(dir, "superctl.toml")
+		body := "session = \"t\"\nstate_dir = \"" + dir + "/state\"\nrepo_dir = \"" + repo + "\"\n" + extra
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	_, _, err := loadConfigWithAgents([]string{"--config", writeCfg("platform_poll_interval = \"30s\"\ncloud_poll_interval = \"30s\"\n")})
+	if err != nil {
+		t.Fatalf("值一致应放行: %v", err)
+	}
+	_, _, err = loadConfigWithAgents([]string{"--config", writeCfg("platform_poll_interval = \"60s\"\ncloud_poll_interval = \"30s\"\n")})
+	if err == nil || !strings.Contains(err.Error(), "platform_poll_interval") {
+		t.Fatalf("值不一致必须报错且点名新键: %v", err)
 	}
 }

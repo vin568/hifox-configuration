@@ -39,7 +39,7 @@ func TestSweepInterval(t *testing.T) {
 	}
 }
 
-func TestCloudInterval(t *testing.T) {
+func TestPlatformInterval(t *testing.T) {
 	tests := []struct {
 		in      string
 		want    time.Duration
@@ -53,26 +53,35 @@ func TestCloudInterval(t *testing.T) {
 	}
 	for _, tt := range tests {
 		c := Default()
-		c.CloudPollInterval = tt.in
-		d, err := c.CloudInterval()
+		c.PlatformPollInterval = tt.in
+		d, err := c.PlatformInterval()
 		if tt.wantErr {
 			if err == nil {
-				t.Fatalf("CloudInterval(%q) = %v, want error", tt.in, d)
+				t.Fatalf("PlatformInterval(%q) = %v, want error", tt.in, d)
 			}
 			continue
 		}
 		if err != nil || d != tt.want {
-			t.Fatalf("CloudInterval(%q) = %v %v, want %v", tt.in, d, err, tt.want)
+			t.Fatalf("PlatformInterval(%q) = %v %v, want %v", tt.in, d, err, tt.want)
 		}
 	}
 }
 
-func TestValidateCloudIntervalPrefixed(t *testing.T) {
+func TestValidatePlatformIntervalPrefixed(t *testing.T) {
 	c := Default()
-	c.CloudPollInterval = "bogus"
+	c.PlatformPollInterval = "bogus"
 	err := c.Validate()
-	if err == nil || !strings.HasPrefix(err.Error(), "cloud_poll_interval: ") {
-		t.Fatalf("Validate should prefix cloud_poll_interval error, got %v", err)
+	if err == nil || !strings.HasPrefix(err.Error(), "platform_poll_interval: ") {
+		t.Fatalf("Validate should prefix platform_poll_interval error, got %v", err)
+	}
+}
+
+// 平台哨兵快照换了名字：cloud 不再当 hifox 的同义词。
+func TestPlatformSnapPath(t *testing.T) {
+	c := Default()
+	c.StateDir = "/state"
+	if got := c.PlatformSnapPath(); got != filepath.Join("/state", "platform-snapshot.json") {
+		t.Fatalf("PlatformSnapPath() = %q", got)
 	}
 }
 
@@ -154,5 +163,26 @@ func TestLoadAcceptsLegacyAgentKeys(t *testing.T) {
 	}
 	if c.LegacyMasterAgent != "songjiang" {
 		t.Fatalf("旧键应可读: %+v", c)
+	}
+}
+
+// cloud_poll_interval 是 platform_poll_interval 的旧名：旧键也得能在 Load 阶段读出来，
+// 供调用方按「值是否等于新键」决定警告还是硬报错。
+func TestLoadAcceptsLegacyCloudPollInterval(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/superctl.toml"
+	body := "session = \"t\"\nstate_dir = \"" + dir + "\"\nplatform_poll_interval = \"30s\"\ncloud_poll_interval = \"30s\"\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("旧键不应让 Load 失败: %v", err)
+	}
+	if c.LegacyCloudPollInterval != "30s" || c.PlatformPollInterval != "30s" {
+		t.Fatalf("新旧键都该可读: %+v", c)
+	}
+	if d, err := c.PlatformInterval(); err != nil || d != 30*time.Second {
+		t.Fatalf("新键应生效: %v %v", d, err)
 	}
 }

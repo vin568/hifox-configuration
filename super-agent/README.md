@@ -1,31 +1,31 @@
 # super-agent — 宋江本地运行时
 
-宋江（主控）super agent 的 Go 单二进制运行时：飞书注入器、`superctl` CLI、作业巡检 tick、重启引导。术语见根 `GLOSSARY.md`「主控编排」节；架构与边界见 `docs/adr/0016`–`0022`。跑在本机 herdr 上，不经 x-deploy 部署。
+宋江（主控）super agent 的 Go 单二进制运行时：飞书注入器、`superctl` CLI、作业巡检 tick、重启引导。术语见根 `GLOSSARY.md`「主控编排」节；架构与边界见 `docs/adr/0016`–`0023`。跑在本机 herdr 上，不经 x-deploy 部署。
 
 ## 结构
 
 ```
 super-agent/
 ├── cmd/superctl/        # 单二进制入口（serve/ensure/status/inject/tick/reply/halt/resume/new/dispatch/cancel/capabilities）
-├── capabilities/        # 能力声明（目录即注册表，ADR 0021）：agents/ skills/ scripts/ cloud/
+├── capabilities/        # 能力声明（目录即注册表，ADR 0021）：agents/ skills/ scripts/ platforms/<平台>/
 ├── internal/config/     # superctl.toml 加载与路径约定
 ├── internal/capability/ # 能力注册表：目录即声明 + 索引生成 + 漂移检查（ADR 0021）
 ├── internal/halt/       # 急停闸门状态文件（ADR 0020）
-├── internal/inflight/   # 在途清单 inflight.json（cloud/local 两通道）
+├── internal/inflight/   # 在途清单 inflight.json（platform/local 两通道）
 ├── internal/herdr/      # herdr CLI 薄封装 + socket 事件订阅（按 pane 订阅状态变化）
 ├── internal/boot/       # 注入前幂等引导（拓扑对账 + 首条 prompt）+ 换脑（Fresh）
 ├── internal/inject/     # 注入信封（feishu/event）与 blocked 语义
 ├── internal/feishu/     # 飞书长连接接入：三层硬过滤 + 去重 + 重试 + 发送
 ├── internal/hifox/      # hifox CLI 薄封装（task view 真值、变化签名、agent 解析）
 ├── internal/outbox/     # 发件箱：主控回帖的唯一投递通道（重试/死信）
-├── internal/sentinel/   # 云端哨兵：在途清单 cloud 条目轮询 + 快照对比 + 有变化才注入
+├── internal/sentinel/   # 平台哨兵：在途清单 platform 条目轮询 + 快照对比 + 有变化才注入
 ├── internal/tick/      # 作业巡检注入文本（周期校验在 internal/config）
 └── direct/              # 直连白名单脚本目录（ADR 0019 第 2 级）
 ```
 
 主控操作手册、能力用途与复盘者手册随能力注册表走（`capabilities/agents/<key>/instructions.md`，ADR 0021），独立的提示词目录不再是真源。
 
-状态目录默认 `~/.local/state/songjiang/`：`ledger/active|archived`（主控维护）、`results/`、`outbox.jsonl`、`dedup.jsonl`、`inflight.json`（在途清单，原 `watchlist.json` 改名扩义：kind=cloud|local，哨兵只读 cloud 条目）、`cloud-snapshot.json`（哨兵私有快照）、`halt.json`（急停闸门与急停状态）、`handoff.md`（轮换交接的机器真值）、`sessions/`（每轮次会话留档）、`primed/`（prime 成功标记）。注意：`cloudwatch` 子命令与 `serve` 并跑会对同一变化双注入（哨兵无跨进程锁），它只在 serve 停机时手动/cron 顶班用。
+状态目录默认 `~/.local/state/songjiang/`：`ledger/active|archived`（主控维护）、`results/`、`outbox.jsonl`、`dedup.jsonl`、`inflight.json`（在途清单，原 `watchlist.json` 改名扩义：kind=platform|local，哨兵只读 platform 条目）、`platform-snapshot.json`（哨兵私有快照）、`halt.json`（急停闸门与急停状态）、`handoff.md`（轮换交接的机器真值）、`sessions/`（每轮次会话留档）、`primed/`（prime 成功标记）。注意：`platformwatch` 子命令与 `serve` 并跑会对同一变化双注入（哨兵无跨进程锁），它只在 serve 停机时手动/cron 顶班用。
 
 ## 构建与测试
 
@@ -54,7 +54,7 @@ go build ./... && go vet ./... && go test ./...
    ./bin/superctl serve      # 飞书长连接 + outbox 投递 + 定时巡检
    ```
 
-常驻方式任选：launchd/tmux/nohup。serve 内置两路加速：**本地通道**按 pane 订阅 herdr 状态变化事件（能力 agent 一变即唤醒主控，订阅面 = 除主控外所有带 agent 的 pane，60s 重建收敛动态增删）；**云端通道**由哨兵每 `cloud_poll_interval` 轮询在途清单里的云端条目，状态真变化才注入（首见只记基线）。巡检 tick（默认 10m）仅作兜底。
+常驻方式任选：launchd/tmux/nohup。serve 内置两路加速：**本地通道**按 pane 订阅 herdr 状态变化事件（能力 agent 一变即唤醒主控，订阅面 = 除主控外所有带 agent 的 pane，60s 重建收敛动态增删）；**平台通道**由哨兵每 `platform_poll_interval` 轮询在途清单里的平台条目，状态真变化才注入（首见只记基线）。巡检 tick（默认 10m）仅作兜底。
 
 注入卫生与轮换（ADR 0022）：巡检注入只在三源任一非空时发（活跃区台账文件数、在途清单条数、jobs workspace 活动 agent 数），全空只记日志；每条注入只带增量，样板只在首条 prime。会话字节数超阈值且主控 idle 时自动换脑轮换（与急停共用同一管道，每轮次独立 session 目录留档）；急停期间按来源分流静默自动注入，白名单私聊照常通行（ADR 0020）。
 
@@ -66,14 +66,14 @@ go build ./... && go vet ./... && go test ./...
 | `status` | session/workspaces/agents/活跃作业/在途清单条数/急停状态/主控会话体积/待发回帖 |
 | `inject` | 手工注入（`--source feishu\|event\|manual`，测试与事件钩子用） |
 | `tick` | 立即注入一次作业巡检（无在途内容时不发；cron 兜底用） |
-| `dispatch` | 派活统一入口：`--cloud --agent <能力 key>` 先把名字解析成唯一平台 ref（`--instance prod\|staging` 消歧，`--delegate` 可直通），再包 `hifox task create`；`--local --agent <能力 key>` 按配方起 jobs agent 并注入。两条通道都自动登记在途清单与台账骨架（仅文件不存在时建） |
-| `cancel` | 撤销一件工作（云端 run 列表 → 取消 run；本地关对应 pane）——撤销不走急停 |
+| `dispatch` | 派活统一入口：`--platform <hifox>` 先把能力 key 解析成唯一平台 ref（`--instance prod\|staging` 消歧，`--delegate` 可直通），再包 `hifox task create`；`--local --agent <能力 key>` 按配方起 jobs agent、把该 agent 的手册与任务一起注入。两条通道都自动登记在途清单与台账骨架（仅文件不存在时建）。**主控的平台派活只走 `--local --agent zhugui`（平台派活员，ADR 0023）**：主控不挑人、不解析 ref |
+| `cancel` | 撤销一件工作（平台任务：run 列表 → 取消 run；本地：关对应 pane）——撤销不走急停 |
 | `halt` | 急停：落闸 + 秒级回执 + 换脑（同 pane 停主控、起新会话、注入急停意图）；飞书私聊 `/halt` 是等价入口 |
 | `resume` | 解除急停闸门（离线兜底；在线时用户下一句私聊即自动恢复） |
 | `new` | 人工清空：立刻换脑，不等上下文阈值（飞书私聊 `/new` 等价入口） |
-| `capabilities` | 能力注册表：生成主控索引 / `--check` 查漂移（key 与目录名、master 唯一性、文档、脚本可执行、`direct/` 未登记脚本、cloud 指针） |
+| `capabilities` | 能力注册表：生成主控索引 / `--check` 查漂移（key 与目录名、master 唯一性、文档、脚本可执行、`direct/` 未登记脚本、平台指针 ↔ `config/` 双向同步与部署记录）/ `--check --live` 再按 `environments/*/state.yaml` 对平台核一遍（ADR 0023） |
 | `reply` | 追加回帖到 outbox（**主控回用户的唯一通道**） |
-| `cloudwatch` | 云端哨兵一轮：读在途清单的 cloud 条目轮询 hifox，有状态变化才注入 |
+| `platformwatch` | 平台哨兵一轮：读在途清单的 platform 条目轮询平台，有状态变化才注入 |
 | `serve` | 常驻：飞书长连接 + outbox 投递 + 定时巡检 |
 | `probe` | 只打印事件 ID 的引导工具（bot_open_id / open_id / chat_id） |
 
@@ -81,10 +81,11 @@ go build ./... && go vet ./... && go test ./...
 
 ## 验收线（ADR/设计定稿 Q27）
 
-飞书私聊发「让戴宗跑一次 staging 验收」→ 10 秒内受理回音 → 主控经 `superctl dispatch --cloud --title … --agent daizong` 派活（自动登记在途清单）→ 巡检跟踪到完成 → 结论回私聊。全程一体人设，无内部术语出口。
+飞书私聊发「让戴宗跑一次 staging 验收」→ 10 秒内受理回音 → 主控把请求派给本地平台派活员（`superctl dispatch --local --agent zhugui`，正文带原话 + 层级 + 验收）→ 朱贵选人、调 `superctl dispatch --platform hifox` 建单并把任务号写进结果文件 → 主控读结果、收掉朱贵 → 平台哨兵跟踪到完成 → 结论回私聊。全程一体人设，无内部术语出口。
 
 ## 边界提醒
 
-- 主控与吴用分面（ADR 0017）：两个 bot 两套台账，互不同步。
+- 主控与吴用分面（ADR 0017）：两个 bot 两套台账，互不同步。平台派活员朱贵是第三面（本机 job agent，机器入口，ADR 0023）：主控不挑人、不解析平台 ref。
+- `config/<集合>/agents/<key>` 声明与 `capabilities/platforms/<平台>/<key>.yaml` 双向一一对应（同步规矩，ADR 0023），由 `capabilities --check` 强制。
 - 密钥只走环境变量，不进配置文件、台账、结果文件（密钥卫生）。
 - `direct/` 白名单按需添加，不预制占位脚本。

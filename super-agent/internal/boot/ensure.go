@@ -35,6 +35,7 @@ type Paths struct {
 	ArchivedDir     string
 	ResultsDir      string
 	InflightPath    string
+	RuntimeCmd      string // 本机 superctl 的绝对路径（手册里的裸 superctl 指它）；空 = 不打印
 	Index           string // 能力注册表渲染出的索引（名字+一句话+何时用+文档路径）
 }
 
@@ -155,8 +156,11 @@ func PrimePrompt(manual string, p Paths) string {
 	fmt.Fprintf(&b, "- 能力目录：%s\n", p.CapabilitiesDir)
 	fmt.Fprintf(&b, "- 作业台账活跃区：%s；归档区：%s\n", p.ActiveDir, p.ArchivedDir)
 	fmt.Fprintf(&b, "- 结果目录：能力 agent 的产出 markdown 放 %s，作业记录只回文件路径\n", p.ResultsDir)
-	fmt.Fprintf(&b, "- 在途清单：%s（派活经 superctl dispatch 自动登记，收口自动移除；系统会替你盯云端状态变化）\n", p.InflightPath)
+	fmt.Fprintf(&b, "- 在途清单：%s（派活经 superctl dispatch 自动登记，收口自动移除；系统会替你盯平台状态变化）\n", p.InflightPath)
 	b.WriteString("- 回复用户：superctl reply --chat <会话ID> --text <内容>（可多次调用分段发）\n")
+	if p.RuntimeCmd != "" {
+		fmt.Fprintf(&b, "- 运行时命令：%s（手册里的 superctl 指它；PATH 上没有时用绝对路径）\n", p.RuntimeCmd)
+	}
 	if strings.TrimSpace(p.Index) != "" {
 		b.WriteString("\n---\n")
 		b.WriteString(strings.TrimSpace(p.Index))

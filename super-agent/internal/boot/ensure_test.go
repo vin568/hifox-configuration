@@ -193,11 +193,18 @@ func TestEnsureRestartAgentOnExistingWorkspace(t *testing.T) {
 }
 
 func TestPrimePromptIncludesPaths(t *testing.T) {
-	got := PrimePrompt("手册正文", Paths{CapabilitiesDir: "/cap", ActiveDir: "/active", ArchivedDir: "/archived", ResultsDir: "/results", InflightPath: "/inflight", Index: "## 云端能力\n- 戴宗：发布验收"})
-	for _, want := range []string{"手册正文", "/cap", "/active", "/archived", "/results", "/inflight", "superctl reply", "## 云端能力", "戴宗"} {
+	got := PrimePrompt("手册正文", Paths{CapabilitiesDir: "/cap", ActiveDir: "/active", ArchivedDir: "/archived", ResultsDir: "/results", InflightPath: "/inflight", RuntimeCmd: "/opt/bin/superctl", Index: "## 平台能力\n- 戴宗：发布验收"})
+	for _, want := range []string{"手册正文", "/cap", "/active", "/archived", "/results", "/inflight", "superctl reply", "/opt/bin/superctl", "运行时命令", "## 平台能力", "戴宗"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("prime prompt missing %q", want)
 		}
+	}
+}
+
+// 运行时命令路径取不到（os.Executable 失败）时那段不打印，而不是留一行空路径。
+func TestPrimePromptOmitsRuntimeCmdWhenUnknown(t *testing.T) {
+	if got := PrimePrompt("手册", Paths{InflightPath: "/inflight"}); strings.Contains(got, "运行时命令") {
+		t.Fatalf("路径为空时不该打印运行时命令段:\n%s", got)
 	}
 }
 

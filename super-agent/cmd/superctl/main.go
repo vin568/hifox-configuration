@@ -27,7 +27,7 @@ import (
 	"super-agent/internal/tick"
 )
 
-const usage = `superctl — 宋江 super agent 本地运行时（super-agent/，ADR 0016–0019）
+const usage = `superctl — 宋江 super agent 本地运行时（super-agent/，ADR 0016–0023）
 
 用法：superctl <命令> [参数]
 
@@ -38,13 +38,13 @@ const usage = `superctl — 宋江 super agent 本地运行时（super-agent/，
   tick         立即注入一次作业巡检（无在途内容时不发）
   reply        追加一条回帖到 outbox（主控回用户的唯一通道）
   serve        常驻：飞书长连接 + outbox 投递 + 定时巡检 + 注入闸门
-  cloudwatch   云端哨兵一轮：读在途清单的云端条目轮询 hifox，有状态变化才注入
+  platformwatch  平台哨兵一轮：读在途清单的平台条目轮询 hifox，有状态变化才注入
   halt         急停：落闸 + 秒级回执 + 换脑（解除=用户下一句私聊；离线兜底 resume）
   resume       解除急停闸门（离线兜底，正常不用）
   new          人工换脑：起新会话、清空上下文（/new 的命令行等价物）
-  dispatch     派活：--cloud 建平台任务（--agent 是能力 key，平台 ref 自动解析）/ --local 按配方起 jobs agent；自动登记
-  cancel       撤销：--task 取消云端运行 / --agent 关本地 pane，并移出在途清单
-  capabilities  能力注册表：打印索引；--check 查漂移（索引与注入主控的那份同源）
+  dispatch     派活：--platform <hifox> 建平台任务（--agent 是能力 key，平台 ref 自动解析）/ --local 按配方起 jobs agent；自动登记
+  cancel       撤销：--task 取消平台运行 / --agent 关本地 pane，并移出在途清单
+  capabilities  能力注册表：打印索引；--check 查漂移；--check --live 再对账平台真值（索引与注入主控的那份同源）
   probe        连上飞书只打印事件 ID（取 open_id / chat_id / bot_open_id 的引导工具）
   help         本帮助
 
@@ -54,20 +54,20 @@ const usage = `superctl — 宋江 super agent 本地运行时（super-agent/，
 // commands 是唯一的命令注册表：usage 文案与之对齐，dispatch 测试钉死
 // 「usage 列了但表里没有」这类漏注册（reply 曾因此在集成编辑中丢失）。
 var commands = map[string]func(args []string) error{
-	"ensure":       cmdEnsure,
-	"status":       cmdStatus,
-	"inject":       cmdInject,
-	"tick":         cmdTick,
-	"cloudwatch":   cmdCloudwatch,
-	"reply":        cmdReply,
-	"serve":        cmdServe,
-	"probe":        cmdProbe,
-	"halt":         cmdHalt,
-	"resume":       cmdResume,
-	"new":          cmdNew,
-	"dispatch":     cmdDispatch,
-	"cancel":       cmdCancel,
-	"capabilities": cmdCapabilities,
+	"ensure":        cmdEnsure,
+	"status":        cmdStatus,
+	"inject":        cmdInject,
+	"tick":          cmdTick,
+	"platformwatch": cmdPlatformwatch,
+	"reply":         cmdReply,
+	"serve":         cmdServe,
+	"probe":         cmdProbe,
+	"halt":          cmdHalt,
+	"resume":        cmdResume,
+	"new":           cmdNew,
+	"dispatch":      cmdDispatch,
+	"cancel":        cmdCancel,
+	"capabilities":  cmdCapabilities,
 }
 
 func main() {
@@ -132,8 +132,22 @@ func loadConfigWithAgents(args []string) (config.Config, string, error) {
 		}
 		return cfg, path, fmt.Errorf("config %s 的 %s=%q 已不再生效（注册表派生为 %q）；改注册表或删掉该键", path, k.key, k.legacy, k.derived)
 	}
+	// cloud_poll_interval 是 platform_poll_interval 的旧名（cloud 曾当 hifox 的同义词）：
+	// 值一致就当迁移期噪声略过，值不一致必须当场报错，否则「改了周期却不生效」会变成悬案。
+	if legacy := cfg.LegacyCloudPollInterval; legacy != "" {
+		if legacy != cfg.PlatformPollInterval {
+			return cfg, path, fmt.Errorf("config %s 的 cloud_poll_interval=%q 已不再生效（新键为 platform_poll_interval=%q）；改用新键或删掉旧键", path, legacy, cfg.PlatformPollInterval)
+		}
+		slog.Warn("superctl: 配置里的已下线键被忽略", "key", "cloud_poll_interval", "value", legacy)
+	}
 	cfg.MasterAgent, cfg.RetroAgent = master, retro
 	return cfg, path, nil
+}
+
+// snapshotPaths 返回（新快照, 旧名快照）：旧名只在升级窗口里当基线（ADR 0023 的
+// 「升级动作」），新文件一旦生成就以它为准。两个调用点共用它，免得升级兼容被漏掉。
+func snapshotPaths(cfg config.Config) (string, string) {
+	return cfg.PlatformSnapPath(), cfg.LegacySnapPath()
 }
 
 // ensureTopo 注入前幂等引导（ADR 0018）：拓扑由能力注册表派生（ADR 0021），
@@ -335,7 +349,7 @@ func sweepSignals(ctx context.Context, cfg config.Config, hc *herdr.Client) tick
 	return s
 }
 
-func cmdCloudwatch(args []string) error {
+func cmdPlatformwatch(args []string) error {
 	cfg, _, err := loadConfigWithAgents(args)
 	if err != nil {
 		return err
@@ -348,7 +362,8 @@ func cmdCloudwatch(args []string) error {
 	if !(gate{cfg: cfg}).allowMachine() {
 		return errors.New("急停期间哨兵不注入（变化攒着，解除后补交）")
 	}
-	res, err := sentinel.Poll(ctx, hifox.New(), cfg.InflightPath(), cfg.CloudSnapPath(), func(text string) error {
+	snap, legacySnap := snapshotPaths(cfg)
+	res, err := sentinel.Poll(ctx, hifox.New(), cfg.InflightPath(), snap, legacySnap, func(text string) error {
 		return inject.Do(ctx, hc, cfg.MasterAgent, text)
 	})
 	if err != nil {
@@ -543,12 +558,12 @@ func cmdServe(args []string) error {
 		}
 	}()
 	go func() {
-		cloudInterval, err := cfg.CloudInterval()
+		platformInterval, err := cfg.PlatformInterval()
 		if err != nil {
 			errCh <- err
 			return
 		}
-		tk := time.NewTicker(cloudInterval)
+		tk := time.NewTicker(platformInterval)
 		defer tk.Stop()
 		for {
 			select {
@@ -559,11 +574,12 @@ func cmdServe(args []string) error {
 				// 急停期间哨兵照跑（纯 CLI、零 LLM 成本）：继续轮询才能保持首见基线新鲜；
 				// 注入被闸门延后——Poll 不推进快照，变化就攒着，解除后一次性补交。
 				if _, err := ensureTopo(ctx, cfg, hc); err != nil { // 注入前幂等引导（ADR 0018）
-					slog.Warn("superctl: cloudwatch ensure failed", "error", err)
+					slog.Warn("superctl: platformwatch ensure failed", "error", err)
 					continue
 				}
-				if _, err := sentinel.Poll(ctx, hifox.New(), cfg.InflightPath(), cfg.CloudSnapPath(), sentinelInjector(cfg, hc, g, notifier)); err != nil && !errors.Is(err, errDeferredInject) {
-					slog.Warn("superctl: cloudwatch poll failed", "error", err)
+				pollSnap, pollLegacySnap := snapshotPaths(cfg)
+				if _, err := sentinel.Poll(ctx, hifox.New(), cfg.InflightPath(), pollSnap, pollLegacySnap, sentinelInjector(cfg, hc, g, notifier)); err != nil && !errors.Is(err, errDeferredInject) {
+					slog.Warn("superctl: platformwatch poll failed", "error", err)
 				}
 			}
 		}
