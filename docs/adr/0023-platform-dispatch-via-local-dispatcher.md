@@ -10,7 +10,7 @@ ADR 0017 定了「宋江直连 hifox 派活、不经吴用转述」，理由是�
 **决策：**
 
 - **平台派活员是本地能力 agent，不是平台上的 agent**：朱贵（`zhugui`，`super-agent/capabilities/agents/zhugui/`，`role: job`、`workspace: jobs`）。主控经 `superctl dispatch --local --agent zhugui` 把请求派给他，他挑人、写单、建单，把任务号写进结果文件。**不在平台上新增派活 agent**：平台的 roster/权限面不该为编排者的便利多养一个身份（人要看的是「谁在干活」，多一个只派活的身份只会污染任务板与权限面），而本地 agent 天生拿得到 `superctl`（派活面收敛在运行时一处，不散落到平台提示词里）。
-- **主控不挑人**：主控只写「需求原话 + 层级（prod/staging）+ 验收要点」，朱贵持有主题 → 承接人的路由表并据此选人。主控不解析平台 ref、不拼 Space、不判实例。
+- **主控不挑人**：主控只写「用户原话 + 层级（prod/staging）+ 类型 + 备注」，朱贵持有主题 → 承接人的路由表并据此选人。主控不解析平台 ref、不拼 Space、不判实例。（**信封字段按 ADR 0024 修订**：验收要点与任务正文都由朱贵整理产出，主控只转发原话 + 判类型——多写一层就等于多占一次受理时延。）
 - **平台指针目录按平台分目**：`super-agent/capabilities/platforms/<平台>/<key>.yaml`（`<平台>` = 平台 CLI 应用名，取自 `environments/*/environment.yaml` 的 `cli.app`）。条目只放主控与派活员需要的人读信息（key/name/space/org/note），**真源仍是 `config/`**。
 - **派活入口**：`superctl dispatch --platform <平台> --agent <能力 key>`（原 `--cloud` 改名）。它把注册表 key 解析成唯一平台 ref（歧义要 `--instance prod|staging` 消歧）、建任务、登记在途清单、建台账骨架——派活员直接用这一条，不自己拼平台命令。**登记的活必须走这条路**：哨兵只盯在途清单。
 - **同步规矩（机器强制）**：`config/<集合>/agents/<key>` 与 `capabilities/platforms/<平台>/<key>.yaml` 双向一一对应——config 里加 / 删 / 改 agent 必须同步平台目录，否则 `superctl capabilities --check` 报漂移并非零退出。同一检查还要求：指针的 `name` 与 config 声明名指同一身份（相等，或按词边界为声明名前缀——apifox 集合的 config 名带英文后缀 `巴德尔 Baldur`，指针写基名 `巴德尔`，两者是同一个身份）；每个条目在任一 `environments/*/state.yaml` 有部署记录；条目的 `org` 必须是平台组织**完整 UUID**。

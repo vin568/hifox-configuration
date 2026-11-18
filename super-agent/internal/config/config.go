@@ -40,6 +40,7 @@ type Config struct {
 	MasterAgentArgs      []string `toml:"master_agent_args"`
 	SessionMaxBytes      int64    `toml:"session_max_bytes"` // 会话文件超过它且主控 idle 时换脑（0 = 关）
 	SessionsKeep         int      `toml:"sessions_keep"`     // 会话留档目录保留轮数（0 = 默认 5）
+	MediaRetentionRaw    string   `toml:"media_retention"`   // 飞书落盘附件保留期（空 = 适配层默认 30 天）
 }
 
 func Default() Config {
@@ -49,8 +50,10 @@ func Default() Config {
 		RepoDir:              "~/code/apifox/hifox-configuration-super-agent",
 		TickInterval:         "10m",
 		PlatformPollInterval: "60s",
-		SessionMaxBytes:      8 << 20, // 8 MiB：约两千条消息；超过它就换脑重置上下文
-		SessionsKeep:         5,
+		// 不设 media_retention：空 = 走 feishu.DefaultMediaRetention（30 天），
+		// 30 天只在一处定义，改一处不会分叉。
+		SessionMaxBytes: 8 << 20, // 8 MiB：约两千条消息；超过它就换脑重置上下文
+		SessionsKeep:    5,
 	}
 }
 
@@ -97,7 +100,18 @@ func (c Config) Validate() error {
 	if _, err := c.SweepInterval(); err != nil {
 		return fmt.Errorf("tick_interval: %w", err)
 	}
+	if _, err := c.MediaRetention(); err != nil {
+		return fmt.Errorf("media_retention: %w", err)
+	}
 	return nil
+}
+
+// MediaRetention 是飞书落盘附件的保留期（默认 30 天，见 ADR 0024）。
+func (c Config) MediaRetention() (time.Duration, error) {
+	if strings.TrimSpace(c.MediaRetentionRaw) == "" {
+		return 0, nil // 适配层按默认 30 天处理
+	}
+	return parsePositiveDuration("media_retention", c.MediaRetentionRaw)
 }
 
 // SweepInterval 解析巡检周期。
@@ -162,13 +176,25 @@ func (c Config) LedgerDir() string   { return filepath.Join(c.StateDir, "ledger"
 func (c Config) ActiveDir() string   { return filepath.Join(c.LedgerDir(), "active") }
 func (c Config) ArchivedDir() string { return filepath.Join(c.LedgerDir(), "archived") }
 func (c Config) ResultsDir() string  { return filepath.Join(c.StateDir, "results") }
-func (c Config) OutboxPath() string  { return filepath.Join(c.StateDir, "outbox.jsonl") }
-func (c Config) DedupPath() string   { return filepath.Join(c.StateDir, "dedup.jsonl") }
-func (c Config) DirectDir() string   { return filepath.Join(c.RepoDir, "super-agent", "direct") }
 
-// EnsureDirs 建好运行时状态目录（台账 active/archived、结果、会话留档、父目录）。
+// BriefsDir 存平台任务正文的归档副本（<任务号>.md）：正文由派活员整理、运行时在建单
+// 后归档——主控复查「这单到底写了什么」读这里，不依赖平台的 web 界面（ADR 0024）。
+func (c Config) BriefsDir() string { return filepath.Join(c.StateDir, "briefs") }
+
+// SkillsDir 存「技能发现覆盖配置」的落点（每 agent 一份 omp-skills.yml）。
+// 技能本体不在这里：真源就是 capabilities/ 下的 SKILL.md，直接交给底层 CLI 扫。
+func (c Config) SkillsDir() string { return filepath.Join(c.StateDir, "skills") }
+
+// MediaDir 存飞书消息里的图片/文件（注入文本里只出现路径，主控据此带附件派活）。
+func (c Config) MediaDir() string   { return filepath.Join(c.StateDir, "media") }
+func (c Config) OutboxPath() string { return filepath.Join(c.StateDir, "outbox.jsonl") }
+func (c Config) DedupPath() string  { return filepath.Join(c.StateDir, "dedup.jsonl") }
+func (c Config) DirectDir() string  { return filepath.Join(c.RepoDir, "super-agent", "direct") }
+
+// EnsureDirs 建好运行时状态目录（台账 active/archived、结果、正文、会话留档、父目录）。
+// 附件目录不在这里建：它由 mediaStore 自己按 0700 建（用户原图不该混进 0755 的目录树）。
 func (c Config) EnsureDirs() error {
-	for _, d := range []string{c.ActiveDir(), c.ArchivedDir(), c.ResultsDir(), c.SessionsDir(), filepath.Dir(c.OutboxPath())} {
+	for _, d := range []string{c.ActiveDir(), c.ArchivedDir(), c.ResultsDir(), c.BriefsDir(), c.SkillsDir(), c.SessionsDir(), filepath.Dir(c.OutboxPath())} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err
 		}

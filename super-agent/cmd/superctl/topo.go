@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"super-agent/internal/boot"
 	"super-agent/internal/capability"
@@ -56,11 +57,19 @@ func expectedTopo(cfg config.Config) (boot.Expected, error) {
 	if kind == "" {
 		kind = "omp"
 	}
+	// 技能：把注册表里的 SKILL.md 真源目录直接交给底层 CLI 的 skills.customDirectories
+	// （不复制——副本就是第二份可编辑的真源），每个 agent 一份覆盖配置：共享根 + 它
+	// 自己的专属根。模型于是能按 description 自己判断何时读正文，不必靠手册写路径。
+	skillOpts, err := skillArgs(cfg, master)
+	if err != nil {
+		return boot.Expected{}, err
+	}
+	masterArgs := append(append(append([]string{}, master.Args...), skillOpts...), cfg.MasterAgentArgs...)
 	exp := boot.Expected{
 		RepoDir:          cfg.RepoDir,
 		MasterAgent:      master.Key,
 		Kind:             kind,
-		MasterArgs:       append(append([]string{}, master.Args...), cfg.MasterAgentArgs...),
+		MasterArgs:       masterArgs,
 		DynamicWS:        "jobs",
 		MasterSessionDir: newSessionDir(cfg, "start"),
 		MasterPrime: boot.PrimePrompt(string(manual), boot.Paths{
@@ -68,6 +77,8 @@ func expectedTopo(cfg config.Config) (boot.Expected, error) {
 			ActiveDir:       cfg.ActiveDir(),
 			ArchivedDir:     cfg.ArchivedDir(),
 			ResultsDir:      cfg.ResultsDir(),
+			BriefsDir:       cfg.BriefsDir(),
+			MediaDir:        cfg.MediaDir(),
 			InflightPath:    cfg.InflightPath(),
 			RuntimeCmd:      runtimeCmdPath(),
 			Index:           reg.Index(),
@@ -79,13 +90,35 @@ func expectedTopo(cfg config.Config) (boot.Expected, error) {
 		if err != nil {
 			return boot.Expected{}, fmt.Errorf("读复盘手册 %s: %w", retro.Instructions, err)
 		}
+		retroSkillOpts, rerr := skillArgs(cfg, retro)
+		if rerr != nil {
+			return boot.Expected{}, rerr
+		}
+		retroArgs := append(append([]string{}, retro.Args...), retroSkillOpts...)
 		exp.RetroAgent = retro.Key
 		exp.RetroPrime = string(doc)
-		exp.RetroArgs = retro.Args
+		exp.RetroArgs = retroArgs
 		exp.RetroSessionDir = newSessionDir(cfg, "start")
 	} else {
 		// 没有复盘 agent 也要能起：Ensure 对空 RetroAgent 不做动作。
 		exp.RetroAgent = ""
 	}
 	return exp, nil
+}
+
+// skillArgs 给一个 agent 拼技能发现参数：把共享技能根与它自己的技能根写进一份
+// omp 覆盖配置，作为 `--config` 追加到启动参数。没有技能就返回空。
+//
+// 不复制 SKILL.md：真源目录直接交给底层 CLI（skills.customDirectories）。复制会造出
+// 第二份可编辑的副本，也会让「哪份才是真源」再次含糊（ADR 0025 修订）。
+func skillArgs(cfg config.Config, a capability.Agent) ([]string, error) {
+	roots := capability.SkillRoots(cfg.RepoDir, a)
+	if len(roots) == 0 {
+		return nil, nil
+	}
+	overlay, err := capability.WriteOverlay(filepath.Join(cfg.SkillsDir(), a.Key), roots)
+	if err != nil {
+		return nil, fmt.Errorf("写 %s 的技能覆盖配置: %w", a.Key, err)
+	}
+	return []string{"--config", overlay}, nil
 }

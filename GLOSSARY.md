@@ -163,6 +163,18 @@ _Avoid_: 云端（平台不止云上，且这个词会把 hifox 当同义词）�
 本机 herdr 里的 job agent：承接主控的派活请求，读平台能力索引挑承接 agent、把层级转成 `--instance prod|staging`、经 `superctl dispatch --platform` 建单，把任务号写进结果文件。平台（hifox / 将来的 sharkly、远程 ssh 主机）的细节归它，主控不挑人、不解析平台 ref（ADR 0023）。
 _Avoid_: 平台运维（它只派活，不运维）、吴用（那是人对平台的飞书对话入口）
 
+**任务正文（Task Brief）**:
+平台任务 description 的真源：由平台派活员把用户原话与附件整理成 markdown，经 `superctl dispatch --desc-file` 落进任务，建单后归档为状态目录 `briefs/<任务号>.md`。派活信封（用户原话 / 层级 / 类型 / 备注）只给派活员读路由，不是任务正文；主控不写正文。
+_Avoid_: 派活信封（那是路由输入）、需求原话（转发原文，不是写给人看的正文）
+
+**能力技能（Capability Skill）**:
+本地运行时给 agent 的方法论技能，标准 `SKILL.md` 形态（frontmatter `name`/`description`），位置即归属：`capabilities/skills/<key>/` 共享给多个 agent，`capabilities/agents/<key>/skills/<key>/` 只给该 agent。真源目录直接进底层 CLI 的技能发现面，不复制；索引只列名字、归属与 description 原文（含「何时用」）。
+_Avoid_: 文档路径（那是铺副本之前的做法，会诱导整篇读文件）、开发 agent 技能（`.agents/skills/` 是另一类消费者）
+
+**消息附件（Message Attachment）**:
+飞书消息里的图片/文件在注入边界落盘后的本机路径（状态目录 `media/`，目录 0700、文件 0600，默认保留 30 天）：注入文本里只出现路径，派活时用 `--attachment` 随任务上传到平台；二进制既不进注入也不长期囤。
+_Avoid_: 缓存（原件是证据，不是可丢弃的副本）、图片链接（本机路径不是可分享的链接）
+
 **触发器（Trigger）**:
 驱动主控开始一轮工作的信号源：消息触发器（飞书私聊与放行群消息）、巡检触发器（定时对账兜底 + 两路加速：本地能力 agent 状态变化事件、平台哨兵的状态变化唤醒）。新信号只是新的来源标签，不建插件机制。
 _Avoid_: 事件总线（无此物）、webhook（只是可能的一种来源）

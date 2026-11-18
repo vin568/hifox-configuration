@@ -48,6 +48,13 @@ type Config struct {
 	// duration. Zero means DefaultDedupExpire.
 	DedupExpire time.Duration
 
+	// MediaDir 是消息附件（图片/文件）的落盘根目录；空 = 不下载，注入文本里只留
+	// key 占位（探针、单测与没配状态目录的调用方走这条路）。
+	MediaDir string
+
+	// MediaRetention 是落盘附件的保留期，零值用 DefaultMediaRetention。
+	MediaRetention time.Duration
+
 	// CommandFunc handles白名单私聊里以 "/" 开头的指令（/halt、/new）。返回
 	// handled=true 表示已消化，绝不再作为消息注入主控——急停这类指令不能排在
 	// 错误指令后面等主控自己读。

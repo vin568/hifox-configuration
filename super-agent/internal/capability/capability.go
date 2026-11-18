@@ -4,7 +4,8 @@
 // 目录即声明：
 //
 //	agents/<key>/{capability.yaml,instructions.md}
-//	skills/<key>/{capability.yaml,doc.md}
+//	agents/<key>/skills/<key>/SKILL.md    （该 agent 专属的技能）
+//	skills/<key>/SKILL.md                 （多个 agent 共享的技能）
 //	scripts/<key>.yaml
 //	platforms/<platform>/<key>.yaml
 //
@@ -39,13 +40,17 @@ type Agent struct {
 	Instructions  string   `yaml:"instructions"` // 解析后的绝对路径
 }
 
-// Skill 是可复用的方法论文档（何时用 + 正文）。
+// Skill 是一份可加载的技能：SKILL.md 是唯一载体（Agent Skills 开放标准形态，
+// frontmatter 的 name/description 由模型用来决定要不要读正文），没有第二份元数据文件——
+// 同一份目录可以原样搬进 config/ 交给 x-deploy 部署。
+//
+// Owner 非空表示这是某个 agent 专属的技能（agents/<owner>/skills/<key>/）；空表示共享。
 type Skill struct {
-	Key         string `yaml:"key"`
-	Name        string `yaml:"name"`
-	Description string `yaml:"description"`
-	WhenToUse   string `yaml:"whenToUse"`
-	Doc         string `yaml:"doc"` // 解析后的绝对路径
+	Key   string
+	Owner string
+	// frontmatter 里的两个字段（读出来是为了索引与 --check，不改写正文）。
+	Name        string
+	Description string
 }
 
 // Script 是直连白名单里的一个可执行脚本。
@@ -110,7 +115,7 @@ func (r *Registry) Retro() (Agent, bool) {
 	return Agent{}, false
 }
 
-// Index 生成主控读的能力索引：四段，一项一行，只给名字、一句话与文档路径。
+// Index 生成主控读的能力索引：四段，一项一行，只给名字、归属与一句话（不给文档路径）。
 func (r *Registry) Index() string {
 	var b strings.Builder
 
@@ -130,12 +135,18 @@ func (r *Registry) Index() string {
 		fmt.Fprintf(&b, "- %s %s（%s/%s，kind %s）：%s\n", a.Key, a.Name, a.Role, a.Workspace, a.Kind, a.Description)
 	}
 
-	b.WriteString("\n## 技能\n\n")
+	b.WriteString("\n## 技能（已注册为 skill，按需加载）\n\n")
 	if len(r.Skills) == 0 {
 		b.WriteString("（无）\n")
 	}
 	for _, s := range r.Skills {
-		fmt.Fprintf(&b, "- %s %s：%s（何时用：%s；文档：%s）\n", s.Key, s.Name, s.Description, s.WhenToUse, s.Doc)
+		scope := "共享"
+		if s.Owner != "" {
+			scope = s.Owner + " 专属"
+		}
+		// 打印 frontmatter 的 name（底层按它注册）；--check 强制 name == 目录 key，
+		// 不一致会直接报漂移，所以索引名字与加载名字始终是同一个。
+		fmt.Fprintf(&b, "- %s（%s）：%s\n", orKey(s.Name, s.Key), scope, oneLine(s.Description))
 	}
 
 	b.WriteString("\n## 直连脚本\n\n")
@@ -206,10 +217,35 @@ func (r *Registry) Check(repoDir string) []string {
 		out = append(out, fmt.Sprintf("agents：role: retro 最多一条，当前 %d 条：%s", len(retros), strings.Join(retros, ", ")))
 	}
 
+	// 技能完整性：frontmatter 缺 name/description 时底层 CLI 会整份跳过——那等于技能
+	// 装而不用，且没有任何报错。在这里拦下，是唯一能看见它的地方。
 	for _, s := range reg.Skills {
-		if _, err := os.Stat(s.Doc); err != nil {
-			out = append(out, fmt.Sprintf("skills/%s：说明文档 %s 不存在", s.Key, s.Doc))
+		label := skillLabel(s)
+		if s.Name == "" {
+			out = append(out, fmt.Sprintf("%s：SKILL.md 的 frontmatter 缺 name", label))
 		}
+		if s.Description == "" {
+			out = append(out, fmt.Sprintf("%s：SKILL.md 的 frontmatter 缺 description（模型靠它判断要不要加载）", label))
+		}
+		// 底层只认 kebab-case：别的写法它照收但加载失败，我们这边先看见。
+		if s.Name != "" && !isKebabCase(s.Name) {
+			out = append(out, fmt.Sprintf("%s：技能名 %q 不是 kebab-case（底层只认小写字母/数字/连字符）", label, s.Name))
+		}
+		// 索引与 omp 都按 frontmatter name；目录 key 只是位置身份，要求两者相等，
+		// 让「名字」只有一个真源（否则换目录后就地产生第二套名字）。位置即身份。
+		if s.Name != "" && s.Name != s.Key {
+			out = append(out, fmt.Sprintf("%s：SKILL.md 的 name %q 与目录名 %q 不一致（位置即身份：目录名必须等于技能名）", label, s.Name, s.Key))
+		}
+	}
+	// 同名技能不能在两处声明：底层按 name 注册，重名只有一个能被裸名加载。
+	seen := map[string]string{}
+	for _, s := range reg.Skills {
+		name := orKey(s.Name, s.Key)
+		if prev, ok := seen[name]; ok {
+			out = append(out, fmt.Sprintf("%s 与 %s 的技能名都是 %q：底层按 name 注册，重名会被加前缀，裸名只剩一个", prev, skillLabel(s), name))
+			continue
+		}
+		seen[name] = skillLabel(s)
 	}
 
 	for _, s := range reg.Scripts {
@@ -497,31 +533,13 @@ func scan(root string) (*Registry, []error, []string) {
 			name = "instructions.md"
 		}
 		a.Instructions = filepath.Join(dir, name)
+		reg.Skills = append(reg.Skills, scanSkills(filepath.Join(dir, "skills"), key, &problems)...)
 		reg.Agents = append(reg.Agents, a)
 	}
 
-	for _, e := range readDir(root, "skills", &fatal) {
-		if !e.IsDir() {
-			continue
-		}
-		key := e.Name()
-		dir := filepath.Join(root, "skills", key)
-		var s Skill
-		if err := readYAML(filepath.Join(dir, "capability.yaml"), &s); err != nil {
-			fatal = append(fatal, err)
-			continue
-		}
-		if s.Key != key {
-			problems = append(problems, fmt.Sprintf("skills/%s/capability.yaml：key 是 %q，与目录名不符", key, s.Key))
-			s.Key = key
-		}
-		name := s.Doc
-		if name == "" {
-			name = "doc.md"
-		}
-		s.Doc = filepath.Join(dir, name)
-		reg.Skills = append(reg.Skills, s)
-	}
+	// 共享技能：skills/<key>/SKILL.md。目录名是位置身份，必须等于 frontmatter 的
+	// name（Check 强制）；技能名本身取 frontmatter。
+	reg.Skills = append(reg.Skills, scanSkills(filepath.Join(root, "skills"), "", &problems)...)
 
 	for _, e := range readDir(root, "scripts", &fatal) {
 		if e.IsDir() {
@@ -618,4 +636,93 @@ func readYAML(path string, v any) error {
 		return fmt.Errorf("parse %s: %w", path, err)
 	}
 	return nil
+}
+
+// scanSkills 扫一个技能根（共享 skills/ 或某 agent 的 skills/），返回 SKILL.md 条目。
+// 缺 SKILL.md 的目录不算技能（可能是附属文件目录），但会记一条漂移——否则「我加了技能
+// 却没生效」永远没有解释。
+func scanSkills(dir, owner string, problems *[]string) []Skill {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []Skill
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		key := e.Name()
+		path := filepath.Join(dir, key, "SKILL.md")
+		data, rerr := os.ReadFile(path)
+		if rerr != nil {
+			*problems = append(*problems, fmt.Sprintf("%s：缺 SKILL.md（技能目录必须有一个）", relLabel(owner, key)))
+			continue
+		}
+		name, description, ferr := parseFrontmatter(string(data))
+		if ferr != nil {
+			*problems = append(*problems, fmt.Sprintf("%s：SKILL.md 的 frontmatter %v", relLabel(owner, key), ferr))
+			continue
+		}
+		out = append(out, Skill{
+			Key: key, Owner: owner,
+			Name: name, Description: description,
+		})
+	}
+	return out
+}
+
+// parseFrontmatter 取 SKILL.md 顶部 YAML frontmatter 里的 name/description。
+// 只认这两个字段：omp 也只看它们，多写的字段会被忽略——这里跟着忽略，不制造假契约。
+func parseFrontmatter(body string) (name, description string, err error) {
+	if !strings.HasPrefix(body, "---\n") {
+		return "", "", errors.New("缺失（文件必须以 --- 开头）")
+	}
+	rest := body[len("---\n"):]
+	end := strings.Index(rest, "\n---")
+	if end < 0 {
+		return "", "", errors.New("未闭合（缺少结束的 ---）")
+	}
+	var fm struct {
+		Name        string `yaml:"name"`
+		Description string `yaml:"description"`
+	}
+	if uerr := yaml.Unmarshal([]byte(rest[:end]), &fm); uerr != nil {
+		return "", "", fmt.Errorf("解析失败: %w", uerr)
+	}
+	return strings.TrimSpace(fm.Name), strings.TrimSpace(fm.Description), nil
+}
+
+// relLabel 是技能在报错里的可读位置：agents/<owner>/skills/<key> 或 skills/<key>。
+func relLabel(owner, key string) string {
+	if owner == "" {
+		return "skills/" + key
+	}
+	return "agents/" + owner + "/skills/" + key
+}
+
+// skillLabel 是已加载技能的同类标签。
+func skillLabel(s Skill) string { return relLabel(s.Owner, s.Key) }
+
+func orKey(v, fallback string) string {
+	if v == "" {
+		return fallback
+	}
+	return v
+}
+
+func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// isKebabCase 判定技能名是否是底层 CLI 接受的形态（小写字母/数字/连字符，1–64 字符）。
+func isKebabCase(s string) bool {
+	if len(s) == 0 || len(s) > 64 {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }

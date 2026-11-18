@@ -74,12 +74,15 @@ func testCfg(t *testing.T, repo string) config.Config {
 
 // dispatchFake 覆盖 dispatch/cancel 需要的 herdr 面：workspace、snapshot、agent list/start、pane 操作。
 type dispatchFake struct {
-	agents   []herdr.Agent
-	started  []string
-	prompts  []string
-	closed   []string
-	paneSeq  int
-	startErr error
+	agents []herdr.Agent
+	// startArgs 记完整启动参数：技能覆盖配置（--config）与配方 args 都在这里，
+	// 只记名字就看不出「技能装了但没挂上」。
+	startArgs [][]string
+	started   []string
+	prompts   []string
+	closed    []string
+	paneSeq   int
+	startErr  error
 }
 
 func (f *dispatchFake) run(_ context.Context, args []string) (string, error) {
@@ -102,6 +105,7 @@ func (f *dispatchFake) run(_ context.Context, args []string) (string, error) {
 			return "", f.startErr
 		}
 		f.started = append(f.started, args[2])
+		f.startArgs = append(f.startArgs, append([]string{}, args...))
 		name := args[2]
 		pane := ""
 		for i, a := range args {
@@ -125,7 +129,7 @@ func TestDispatchLocalStartsRegistersAndDraftsLedger(t *testing.T) {
 	repo := testRepo(t)
 	cfg := testCfg(t, repo)
 	f := &dispatchFake{}
-	if _, err := dispatchLocal(context.Background(), cfg, &herdr.Client{Run: f.run}, "worker", "跑一遍", "测试备注", nil); err != nil {
+	if _, err := dispatchLocal(context.Background(), cfg, &herdr.Client{Run: f.run}, "worker", "跑一遍", "测试备注", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.started) != 1 || !strings.HasPrefix(f.started[0], "worker-") {
@@ -161,7 +165,7 @@ func TestDispatchLocalRespectsMaxConcurrent(t *testing.T) {
 		}
 	}
 	f := &dispatchFake{}
-	_, err := dispatchLocal(context.Background(), cfg, &herdr.Client{Run: f.run}, "worker", "再派一件", "", nil)
+	_, err := dispatchLocal(context.Background(), cfg, &herdr.Client{Run: f.run}, "worker", "再派一件", "", nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "上限") {
 		t.Fatalf("并发上限应拦住第二次派活: %v", err)
 	}
@@ -174,7 +178,7 @@ func TestDispatchLocalUnknownAgent(t *testing.T) {
 	repo := testRepo(t)
 	cfg := testCfg(t, repo)
 	f := &dispatchFake{}
-	_, err := dispatchLocal(context.Background(), cfg, &herdr.Client{Run: f.run}, "nobody", "x", "", nil)
+	_, err := dispatchLocal(context.Background(), cfg, &herdr.Client{Run: f.run}, "nobody", "x", "", nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "没有可派活的 agent") {
 		t.Fatalf("未声明的能力必须拒绝: %v", err)
 	}
@@ -186,7 +190,7 @@ func TestCancelLocalClosesPaneAndDeregisters(t *testing.T) {
 	cfg := testCfg(t, repo)
 	f := &dispatchFake{}
 	hc := &herdr.Client{Run: f.run}
-	if _, err := dispatchLocal(context.Background(), cfg, hc, "worker", "跑一遍", "", nil); err != nil {
+	if _, err := dispatchLocal(context.Background(), cfg, hc, "worker", "跑一遍", "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	entries, _ := inflight.Load(cfg.InflightPath())
@@ -381,7 +385,7 @@ func TestDispatchLocalLimitIsPerCapability(t *testing.T) {
 		}
 	}
 	f := &dispatchFake{}
-	if _, err := dispatchLocal(context.Background(), cfg, &herdr.Client{Run: f.run}, "worker", "跑一遍", "", nil); err != nil {
+	if _, err := dispatchLocal(context.Background(), cfg, &herdr.Client{Run: f.run}, "worker", "跑一遍", "", nil, nil); err != nil {
 		t.Fatalf("别的能力的在途件不应占 worker 的额度: %v", err)
 	}
 	if len(f.started) != 1 {
@@ -1023,5 +1027,84 @@ func TestLegacyCloudPollIntervalMustMatchNewKey(t *testing.T) {
 	_, _, err = loadConfigWithAgents([]string{"--config", writeCfg("platform_poll_interval = \"60s\"\ncloud_poll_interval = \"30s\"\n")})
 	if err == nil || !strings.Contains(err.Error(), "platform_poll_interval") {
 		t.Fatalf("值不一致必须报错且点名新键: %v", err)
+	}
+}
+
+// --attachment 从 CLI flag 一路到本地派活 prompt 的接线（本次事故的中间跳）：
+// 只测 flag 类型或只测 localPrompt 渲染，都抓不住「中间把 req.Attachments 丢了」。
+func TestDispatchLocalCarriesAttachmentsIntoPrompt(t *testing.T) {
+	repo := testRepo(t)
+	cfg := testCfg(t, repo)
+	shot := filepath.Join(t.TempDir(), "shot.jpg")
+	if err := os.WriteFile(shot, []byte("jpg"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := &dispatchFake{}
+	if _, err := dispatchLocal(context.Background(), cfg, &herdr.Client{Run: f.run}, "worker",
+		"跑一遍", "", []string{shot}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.prompts) != 1 {
+		t.Fatalf("want 1 prompt, got %d", len(f.prompts))
+	}
+	if !strings.Contains(f.prompts[0], "[附件") || !strings.Contains(f.prompts[0], shot) {
+		t.Fatalf("注入的 prompt 必须带附件段与路径（图片丢在这一跳就是 HF-16095）:\n%s", f.prompts[0])
+	}
+}
+
+// 按需拉起的 job agent 也要挂技能：它的手册提到能力目录，技能不挂上就等于只有常驻
+// 会话可见。testRepo 里放一份共享技能，断言启动参数带 --config 且覆盖配置指向真源根。
+func TestDispatchLocalMountsSkills(t *testing.T) {
+	repo := testRepo(t)
+	cfg := testCfg(t, repo)
+	// 配方原有的 args 必须保留：加技能不能把它们挤掉。
+	writeRepoFile(t, filepath.Join(repo, "super-agent", "capabilities", "agents", "worker"), "capability.yaml",
+		"key: worker\nname: 工人\ndescription: 测试用本地能力\nrole: job\nworkspace: jobs\nkind: omp\nmaxConcurrent: 1\nargs: [\"--model\", \"fast\"]\n")
+	writeRepoFile(t, filepath.Join(repo, "super-agent", "capabilities", "skills", "shared-skill"),
+		"SKILL.md", "---\nname: shared-skill\ndescription: 共享纪律\n---\n\n# 共享\n")
+	f := &dispatchFake{}
+	if _, err := dispatchLocal(context.Background(), cfg, &herdr.Client{Run: f.run}, "worker", "跑一遍", "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.startArgs) != 1 {
+		t.Fatalf("want 1 agent start, got %d", len(f.startArgs))
+	}
+	args := f.startArgs[0]
+	var overlay string
+	for i, a := range args {
+		if a == "--config" && i+1 < len(args) {
+			overlay = args[i+1]
+		}
+	}
+	if overlay == "" {
+		t.Fatalf("job agent 启动参数缺 --config <技能覆盖>: %v", args)
+	}
+	data, err := os.ReadFile(overlay)
+	if err != nil {
+		t.Fatalf("覆盖配置读不到: %v", err)
+	}
+	want := filepath.Join(repo, "super-agent", "capabilities", "skills")
+	if !strings.Contains(string(data), want) {
+		t.Fatalf("覆盖配置应指向共享技能根 %s:\n%s", want, data)
+	}
+	if !strings.Contains(strings.Join(args, "\x00"), "--model\x00fast") {
+		t.Fatalf("配方原有 args 不该被技能参数挤掉: %v", args)
+	}
+}
+
+// 没有技能就不该追加 --config：挂一份空覆盖配置只会让 omp 白读，也让「技能装没装」
+// 从启动参数上看不出来。
+func TestDispatchLocalOmitsConfigWithoutSkills(t *testing.T) {
+	repo := testRepo(t)
+	cfg := testCfg(t, repo)
+	f := &dispatchFake{}
+	if _, err := dispatchLocal(context.Background(), cfg, &herdr.Client{Run: f.run}, "worker", "跑一遍", "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.startArgs) != 1 {
+		t.Fatalf("want 1 agent start, got %d", len(f.startArgs))
+	}
+	if indexOf(f.startArgs[0], "--config") >= 0 {
+		t.Fatalf("没有技能时不该追加 --config: %v", f.startArgs[0])
 	}
 }

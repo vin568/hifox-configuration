@@ -42,7 +42,7 @@ const usage = `superctl — 宋江 super agent 本地运行时（super-agent/，
   halt         急停：落闸 + 秒级回执 + 换脑（解除=用户下一句私聊；离线兜底 resume）
   resume       解除急停闸门（离线兜底，正常不用）
   new          人工换脑：起新会话、清空上下文（/new 的命令行等价物）
-  dispatch     派活：--platform <hifox> 建平台任务（--agent 是能力 key，平台 ref 自动解析）/ --local 按配方起 jobs agent；自动登记
+  dispatch     派活：--platform <hifox> 建平台任务（--agent 是能力 key，平台 ref 自动解析；正文 --desc-file、附件 --attachment）/ --local 按配方起 jobs agent；自动登记
   cancel       撤销：--task 取消平台运行 / --agent 关本地 pane，并移出在途清单
   capabilities  能力注册表：打印索引；--check 查漂移；--check --live 再对账平台真值（索引与注入主控的那份同源）
   probe        连上飞书只打印事件 ID（取 open_id / chat_id / bot_open_id 的引导工具）
@@ -430,6 +430,28 @@ func (n *blockedNotifier) Notify() {
 	n.last = time.Now()
 }
 
+// feishuConfigFrom 把运行时配置装配成飞书适配层配置。抽成纯函数是为了让
+// 「附件落盘开关」这一行有测试把守——它断了，线上所有图片/文件都退回 key 占位，
+// 没有任何报错（HF-16095 的丢图会以「只剩 key」的形式复发）。
+func feishuConfigFrom(cfg config.Config, appID, secret string) feishu.Config {
+	proxy := map[string]bool{}
+	for _, g := range cfg.ProxyReplyGroups {
+		proxy[g] = true
+	}
+	retention, _ := cfg.MediaRetention() // 非法值已在 config.Validate 拦截
+	return feishu.Config{
+		AppID:            appID,
+		AppSecret:        secret,
+		AllowedUserIDs:   cfg.AllowedUsers,
+		ProxyReplyGroups: proxy,
+		AnyMessageGroups: cfg.AnyMessageGroups,
+		BotMentionOpenID: cfg.BotMentionOpenID,
+		DedupPath:        cfg.DedupPath(),
+		MediaDir:         cfg.MediaDir(),
+		MediaRetention:   retention,
+	}
+}
+
 // requireFeishuCredentials 是 serve/probe 共用的凭证门：缺凭证硬报错
 // （密钥卫生：凭证只走环境变量）。
 func requireFeishuCredentials() (string, string, error) {
@@ -472,19 +494,7 @@ func cmdServe(args []string) error {
 		return err
 	}
 
-	proxy := map[string]bool{}
-	for _, g := range cfg.ProxyReplyGroups {
-		proxy[g] = true
-	}
-	fcfg := feishu.Config{
-		AppID:            appID,
-		AppSecret:        secret,
-		AllowedUserIDs:   cfg.AllowedUsers,
-		ProxyReplyGroups: proxy,
-		AnyMessageGroups: cfg.AnyMessageGroups,
-		BotMentionOpenID: cfg.BotMentionOpenID,
-		DedupPath:        cfg.DedupPath(),
-	}
+	fcfg := feishuConfigFrom(cfg, appID, secret)
 	// 指令面：白名单私聊里的 /halt 与 /new 由运行时消化（ADR 0020/0022）。
 	idx := commandIndices{cfg: cfg, hc: hc, ob: ob}
 	fcfg.CommandFunc = func(cctx context.Context, chatID, _ /*sender*/ string, text string) bool {

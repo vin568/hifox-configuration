@@ -4,11 +4,12 @@
 
 **决策：**
 
-- **`super-agent/capabilities/` 目录即声明，目录结构即数据**：`agents/<key>/{capability.yaml,instructions.md}`、`skills/<key>/{capability.yaml,doc.md}`、`scripts/<key>.yaml`、`cloud/<key>.yaml` 四类；key 取目录名，不再有第二处清单。
-- **字段沿用 x-deploy 词汇**（key/name/description 为基础），按类型扩：agent 加 role(master|retro|job)、workspace(master|crew|jobs)、kind、args、maxConcurrent；skill 加 whenToUse、doc；script 加 path；cloud 加 space、org、note。词汇一致是为了让人在两个仓库间读同一种声明不需要翻译。
+- **`super-agent/capabilities/` 目录即声明，目录结构即数据**：`agents/<key>/{capability.yaml,instructions.md}`、`skills/<key>/SKILL.md`（共享；agent 专属放 `agents/<key>/skills/<key>/SKILL.md`）、`scripts/<key>.yaml`、`cloud/<key>.yaml` 四类；key 取目录名，不再有第二处清单。
+- **字段沿用 x-deploy 词汇**（key/name/description 为基础），按类型扩：agent 加 role(master|retro|job)、workspace(master|crew|jobs)、kind、args、maxConcurrent；skill 用 frontmatter 的 name/description（不再有独立元数据文件，见修订条）；script 加 path；cloud 加 space、org、note。词汇一致是为了让人在两个仓库间读同一种声明不需要翻译。
 - **主控与复盘者也是注册表条目**（role=master / retro）：本地拓扑由注册表派生，引导逻辑不再硬编码「哪些 agent、在哪个 workspace、常驻几个」。拓扑与声明同源，是漂移的根治法。
 - **云端条目只写指针，真源仍是 `config/`**：`cloud/<key>.yaml` 指向 `config/hifox/agents/<key>` 或 `config/apifox/agents/<key>`，检查项校验指针目标存在。不在本目录复制云端声明——复制即两份真源。
-- **运行时扫目录生成主控读的索引**：名字 + 一句话 + 何时用 + 说明文档路径。主控只拿索引，细节按需读单篇——索引小到可以常驻，细节大到不该常驻。
+- **运行时扫目录生成主控读的索引**：名字 + 一句话 + 何时用。主控只拿索引，细节按需读单篇——索引小到可以常驻，细节大到不该常驻。
+- **技能是标准 `SKILL.md`，位置即归属**（2026-11 修订，见 ADR 0025）：`skills/<key>/SKILL.md` 共享、`agents/<key>/skills/<key>/SKILL.md` 专属，与 `config/` 的分法一致；真源目录直接进底层 CLI 的技能发现面（`skills.customDirectories`），不再有 `capability.yaml`/`doc.md`，也不复制副本。索引里不再给文档路径——给路径会诱导模型整篇读文件，绕过技能机制。
 - **`superctl capabilities --check` 查漂移**：key 与目录名不符、master 缺失或重复、声明的文档缺失、脚本不可执行、cloud 指针在 `config/` 里找不到、`direct/` 里有脚本却没登记。漂移扫得出来，才有资格说「目录即真源」。
 - **派发统一入口 `superctl dispatch --cloud|--local`**：云端先把注册表里的能力名解析成唯一平台 ref（平台名字带实例后缀，hifox 集合写作 `戴宗 (staging)`、apifox 集合写作 `燕青 - staging`，两种都要剥；声明名可以是平台基名的前缀，如 `巴德尔` 对 `巴德尔 Baldur`；注册表 key 不是 ref；歧义时必须 `--instance` 消歧或 `--delegate` 直通，绝不猜实例），`--space` 缺省取声明值，再包 `hifox task create`；本地按注册表的 agent 配方起 jobs agent 并注入任务。两条通道都自动登记在途清单（`watchlist.json` 改名扩义为 `inflight.json`，kind=cloud|local；哨兵只读 cloud 条目）并在台账活跃区建骨架（仅文件不存在时建，之后归主控写）。登记不靠主控自觉：靠自觉的登记迟早漏一条，漏的那条就是急停时看不见的在途件。
 

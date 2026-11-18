@@ -1,4 +1,0 @@
-key: local-agents
-name: 本地派活
-description: 本机 herdr 能力 agent 的派活方式与动态 agent 并发上限。
-whenToUse: 要把活派给本机能力 agent，或按需拉起动态作业 agent 时。

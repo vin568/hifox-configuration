@@ -34,9 +34,10 @@ func stubRepo(t *testing.T) string {
 	writeFile(t, repo, "super-agent/capabilities/agents/jiangjing/capability.yaml", agentYAML("jiangjing", "retro"))
 	writeFile(t, repo, "super-agent/capabilities/agents/jiangjing/instructions.md", "# 蒋敬\n")
 
-	writeFile(t, repo, "super-agent/capabilities/skills/platform-dispatch/capability.yaml",
-		"key: platform-dispatch\nname: 平台派活\ndescription: d\nwhenToUse: w\n")
-	writeFile(t, repo, "super-agent/capabilities/skills/platform-dispatch/doc.md", "# 平台派活\n")
+	writeSkill(t, repo, "super-agent/capabilities/skills/platform-dispatch", "platform-dispatch", "平台派活",
+		"平台派发纪律。何时用：要让远端平台上的 agent 干活时")
+	writeSkill(t, repo, "super-agent/capabilities/agents/songjiang/skills/direct-tiers", "direct-tiers", "直连三级",
+		"三级授权。何时用：要亲自跑命令时")
 
 	writeFile(t, repo, "super-agent/capabilities/scripts/probe.yaml",
 		"key: probe\nname: 探针\ndescription: d\npath: super-agent/direct/probe.sh\n")
@@ -72,7 +73,7 @@ func TestLoadOK(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(r.Agents) != 2 || len(r.Skills) != 1 || len(r.Scripts) != 1 || len(r.Platforms) != 1 {
+	if len(r.Agents) != 2 || len(r.Skills) != 2 || len(r.Scripts) != 1 || len(r.Platforms) != 1 {
 		t.Fatalf("条目数不对: agents=%d skills=%d scripts=%d platforms=%d",
 			len(r.Agents), len(r.Skills), len(r.Scripts), len(r.Platforms))
 	}
@@ -91,8 +92,14 @@ func TestLoadOK(t *testing.T) {
 	if _, ok := r.Retro(); !ok {
 		t.Errorf("Retro 未找到")
 	}
-	if r.Skills[0].Doc != filepath.Join(repo, "super-agent", "capabilities", "skills", "platform-dispatch", "doc.md") {
-		t.Errorf("Skill.Doc = %q", r.Skills[0].Doc)
+	shared, ok := skillByKey(r, "platform-dispatch")
+	if !ok || shared.Owner != "" || shared.Name != "platform-dispatch" ||
+		shared.Description != "平台派发纪律。何时用：要让远端平台上的 agent 干活时" {
+		t.Fatalf("共享技能解析不对: %+v", shared)
+	}
+	own, ok := skillByKey(r, "direct-tiers")
+	if !ok || own.Owner != "songjiang" {
+		t.Fatalf("agent 专属技能应带 Owner: %+v", own)
 	}
 	if r.Platforms[0].Space != "HiFox" || r.Platforms[0].Note != "统筹入口" || r.Platforms[0].Platform != "hifox" {
 		t.Errorf("PlatformAgent = %+v", r.Platforms[0])
@@ -186,18 +193,6 @@ func TestMissingInstructions(t *testing.T) {
 	assertContains(t, r.Check(repo), "说明文档")
 }
 
-func TestMissingSkillDoc(t *testing.T) {
-	repo := stubRepo(t)
-	if err := os.Remove(filepath.Join(repo, "super-agent/capabilities/skills/platform-dispatch/doc.md")); err != nil {
-		t.Fatalf("remove: %v", err)
-	}
-	r, err := Load(repo)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	assertContains(t, r.Check(repo), "skills/platform-dispatch")
-}
-
 func TestScriptNotExecutable(t *testing.T) {
 	repo := stubRepo(t)
 	if err := os.Chmod(filepath.Join(repo, "super-agent/direct/probe.sh"), 0o644); err != nil {
@@ -285,6 +280,16 @@ func platformSet(r *Registry) map[string]bool {
 		set[c.Platform] = true
 	}
 	return set
+}
+
+// skillByKey 是测试侧的按 key 查技能（生产侧不需要这个索引，已删）。
+func skillByKey(r *Registry, key string) (Skill, bool) {
+	for _, s := range r.Skills {
+		if s.Key == key {
+			return s, true
+		}
+	}
+	return Skill{}, false
 }
 
 func assertContains(t *testing.T, problems []string, want string) {
@@ -545,4 +550,34 @@ func TestPlatformKeyMismatch(t *testing.T) {
 		t.Fatalf("key 未回落到文件名: %+v %v", p, ok)
 	}
 	assertContains(t, r.Check(repo), "与文件名不符")
+}
+
+// writeSkill 造一份标准形态的技能（SKILL.md + frontmatter），可选 owner 前缀。
+func writeSkill(t *testing.T, repoDir, dir, key, name, desc string) {
+	t.Helper()
+	body := "---\nname: " + key + "\ndescription: " + desc + "\n---\n\n# " + name + "\n"
+	writeFile(t, repoDir, filepath.Join(dir, "SKILL.md"), body)
+}
+
+// 索引里不许出现技能文档路径（含 SKILL.md）：给了路径模型会整篇 read，绕过技能机制。
+// 旧断言查的是 doc.md——那个文件已从数据模型删除，断言在任何实现下都成立，等于没有。
+func TestIndexSkillsHaveNoFilePath(t *testing.T) {
+	repo := stubRepo(t)
+	r, err := Load(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx := r.Index()
+	if strings.Contains(idx, "SKILL.md") || strings.Contains(idx, "/capabilities/") {
+		t.Fatalf("索引不该给技能文档路径:\n%s", idx)
+	}
+	// 阳性对照：description 原文（含「何时用」）必须整句在——只列名字判断不了要不要加载，
+	// 按「何时用：」截断就只剩「这是干什么的」。
+	if !strings.Contains(idx, "- platform-dispatch（共享）：平台派发纪律。何时用：要让远端平台上的 agent 干活时") {
+		t.Fatalf("索引应输出完整 description:\n%s", idx)
+	}
+	// 归属必须区分：专属技能写成「共享」会让主控误以为那是所有 agent 的通用纪律。
+	if !strings.Contains(idx, "- direct-tiers（songjiang 专属）：三级授权。何时用：要亲自跑命令时") {
+		t.Fatalf("索引应标出专属归属:\n%s", idx)
+	}
 }

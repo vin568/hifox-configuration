@@ -34,9 +34,11 @@ type Paths struct {
 	ActiveDir       string
 	ArchivedDir     string
 	ResultsDir      string
+	BriefsDir       string // 平台任务正文的归档副本（派活员写、运行时归档，ADR 0024）
+	MediaDir        string // 飞书消息附件落盘目录（ADR 0024）
 	InflightPath    string
 	RuntimeCmd      string // 本机 superctl 的绝对路径（手册里的裸 superctl 指它）；空 = 不打印
-	Index           string // 能力注册表渲染出的索引（名字+一句话+何时用+文档路径）
+	Index           string // 能力注册表渲染出的索引（名字+归属+description 原文）
 }
 
 type Report struct {
@@ -156,6 +158,12 @@ func PrimePrompt(manual string, p Paths) string {
 	fmt.Fprintf(&b, "- 能力目录：%s\n", p.CapabilitiesDir)
 	fmt.Fprintf(&b, "- 作业台账活跃区：%s；归档区：%s\n", p.ActiveDir, p.ArchivedDir)
 	fmt.Fprintf(&b, "- 结果目录：能力 agent 的产出 markdown 放 %s，作业记录只回文件路径\n", p.ResultsDir)
+	if p.BriefsDir != "" {
+		fmt.Fprintf(&b, "- 任务正文（Task Brief）：平台任务 description 的归档副本放 %s（派活员写、运行时自动归档；复查任务写了什么就读它）\n", p.BriefsDir)
+	}
+	if p.MediaDir != "" {
+		fmt.Fprintf(&b, "- 消息附件：飞书发来的图片/文件已落盘在 %s，注入文本里以路径出现（派活时逐个 --attachment 带上）\n", p.MediaDir)
+	}
 	fmt.Fprintf(&b, "- 在途清单：%s（派活经 superctl dispatch 自动登记，收口自动移除；系统会替你盯平台状态变化）\n", p.InflightPath)
 	b.WriteString("- 回复用户：superctl reply --chat <会话ID> --text <内容>（可多次调用分段发）\n")
 	if p.RuntimeCmd != "" {

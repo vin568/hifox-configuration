@@ -9,6 +9,7 @@ import (
 	"super-agent/internal/config"
 	"super-agent/internal/inject"
 
+	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
@@ -53,7 +54,7 @@ func Run(ctx context.Context, cfg Config, inject InjectFunc) error {
 	queue := newRetryQueue(inject)
 	go queue.run(ctx)
 
-	srv := &server{cfg: cfg, dedup: dedup, queue: queue}
+	srv := serverFactory(cfg, dedup, queue)
 	d := dispatcher.NewEventDispatcher("", "").
 		OnP2MessageReceiveV1(func(_ context.Context, event *larkim.P2MessageReceiveV1) error {
 			// The handler must not return an error: the SDK turns that into a
@@ -70,6 +71,29 @@ func Run(ctx context.Context, cfg Config, inject InjectFunc) error {
 
 	keepConnected(ctx, cli, "feishu")
 	return ctx.Err()
+}
+
+// serverFactory 是 Run 的测试接缝：Run 会先连飞书，本地跑不起来；但「Run 有没有走
+// 装配函数」正是附件落盘开关最容易断的一跳，用工厂变量让它可测。
+var serverFactory = newServer
+
+// newServer 组装一条连接的 server 依赖。media 用 mediaStoreFor 决定挂不挂：
+// 这条装配线断了，线上附件全部退回 key 占位且没有报错。
+func newServer(cfg Config, dedup *dedupStore, queue *retryQueue) *server {
+	srv := &server{cfg: cfg, dedup: dedup, queue: queue}
+	srv.media = mediaStoreFor(cfg)
+	return srv
+}
+
+// mediaStoreFor 按配置决定是否落盘附件：MediaDir 为空 = 不下载（probe 与本地
+// 单测走这条路）。抽成纯函数是为了让「落盘开关」有测试把守——它断了，线上所有
+// 图片/文件都退回 key 占位，没有任何报错。
+func mediaStoreFor(cfg Config) *mediaStore {
+	if cfg.MediaDir == "" {
+		return nil
+	}
+	getter := sdkResourceGetter{client: lark.NewClient(cfg.AppID, cfg.AppSecret)}
+	return newMediaStore(cfg.MediaDir, getter, cfg.MediaRetention)
 }
 
 // keepConnected runs cli.Start in a loop with reconnect pacing until ctx is
@@ -104,6 +128,8 @@ type server struct {
 	cfg   Config
 	dedup *dedupStore
 	queue *retryQueue
+	// media 把消息附件落到本地（nil = 不下载）；注入文本里由它把 key 占位改写成路径。
+	media *mediaStore
 }
 
 // eventInfo is the flattened view of one inbound message event, shared by the
@@ -116,6 +142,7 @@ type eventInfo struct {
 	content      string
 	senderID     string
 	text         string
+	media        []mediaRef
 	mentions     []mentionInfo
 	mentionedIDs []string
 }
@@ -153,7 +180,7 @@ func parseEvent(event *larkim.P2MessageReceiveV1) *eventInfo {
 			info.mentionedIDs = append(info.mentionedIDs, mi.ID)
 		}
 	}
-	info.text = extractText(info.msgType, info.content, info.mentions)
+	info.text, info.media = extractMessage(info.msgType, info.content, info.mentions)
 	return info
 }
 
@@ -186,6 +213,10 @@ func (s *server) handle(event *larkim.P2MessageReceiveV1) {
 		}
 	}
 
+	// 附件先落盘再拼注入：注入文本里出现的是本地路径，主控据此派活时带上附件
+	// （图片塞不进纯文本注入，也塞不进平台任务正文）。
+	s.resolveMedia(ev)
+
 	task := injectTask{
 		src:      SourceFeishu,
 		p:        inject.Payload{ChatID: ev.chatID, SenderID: ev.senderID, Text: ev.text, Kind: kindOf(ev.chatType), ProxyReply: proxyReply, ReceivedAt: time.Now()},
@@ -200,6 +231,25 @@ func (s *server) handle(event *larkim.P2MessageReceiveV1) {
 		return
 	}
 	s.dedup.markDone(ev.messageID)
+}
+
+// resolveMedia 把消息里的图片/文件下载到本地，并把注入文本里的 key 占位原地改写成
+// 本地路径。下载失败只保留 key 占位（派活时能人工补），绝不因附件丢掉整条消息。
+func (s *server) resolveMedia(ev *eventInfo) {
+	if s.media == nil || len(ev.media) == 0 {
+		return
+	}
+	for _, m := range ev.media {
+		ctx, cancel := context.WithTimeout(context.Background(), downloadTimeout)
+		path, err := s.media.Save(ctx, ev.messageID, m)
+		cancel()
+		if err != nil {
+			slog.Warn("feishu: 附件下载失败，注入里保留 key 占位",
+				"message_id", ev.messageID, "key", m.Key, "error", err)
+			continue
+		}
+		ev.text = replaceMediaToken(ev.text, m, path)
+	}
 }
 
 // kindOf maps the Feishu chat_type onto the envelope's dm/group kind.

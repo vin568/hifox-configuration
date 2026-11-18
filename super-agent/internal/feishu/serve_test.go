@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -60,6 +61,22 @@ func textEvent(chatType, chatID, senderID, messageID, text string, mentions ...*
 
 func mention(key, id string) *larkim.MentionEvent {
 	return &larkim.MentionEvent{Key: new(key), Id: &larkim.UserId{OpenId: new(id)}, Name: new("名字")}
+}
+
+// postEvent 造一条富文本消息事件（content 直接给原始 JSON）。
+func postEvent(chatType, chatID, senderID, messageID, content string) *larkim.P2MessageReceiveV1 {
+	return mediaEvent(chatType, chatID, senderID, messageID, "post", content)
+}
+
+// mediaEvent 造任意 msg_type 的消息事件（纯媒体消息也走它）。
+func mediaEvent(chatType, chatID, senderID, messageID, msgType, content string) *larkim.P2MessageReceiveV1 {
+	return &larkim.P2MessageReceiveV1{Event: &larkim.P2MessageReceiveV1Data{
+		Sender: &larkim.EventSender{SenderId: &larkim.UserId{OpenId: new(senderID)}},
+		Message: &larkim.EventMessage{
+			MessageId: new(messageID), ChatId: new(chatID), ChatType: new(chatType),
+			MessageType: new(msgType), Content: new(content),
+		},
+	}}
 }
 
 func baseCfg() Config {
@@ -223,5 +240,204 @@ func TestHandleBlockedEnqueuedForRetry(t *testing.T) {
 	}
 	if n := len(h.queue.tasks); n != 1 {
 		t.Fatalf("blocked message must be queued for retry, queue depth=%d", n)
+	}
+}
+
+// 富文本里的图片：注入文本里必须出现本地路径（旧实现整张图静默消失，
+// 主控手上没有任何线索可以派活）。
+func TestHandlePostImageBecomesLocalPath(t *testing.T) {
+	h := newServeHarness(t, baseCfg(), nil)
+	g := &fakeGetter{body: "JPEG", ctype: "image/jpeg"}
+	dir := t.TempDir()
+	h.media = newMediaStore(dir, g, 0)
+
+	h.handle(postEvent("p2p", "oc_dm", "ou_alice", "m_img",
+		`{"title":"","content":[[{"tag":"text","text":"复现步骤："}],[{"tag":"img","image_key":"img_v3_abc","width":3384,"height":1904}]]}`))
+
+	if len(h.payloads) != 1 {
+		t.Fatalf("want 1 inject, got %d", len(h.payloads))
+	}
+	text := h.payloads[0].Text
+	want := filepath.Join(dir, "m_img", "img_v3_abc.jpg")
+	if !strings.Contains(text, "[图片 "+want+"]") {
+		t.Fatalf("注入文本里应是本地路径 %s:\n%s", want, text)
+	}
+	if strings.Contains(text, "[图片 img_v3_abc]") {
+		t.Fatalf("key 占位必须被替换掉，不能与路径并存:\n%s", text)
+	}
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("附件没落盘: %v", err)
+	}
+}
+
+// 附件下载失败：消息照常注入，key 占位留着（可人工补），绝不静默丢弃。
+func TestHandleImageDownloadFailureKeepsPlaceholder(t *testing.T) {
+	h := newServeHarness(t, baseCfg(), nil)
+	h.media = newMediaStore(t.TempDir(), &fakeGetter{err: errors.New("网络抖动")}, 0)
+
+	h.handle(postEvent("p2p", "oc_dm", "ou_alice", "m_img2",
+		`{"content":[[{"tag":"text","text":"见图"},{"tag":"img","image_key":"img_v3_down"}]]}`))
+
+	if len(h.payloads) != 1 {
+		t.Fatalf("下载失败不该丢消息，inject=%d", len(h.payloads))
+	}
+	if !strings.Contains(h.payloads[0].Text, "[图片 img_v3_down]") {
+		t.Fatalf("失败时应保留 key 占位:\n%s", h.payloads[0].Text)
+	}
+}
+
+// 纯图片消息：content 里只有 image_key，从前只降级成 [媒体消息]（连 key 都没留）。
+func TestHandlePureImageMessage(t *testing.T) {
+	h := newServeHarness(t, baseCfg(), nil)
+	dir := t.TempDir()
+	h.media = newMediaStore(dir, &fakeGetter{body: "PNG", ctype: "image/png"}, 0)
+
+	h.handle(mediaEvent("p2p", "oc_dm", "ou_alice", "m_pure", "image", `{"image_key":"img_v2_pure"}`))
+
+	if len(h.payloads) != 1 {
+		t.Fatalf("want 1 inject, got %d", len(h.payloads))
+	}
+	if want := filepath.Join(dir, "m_pure", "img_v2_pure.png"); !strings.Contains(h.payloads[0].Text, want) {
+		t.Fatalf("注入文本应带本地路径 %s:\n%s", want, h.payloads[0].Text)
+	}
+}
+
+// 没配落盘目录（probe / 未配状态目录）：不下载、不 panic，key 占位照旧进注入。
+func TestHandleMediaWithoutStore(t *testing.T) {
+	h := newServeHarness(t, baseCfg(), nil)
+	h.handle(mediaEvent("p2p", "oc_dm", "ou_alice", "m_nostore", "image", `{"image_key":"img_v2_x"}`))
+	if len(h.payloads) != 1 || !strings.Contains(h.payloads[0].Text, "img_v2_x") {
+		t.Fatalf("无落盘目录时应保留 key 占位: %+v", h.payloads)
+	}
+}
+
+// 非图片附件：文件消息落盘后注入里是 [文件 <路径>]，不是 [图片 …]（文件与图片走
+// 接口的两个 type 分支，改写分支也不同）。
+func TestHandleFileMessageBecomesLocalPath(t *testing.T) {
+	h := newServeHarness(t, baseCfg(), nil)
+	g := &fakeGetter{body: "LOGS", ctype: "text/plain"}
+	dir := t.TempDir()
+	h.media = newMediaStore(dir, g, 0)
+
+	h.handle(mediaEvent("p2p", "oc_dm", "ou_alice", "m_file", "file",
+		`{"file_key":"file_v2_log","file_name":"崩溃日志.txt"}`))
+
+	if len(h.payloads) != 1 {
+		t.Fatalf("want 1 inject, got %d", len(h.payloads))
+	}
+	text := h.payloads[0].Text
+	want := filepath.Join(dir, "m_file", "file_v2_log.txt")
+	if !strings.Contains(text, "[文件 "+want+"]") {
+		t.Fatalf("注入文本里应是文件路径 %s:\n%s", want, text)
+	}
+	if strings.Contains(text, "[文件 崩溃日志.txt file_v2_log]") {
+		t.Fatalf("key 占位必须被替换掉:\n%s", text)
+	}
+	if len(g.calls) != 1 || g.calls[0] != "m_file|file_v2_log|file" {
+		t.Fatalf("接口 type 参数应是 file: %v", g.calls)
+	}
+}
+
+// 附件落盘开关的装配：MediaDir 为空就不建 store（probe/测试路径），非空才建。
+// 这条线断了，线上所有图片都退回 key 占位且没有任何报错。
+func TestMediaStoreForHonorsMediaDir(t *testing.T) {
+	if s := mediaStoreFor(Config{}); s != nil {
+		t.Fatalf("MediaDir 为空不该落盘: %+v", s)
+	}
+	dir := t.TempDir()
+	s := mediaStoreFor(Config{MediaDir: dir, MediaRetention: 48 * time.Hour})
+	if s == nil {
+		t.Fatal("MediaDir 非空必须建 mediaStore（附件落盘总开关）")
+	}
+	if s.dir != dir || s.retention != 48*time.Hour {
+		t.Fatalf("store 配置没接上: dir=%q retention=%v", s.dir, s.retention)
+	}
+	if s.get == nil {
+		t.Fatal("getter 不能是 nil：第一条附件就会 panic")
+	}
+}
+
+// 一条消息多张图：第一张下载失败只影响它自己，第二张照常落盘并改写成路径。
+// 失败分支从 continue 变成 return 时，这条用例是唯一会红的。
+func TestHandleMultiImagePartialFailure(t *testing.T) {
+	h := newServeHarness(t, baseCfg(), nil)
+	dir := t.TempDir()
+	h.media = newMediaStore(dir, &fakeGetter{
+		body:     "PNG",
+		ctype:    "image/png",
+		errByKey: map[string]error{"img_v3_bad": errors.New("502")},
+	}, 0)
+
+	h.handle(postEvent("p2p", "oc_dm", "ou_alice", "m_multi",
+		`{"content":[[{"tag":"img","image_key":"img_v3_bad"},{"tag":"img","image_key":"img_v3_ok"}]]}`))
+
+	if len(h.payloads) != 1 {
+		t.Fatalf("want 1 inject, got %d", len(h.payloads))
+	}
+	text := h.payloads[0].Text
+	if !strings.Contains(text, "[图片 img_v3_bad]") {
+		t.Fatalf("失败那张应保留 key 占位:\n%s", text)
+	}
+	want := filepath.Join(dir, "m_multi", "img_v3_ok.png")
+	if !strings.Contains(text, "[图片 "+want+"]") {
+		t.Fatalf("成功那张应改写成路径 %s:\n%s", want, text)
+	}
+}
+
+// 多张图全部成功：两条路径都要出现（顺序按文档顺序）。
+func TestHandleMultiImageAllSucceed(t *testing.T) {
+	h := newServeHarness(t, baseCfg(), nil)
+	dir := t.TempDir()
+	h.media = newMediaStore(dir, &fakeGetter{body: "PNG", ctype: "image/png"}, 0)
+
+	h.handle(postEvent("p2p", "oc_dm", "ou_alice", "m_two",
+		`{"content":[[{"tag":"img","image_key":"img_a"},{"tag":"img","image_key":"img_b"}]]}`))
+
+	text := h.payloads[0].Text
+	for _, key := range []string{"img_a", "img_b"} {
+		want := filepath.Join(dir, "m_two", key+".png")
+		if !strings.Contains(text, want) {
+			t.Fatalf("缺 %s 的本地路径:\n%s", key, text)
+		}
+	}
+}
+
+// newServer 是生产装配线：MediaDir 有值就必须挂上 mediaStore（否则附件功能整体
+// 静默失效），为空时不能挂（probe 路径）。
+func TestNewServerWiresMedia(t *testing.T) {
+	dir := t.TempDir()
+	srv := newServer(Config{MediaDir: dir, MediaRetention: time.Hour}, nil, nil)
+	if srv.media == nil {
+		t.Fatal("MediaDir 非空时 server 必须挂 mediaStore")
+	}
+	if srv.media.dir != dir || srv.media.retention != time.Hour {
+		t.Fatalf("mediaStore 配置没接上: %+v", srv.media)
+	}
+	if s := newServer(Config{}, nil, nil); s.media != nil {
+		t.Fatalf("MediaDir 为空不该挂 mediaStore: %+v", s.media)
+	}
+}
+
+// Run 必须经 serverFactory 装配：若有人把 Run 改回结构体字面量，srv.media 恒为 nil，
+// 线上所有附件退回 key 占位且没有报错。用已取消的 ctx 让连接立刻收起。
+func TestRunBuildsServerWithMedia(t *testing.T) {
+	var got Config
+	old := serverFactory
+	serverFactory = func(cfg Config, d *dedupStore, q *retryQueue) *server {
+		got = cfg
+		return &server{cfg: cfg, dedup: d, queue: q}
+	}
+	defer func() { serverFactory = old }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cfg := Config{
+		AppID: "app", AppSecret: "secret",
+		DedupPath: filepath.Join(t.TempDir(), "dedup.jsonl"),
+		MediaDir:  t.TempDir(),
+	}
+	_ = Run(ctx, cfg, func(context.Context, Source, inject.Payload) error { return nil })
+	if got.MediaDir != cfg.MediaDir {
+		t.Fatalf("Run 没有把 MediaDir 交给装配函数: %q", got.MediaDir)
 	}
 }

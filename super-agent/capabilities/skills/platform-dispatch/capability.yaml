@@ -1,4 +1,0 @@
-key: platform-dispatch
-name: 平台派活
-description: 平台（hifox / sharkly；将来还有 ssh 主机）任务的派发、查询、取消与跟踪清单纪律。
-whenToUse: 要让远端平台上的能力 agent 干活、查它的进度、取消它，或核对平台跟踪清单时。

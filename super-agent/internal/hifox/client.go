@@ -49,12 +49,37 @@ func NewForOrg(org string) *Client { return &Client{Run: ExecRunner(org)} }
 
 // Task 是哨兵关心的任务真值子集（`hifox task view <id> --output json` 的形状）。
 type Task struct {
-	Identifier         string `json:"identifier"`
-	Title              string `json:"title"`
-	Status             Status `json:"status"`
-	DelegateStatus     string `json:"delegateStatus"`
-	AgentWorkingStatus string `json:"agentWorkingStatus"`
-	UpdatedAt          string `json:"updatedAt"`
+	Identifier         string       `json:"identifier"`
+	Title              string       `json:"title"`
+	Status             Status       `json:"status"`
+	DelegateStatus     string       `json:"delegateStatus"`
+	AgentWorkingStatus string       `json:"agentWorkingStatus"`
+	UpdatedAt          string       `json:"updatedAt"`
+	URL                string       `json:"url"`
+	Attachments        []Attachment `json:"attachments"`
+}
+
+// Attachment 是任务附件在 `task view` 里的人读面。preview.url 是任务自身的预览地址
+// （相对路径，Web 端按同源解析）：正文里嵌图只能用它，聊天里的临时 URL 会过期。
+//
+// CommentID 非空表示这条附件挂在评论上，不是任务正文的资源——嵌进正文会把评论里的
+// 截图（HF-11745 实测 1 条）搬到 description 里，让承接人以为那是任务本身的材料。
+type Attachment struct {
+	ID          string `json:"id"`
+	CommentID   string `json:"commentId"`
+	Filename    string `json:"filename"`
+	MimeType    string `json:"mimeType"`
+	DownloadURL string `json:"downloadUrl"`
+	Preview     struct {
+		Type   string `json:"type"`
+		Status string `json:"status"`
+		URL    string `json:"url"`
+	} `json:"preview"`
+}
+
+// IsImage 判定附件是不是图片（markdown 嵌图只对图片有意义）。
+func (a Attachment) IsImage() bool {
+	return strings.HasPrefix(strings.ToLower(a.MimeType), "image/")
 }
 
 type Status struct {
@@ -106,6 +131,17 @@ func (c *Client) TaskCreate(ctx context.Context, args []string) (TaskRef, error)
 		return TaskRef{}, fmt.Errorf("decode created task: %w", err)
 	}
 	return ref, nil
+}
+
+// TaskEdit 编辑任务（`task edit <id>`）：args 原样透传（--body-file/--attachment/--type），
+// 只补 --output json。返回编辑后的任务真值（含 description 与 attachments）。
+func (c *Client) TaskEdit(ctx context.Context, id string, args []string) (Task, error) {
+	full := append(append([]string{"task", "edit", id}, args...), "--output", "json")
+	out, err := c.Run(ctx, full)
+	if err != nil {
+		return Task{}, fmt.Errorf("hifox task edit %s: %w", id, err)
+	}
+	return decodeTask(out)
 }
 
 // Run 是一次执行会话的状态子集；Status 归一到 queued|running|succeeded|failed|cancelled

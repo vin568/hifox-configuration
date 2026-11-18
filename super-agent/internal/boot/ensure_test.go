@@ -193,10 +193,24 @@ func TestEnsureRestartAgentOnExistingWorkspace(t *testing.T) {
 }
 
 func TestPrimePromptIncludesPaths(t *testing.T) {
-	got := PrimePrompt("手册正文", Paths{CapabilitiesDir: "/cap", ActiveDir: "/active", ArchivedDir: "/archived", ResultsDir: "/results", InflightPath: "/inflight", RuntimeCmd: "/opt/bin/superctl", Index: "## 平台能力\n- 戴宗：发布验收"})
-	for _, want := range []string{"手册正文", "/cap", "/active", "/archived", "/results", "/inflight", "superctl reply", "/opt/bin/superctl", "运行时命令", "## 平台能力", "戴宗"} {
+	got := PrimePrompt("手册正文", Paths{CapabilitiesDir: "/cap", ActiveDir: "/active", ArchivedDir: "/archived",
+		ResultsDir: "/results", BriefsDir: "/briefs", MediaDir: "/media",
+		InflightPath: "/inflight", RuntimeCmd: "/opt/bin/superctl", Index: "## 平台能力\n- 戴宗：发布验收"})
+	for _, want := range []string{"手册正文", "/cap", "/active", "/archived", "/results",
+		"/briefs", "任务正文", "/media", "消息附件",
+		"/inflight", "superctl reply", "/opt/bin/superctl", "运行时命令", "## 平台能力", "戴宗"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("prime prompt missing %q", want)
+		}
+	}
+}
+
+// 两个目录为空时那两行不打印：主控手册里出现空路径只会让它去读一个不存在的位置。
+func TestPrimePromptOmitsEmptyBriefsAndMedia(t *testing.T) {
+	got := PrimePrompt("手册", Paths{InflightPath: "/inflight"})
+	for _, unwanted := range []string{"任务正文（", "消息附件："} {
+		if strings.Contains(got, unwanted) {
+			t.Fatalf("空路径不该打印 %q:\n%s", unwanted, got)
 		}
 	}
 }

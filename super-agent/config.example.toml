@@ -16,6 +16,10 @@ session_max_bytes = 8388608
 # 会话留档保留轮数（每轮一个 state_dir/sessions/<时间>-<原因> 目录）
 sessions_keep = 5
 
+# 飞书消息附件（图片/文件）落盘保留期；空 = 30 天。用户原图不是长期资产：
+# 够复现、够转派即可（ADR 0024）。
+media_retention = "720h"
+
 # 飞书放行面：open_id 白名单，私聊只放行白名单成员（其他人不注入）
 allowed_users = ["ou_replace_me"]
 

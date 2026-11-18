@@ -1,13 +1,13 @@
 # super-agent — 宋江本地运行时
 
-宋江（主控）super agent 的 Go 单二进制运行时：飞书注入器、`superctl` CLI、作业巡检 tick、重启引导。术语见根 `GLOSSARY.md`「主控编排」节；架构与边界见 `docs/adr/0016`–`0023`。跑在本机 herdr 上，不经 x-deploy 部署。
+宋江（主控）super agent 的 Go 单二进制运行时：飞书注入器、`superctl` CLI、作业巡检 tick、重启引导。术语见根 `GLOSSARY.md`「主控编排」节；架构与边界见 `docs/adr/0016`–`0025`。跑在本机 herdr 上，不经 x-deploy 部署。
 
 ## 结构
 
 ```
 super-agent/
 ├── cmd/superctl/        # 单二进制入口（serve/ensure/status/inject/tick/reply/halt/resume/new/dispatch/cancel/capabilities）
-├── capabilities/        # 能力声明（目录即注册表，ADR 0021）：agents/ skills/ scripts/ platforms/<平台>/
+├── capabilities/        # 能力声明（目录即注册表，ADR 0021）：agents/ skills/ scripts/ platforms/<平台>/；技能是标准 SKILL.md，位置即归属（ADR 0025）
 ├── internal/config/     # superctl.toml 加载与路径约定
 ├── internal/capability/ # 能力注册表：目录即声明 + 索引生成 + 漂移检查（ADR 0021）
 ├── internal/halt/       # 急停闸门状态文件（ADR 0020）
@@ -25,16 +25,19 @@ super-agent/
 
 主控操作手册、能力用途与复盘者手册随能力注册表走（`capabilities/agents/<key>/instructions.md`，ADR 0021），独立的提示词目录不再是真源。
 
-状态目录默认 `~/.local/state/songjiang/`：`ledger/active|archived`（主控维护）、`results/`、`outbox.jsonl`、`dedup.jsonl`、`inflight.json`（在途清单，原 `watchlist.json` 改名扩义：kind=platform|local，哨兵只读 platform 条目）、`platform-snapshot.json`（哨兵私有快照）、`halt.json`（急停闸门与急停状态）、`handoff.md`（轮换交接的机器真值）、`sessions/`（每轮次会话留档）、`primed/`（prime 成功标记）。注意：`platformwatch` 子命令与 `serve` 并跑会对同一变化双注入（哨兵无跨进程锁），它只在 serve 停机时手动/cron 顶班用。
+状态目录默认 `~/.local/state/songjiang/`：`ledger/active|archived`（主控维护）、`results/`、`briefs/`（平台任务正文的归档副本 `<任务号>.md`：派活员写、运行时归档，ADR 0024）、`skills/<agent>/omp-skills.yml`（该 agent 的技能发现覆盖配置：指向 capabilities 下的真源目录，不复制技能本体，ADR 0025）、`media/`（飞书消息附件落盘：注入文本只带路径，目录 0700/文件 0600，默认保留 30 天）、`outbox.jsonl`、`dedup.jsonl`、`inflight.json`（在途清单，原 `watchlist.json` 改名扩义：kind=platform|local，哨兵只读 platform 条目）、`platform-snapshot.json`（哨兵私有快照）、`halt.json`（急停闸门与急停状态）、`handoff.md`（轮换交接的机器真值）、`sessions/`（每轮次会话留档）、`primed/`（prime 成功标记）。注意：`platformwatch` 子命令与 `serve` 并跑会对同一变化双注入（哨兵无跨进程锁），它只在 serve 停机时手动/cron 顶班用。
 
 ## 构建与测试
 
 ```bash
 cd super-agent
-go build ./... && go vet ./... && go test ./...
+go build ./... && go vet ./... && go test -race ./...
 ```
 
-（仓 mise 已固定 go 1.26；PATH 里的老 go 不用时 `mise exec go -- go test ./...`。）
+`-race` 不是可选：飞书 SDK 每条消息起一个 goroutine，附件落盘的并发共享状态只有它在看
+（ADR 0024）。不带 `-race` 跑，`TestMediaStoreConcurrentSave` 这类用例没有检出能力。
+
+（仓 mise 已固定 go 1.26；PATH 里的老 go 不用时 `mise exec go -- go test -race ./...`。）
 
 ## 首次落地
 

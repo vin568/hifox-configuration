@@ -186,3 +186,32 @@ func TestLoadAcceptsLegacyCloudPollInterval(t *testing.T) {
 		t.Fatalf("新键应生效: %v %v", d, err)
 	}
 }
+
+// media_retention 是飞书落盘附件的保留期：默认 30 天，可覆盖，非法值 Validate 报错。
+func TestMediaRetention(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "superctl.toml")
+	dir := filepath.Join(t.TempDir(), "state")
+	toml := "session = \"s\"\nstate_dir = \"" + dir + "\"\nmedia_retention = \"48h\"\n"
+	if err := os.WriteFile(path, []byte(toml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d, err := c.MediaRetention(); err != nil || d != 48*time.Hour {
+		t.Fatalf("media_retention override lost: %v %v", d, err)
+	}
+
+	// 缺省 = 零值，交给适配层的 DefaultMediaRetention（30 天只在一处定义）。
+	def := Default()
+	if d, err := def.MediaRetention(); err != nil || d != 0 {
+		t.Fatalf("默认应为零值（适配层兜底）: %v %v", d, err)
+	}
+
+	bad := Default()
+	bad.MediaRetentionRaw = "nope"
+	if err := bad.Validate(); err == nil || !strings.Contains(err.Error(), "media_retention") {
+		t.Fatalf("非法 media_retention 应报错: %v", err)
+	}
+}
