@@ -137,7 +137,7 @@ done
 
 - 类型：workflow | task | chore
 - 意图：咨询 | 交付
-- 主题：xwing | x-deploy | apifox | docs-site | apifox-cli | 杂活
+- 主题：xwing | xwing-mobile | x-deploy | apifox | docs-site | apifox-cli | 杂活
 - 实例：hifox | sharkly | apifox | apidog | apidog-eu | apifox-cli | apidog-cli | PDV/<产品线> | 未指定（值域与别名见 `{{skills.wuyong/topic-resolution.name}}` skill §3）
 - 判定依据：主题=<显式词|指代事项|会话焦点|唯一未完结|澄清> · 实例=<显式词|指代事项|会话焦点|澄清>
 - 状态：<执行中 | 等待专家 | 阻塞（原因） | 派发结果未知 | 执行不存在 | 疑似卡住（时长） | 待转述（成功|失败|取消） | 等待用户（等什么）>

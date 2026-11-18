@@ -18,6 +18,8 @@ bash <skill-dir>/scripts/preflight.sh base hifox server db runtime
 | `db` | `psql`、`pg_isready`；PostgreSQL 可达性只报 WARN，因为 `scripts/ensure-postgres.sh` 可能启动共享容器 |
 | `runtime` | Google Chrome（或 `TASK_ENV_CHROME_EXECUTABLE` / `CHROME_PATH`）加 `db` 全部 |
 | `cli` | `cargo` |
+| `ios` | `xcrun`、`xcodebuild`；`xcodegen` 可选（改 `project.yml` 时必须，否则只能构建既有 `.xcodeproj`） |
+| `android` | `adb`、JDK ≥ 17（`JAVA_HOME` 优先）；`emulator`、`aapt2`、`apksigner` 可选。SDK 工具从 PATH 或 `ANDROID_HOME` / `ANDROID_SDK_ROOT` / `~/Library/Android/sdk` 解析（`aapt2` / `apksigner` 取最新 `build-tools/`） |
 | `ci` | `yq`、`lsof`、`python3`，且 node 主版本 ≥ 18 |
 
 `agent-browser`（自定义浏览器交互）与 `ffmpeg`（录屏抽帧回看）恒为可选项，总是报告；`ci` surface 额外把 `playwright` 报告为可选项（缺失时跳过截图取证并在报告标注）。

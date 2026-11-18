@@ -1,0 +1,6 @@
+key: ios-client
+name: XWing iOS Client Platform
+description: "apps/ios 的命令与平台事实：xcodegen 工程纪律、xcodebuild / simctl / xcresulttool 命令、模拟器与真机取证、本地测试栈、金样生成器、分发踩坑清单。改 iOS 代码或出包时按需查；流程与门禁在 agent 指令里。"
+contentFile: SKILL.md
+config: {}
+namingPattern: "{{name}}"
