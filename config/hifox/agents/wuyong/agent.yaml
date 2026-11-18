@@ -5,7 +5,6 @@ description: 飞书入口的统筹调度 Agent：私聊或群 @ 进入平台原�
 instructionsFile: instructions.md
 runtime:
   model: hifox/glm-5.3
-  customArguments: []
 target:
   computer: "Developer’s MacBook Pro"
   runtime: oh-my-pi

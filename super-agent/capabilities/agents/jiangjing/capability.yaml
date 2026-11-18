@@ -1,0 +1,8 @@
+key: jiangjing
+name: 蒋敬
+description: 复盘能力 agent，宋江的账房先生；只做分析与写作，不面向用户、不派活、不改台账。
+role: retro
+workspace: crew
+kind: omp
+args: []
+maxConcurrent: 1

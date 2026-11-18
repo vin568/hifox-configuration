@@ -10,3 +10,6 @@ backups/
 mise.local.toml
 mise.toml.local
 .DS_Store
+
+# super-agent build artifacts
+super-agent/bin/

@@ -1,0 +1,4 @@
+key: direct-tiers
+name: 直连三级
+description: 受控命令面的三级授权：只读自由跑、变更限白名单、白名单外先问。
+whenToUse: 要亲自跑命令（而非派活）时，先按这三条定权限与记账要求。

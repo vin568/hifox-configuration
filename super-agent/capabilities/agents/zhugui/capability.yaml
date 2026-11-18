@@ -1,0 +1,8 @@
+key: zhugui
+name: 朱贵
+description: 平台派活员（本地 job）：承接主控的派活请求，按平台能力索引挑承接 agent、写单、经 superctl dispatch --platform 建单并把任务号写进结果文件。不读代码仓库、不做排查、不写代码。
+role: job
+workspace: jobs
+kind: omp
+args: []
+maxConcurrent: 3

@@ -7,7 +7,6 @@ repositories:
   - https://cnb.cool/tars-lab/xwing
 runtime:
   model: hifox/glm-5.3
-  customArguments: []
 target:
   computer: "Developer’s MacBook Pro"
   runtime: oh-my-pi

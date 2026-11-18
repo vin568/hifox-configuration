@@ -2,7 +2,7 @@
 
 ## 仓库定位与分工
 
-本仓库是 xwing 家族 CLI 应用（部署实例）的声明式配置仓库（配置集合与环境绑定清单见根 `README.md`），同时是部署 CLI 的开发配置仓库：`vendor/x-deploy` 是 git 子模块，部署行为改动只在子模块内开发，本仓库跟踪指针与配置。
+本仓库是 xwing 家族 CLI 应用（部署实例）的声明式配置仓库（配置集合与环境绑定清单见根 `README.md`），同时是部署 CLI 的开发配置仓库：`vendor/x-deploy` 是 git 子模块，部署行为改动只在子模块内开发，本仓库跟踪指针与配置。2026-11 起本仓兼载宋江 super agent 的本地运行时（`super-agent/`，见「Super Agent 本地运行时」与 ADR 0016–0023）。
 
 ## 文档职责判定
 
@@ -16,23 +16,30 @@
 
 ## 技能目录
 
-本仓有三处技能目录，消费者互斥；新增技能先按消费者判定放置：
+本仓有四处技能目录，消费者互斥；新增技能先按消费者判定放置：
 
 | 目录 | 消费者 | 机制与形态 |
 | --- | --- | --- |
 | `skills/` | 部署到远端的 xwing agent | 技能源：由 `config/<集合>/agents/<key>/skills/<skill-key>/skill.yaml` 以 `dir: "@/skills/<名>"` 引用同一源，部署为各 agent 专属实例。`SKILL.md` 是内容体、无 frontmatter（身份在 `skill.yaml`）。源目录名带产品前缀（`xwing-` / `apifox-`）：根级 `skills/` 是跨配置集合的共享命名空间，裸名会假装通用；agent 实例 `key` 保持裸名（`<agent>/<key>` 已按 agent 命名空间化，改名会动 state 身份）。当前：`xwing-task-runtime`（linchong、daizong 引用）、`apifox-staging-deploy`（yanqing、xiaorang、skadi 引用）、`apifox-web-acceptance`（eir、yanqing、xiaorang 引用） |
 | `config/<集合>/skills/` | 部署到远端的 xwing agent（Space 内共享） | Space Skill 实例，多 agent 挂载同一份；结构语义见 `./x-deploy guide contract`，不在本仓复述 |
 | `.agents/skills/` | 在本仓工作的开发 agent 与人（不部署） | 项目级工具技能（Agent Skills 开放标准位置）：`SKILL.md` 带 `name`/`description` frontmatter。CLI 自带技能（当前 `xwing-workflows`）由 `./x-deploy init` 整目录受管重置，定制须复制改名；清单外的自有技能 init 不触碰，当前自有：`worktree-dev`（本仓 git worktree 开发契约 + `worktree.sh` 助手） |
+| `super-agent/capabilities/` | 本机宋江主控（不部署） | 本地能力注册表，目录即声明（ADR 0021）：`agents/<key>/{capability.yaml,instructions.md}`（含 `role: master` 的宋江与 `role: retro` 的蒋敬；常驻 agent 的名单、启动参数与手册由它派生，workspace 布局仍是固定三件套 master/crew/jobs）、`skills/<key>/{capability.yaml,doc.md}`（主控按需读的能力文档）、`scripts/<key>.yaml`（指向 `super-agent/direct/` 实脚本）、`platforms/<平台>/<key>.yaml`（平台侧 agent 指针，平台 = 平台 CLI 应用名如 hifox；真源仍是 `config/`）。`superctl capabilities --check` 查漂移 |
 
-判定一句话：给部署的远端 agent 用 → `skills/`（源 + agent 引用）或 `config/<集合>/skills/`（Space 共享）；给在本仓干活的开发 agent 用 → `.agents/skills/<名>/`。
+判定一句话：给部署的远端 agent 用 → `skills/`（源 + agent 引用）或 `config/<集合>/skills/`（Space 共享）；给在本仓干活的开发 agent 用 → `.agents/skills/<名>/`；给本机宋江主控用 → `super-agent/capabilities/`。
 
 技能目录里随仓维护的脚本（如戴宗验收套件的 `screenshot.mjs`）有回归测试：根目录 `npm test`（node:test，零依赖，用 `test/fixtures/` 的边界 stub）；用例按源码路径镜像存放——agent 技能为 `test/<agent>/<skill>/<脚本名>.test.mjs`，根级共享源按 `skills/` 下目录名（如 `test/xwing-task-runtime/`）——改这些脚本必须先跑或补用例。
+
+## Super Agent 本地运行时（super-agent/）
+
+`super-agent/` 是宋江（主控）super agent 的本地运行时：一个 Go 单二进制，承载飞书注入器、`superctl`、巡检 tick 与换脑。它跑在本机 herdr 上，不经 x-deploy 部署、不进远端环境与 `state.yaml`；术语见 `GLOSSARY.md`「主控编排」节，架构与边界决策见 `docs/adr/0016`–`0023`。平台能力口径 = `config/` 已声明的 agent（未声明即不存在；平台 = hifox / 将来的 sharkly）；主控提示词与能力注册表属运行时物料，不进 `config/`。测试在目录内 `go test` 自管；根 `npm test` 仍只管技能脚本。
+
+**同步规矩（ADR 0023）**：`config/<集合>/agents/<key>` 与 `super-agent/capabilities/platforms/<平台>/<key>.yaml` 双向一一对应（平台↔集合的映射读 `environments/*/environment.yaml` 的 `cli.app` + `configSet`）——config 里加 / 删 / 改 agent 必须同步平台目录（name 指同一身份、任一 `environments/*/state.yaml` 有部署记录）；**新加配置集合而没在任何 `environment.yaml` 里写明 `cli.app` + `configSet` 时，`--check` 会直接报红**（平台归属推不出就没法对账）。由 `superctl capabilities --check` 强制、`--check --live` 再对平台核一遍。平台派活只经平台派活员朱贵（`zhugui`，本机 job agent），主控不挑人、不解析平台 ref。
 
 ## 子模块开发（唯一允许改部署逻辑的地方）
 
 1. `vendor/x-deploy` 是完整 git 仓库，不是 vendored 只读代码；`.gitmodules` 固定 `branch = dev`（`main` 为稳定分支）。detached HEAD 时先 `git -C vendor/x-deploy switch dev`。
 2. 在子模块内编辑并运行 `npm test`；真实 API 测试按 CLI App 参数化（hifox / sharkly 双套），只在各自专用测试组织上跑，见子模块 `AGENTS.md`「测试」节的 `.env.e2e` / `<APP>_ORGANIZATION_ID` 与 `<APP>_E2E_*` 约定。
-3. 在子模块仓库提交并推送 `origin/dev`，再回本仓库 `git add vendor/x-deploy && git commit` 更新指针。根仓库的提交只包含配置/文档/壳脚本/测试/指针变化。
+3. 在子模块仓库提交并推送 `origin/dev`，再回本仓库 `git add vendor/x-deploy && git commit` 更新指针。根仓库的提交只包含配置/文档/壳脚本/测试/指针/super-agent 运行时代码变化。
 4. 拉上游更新：`git submodule update --remote --rebase vendor/x-deploy`，随后 `./x-deploy init` 刷新受管物料；`./x-deploy update` 对子模块布局一律拒绝（见 `./x-deploy guide upgrade`）。
 
 不要把子模块当只读依赖，也不要绕开它把部署逻辑复制进根仓库或壳脚本；`x-deploy` 壳脚本的路径与 `--root` 语义属消费方契约，不要改。修改术语或契约前，先读子模块 `GLOSSARY.md` 与 `docs/adr/` 并同步。子模块文档拆分约束见其 `AGENTS.md`「文档职责」节：工具仓 `README.md` 是随包分发的纯消费契约（`guide contract` 原样输出）；维护者内容归子模块 `AGENTS.md`；随包文档（README 与 runbooks）不反向引用不随包的文件（`docs/adr/`、`AGENTS.md`、`GLOSSARY.md` 的编号与链接在安装形态下是死链）；部署实例名只出现在校验闭集处（依赖节、`cli.app` 字段表）；改契约措辞需同步其不变量与 runbook。

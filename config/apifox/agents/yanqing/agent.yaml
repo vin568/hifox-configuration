@@ -5,7 +5,6 @@ description: 单 Agent 完成 Apifox 全栈交付闭环：需求澄清、代码�
 instructionsFile: instructions.md
 runtime:
   model: hifox/glm-5.3
-  customArguments: []
 target:
   computer: 095db7f5-7356-48a9-9a65-d33546dc94da
   runtime: 16bac72a-28f1-4e89-9d34-1a307f936741

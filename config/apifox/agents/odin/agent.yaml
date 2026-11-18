@@ -5,7 +5,6 @@ description: 负责理解用户需求、判断任务涉及的项目范围、拆�
 instructionsFile: instructions.md
 runtime:
   model: hifox/glm-5.3
-  customArguments: []
 permissions:
   taskAssignment: true
   directMessage: true
