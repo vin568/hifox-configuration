@@ -5,21 +5,71 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"super-agent/internal/boot"
 	"super-agent/internal/capability"
 	"super-agent/internal/config"
 )
 
-// runtimeCmdPath 是当前这个 superctl 可执行文件的绝对路径。手册里到处写裸 `superctl`，
-// 而本机 superctl 未必在 PATH 上（实测 which superctl 为空），主控照着手册敲会扑空——
-// 把真实路径给它是唯一能让手册落地的办法。取不到就留空（那段不打印）。
-func runtimeCmdPath() string {
+// runtimeCmdPath 是能给主控与能力 agent 使用的 superctl 绝对路径。手册里到处写裸
+// `superctl`，而本机 superctl 未必在 PATH 上（实测 which superctl 为空），照着敲会
+// 扑空——把真实路径给它是唯一能让手册落地的办法。
+//
+// 不能无条件用 os.Executable()：serve/ensure 经常是 `go run` 起的，os.Executable()
+// 指向 go-build 的临时产物，进程一换就消失；注进 prime 的路径下一次必扑空（实测
+// 主控第一次 reply 就撞上 No such file）。临时构建一律回退到仓库里构建好的 bin，
+// 取不到就留空（那段不打印），绝不灌一条死路径。
+func runtimeCmdPath(cfg config.Config) string {
 	exe, err := os.Executable()
-	if err != nil {
-		return ""
+	if err == nil {
+		if resolved, rerr := filepath.EvalSymlinks(exe); rerr == nil {
+			exe = resolved
+		}
+		if !isEphemeralBuildPath(exe) {
+			return exe
+		}
 	}
-	return exe
+	return stableRuntimeCmd(cfg.RepoDir)
+}
+
+// isEphemeralBuildPath 判定路径是否来自 go run/go test 的临时构建目录：这两类产物
+// 的寿命跟着父进程，不能写进跨会话的注入。
+func isEphemeralBuildPath(p string) bool {
+	if p == "" {
+		return true
+	}
+	// 两边的软链接都解开再比：调用方取到的是 EvalSymlinks 后的路径，调用方自己
+	// 可能只是把原始路径传进来。解析失败（路径不存在）就按原样比较。
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		p = resolved
+	}
+	if strings.Contains(p, string(filepath.Separator)+"go-build") {
+		return true
+	}
+	tmp := os.TempDir()
+	if tmp == "" {
+		return false
+	}
+	// macOS 的 /var/folders 会解析成 /private/var/folders；此时按解析后的 tmp 再比一次。
+	if resolved, err := filepath.EvalSymlinks(tmp); err == nil &&
+		strings.HasPrefix(p, filepath.Clean(resolved)+string(filepath.Separator)) {
+		return true
+	}
+	return strings.HasPrefix(p, filepath.Clean(tmp)+string(filepath.Separator))
+}
+
+// stableRuntimeCmd 在仓库里找构建好的 superctl（README 的 `go build -o bin/superctl`）。
+func stableRuntimeCmd(repoDir string) string {
+	for _, p := range []string{
+		filepath.Join(repoDir, "super-agent", "bin", "superctl"),
+		filepath.Join(repoDir, "bin", "superctl"),
+	} {
+		if st, err := os.Stat(p); err == nil && st.Mode().IsRegular() {
+			return p
+		}
+	}
+	return ""
 }
 
 // deriveAgentNames 从能力注册表取主控/复盘 agent 的 key（注册表是它们的唯一声明处）。
@@ -80,7 +130,7 @@ func expectedTopo(cfg config.Config) (boot.Expected, error) {
 			BriefsDir:       cfg.BriefsDir(),
 			MediaDir:        cfg.MediaDir(),
 			InflightPath:    cfg.InflightPath(),
-			RuntimeCmd:      runtimeCmdPath(),
+			RuntimeCmd:      runtimeCmdPath(cfg),
 			Index:           reg.Index(),
 		}),
 		PrimeMarkerDir: cfg.PrimeMarkerDir(),
@@ -112,11 +162,11 @@ func expectedTopo(cfg config.Config) (boot.Expected, error) {
 // 不复制 SKILL.md：真源目录直接交给底层 CLI（skills.customDirectories）。复制会造出
 // 第二份可编辑的副本，也会让「哪份才是真源」再次含糊（ADR 0025 修订）。
 func skillArgs(cfg config.Config, a capability.Agent) ([]string, error) {
-	roots := capability.SkillRoots(cfg.RepoDir, a)
-	if len(roots) == 0 {
+	mount := capability.SkillMounts(cfg.RepoDir, a)
+	if len(mount.Roots) == 0 {
 		return nil, nil
 	}
-	overlay, err := capability.WriteOverlay(filepath.Join(cfg.SkillsDir(), a.Key), roots)
+	overlay, err := capability.WriteOverlay(filepath.Join(cfg.SkillsDir(), a.Key), mount)
 	if err != nil {
 		return nil, fmt.Errorf("写 %s 的技能覆盖配置: %w", a.Key, err)
 	}

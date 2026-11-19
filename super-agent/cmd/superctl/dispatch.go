@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"super-agent/internal/boot"
 	"super-agent/internal/capability"
 	"super-agent/internal/config"
 	"super-agent/internal/herdr"
@@ -485,6 +486,12 @@ func dispatchLocal(ctx context.Context, cfg config.Config, hc *herdr.Client, age
 		return nil, fmt.Errorf("%s 并发已达上限 %d，等一个收口再派", recipe.Key, limit)
 	}
 
+	// 回报通道要一个可执行的 superctl：没有稳定路径就先失败，别把一条必失败的命令
+	// 注给 agent。这里在建 pane 之前判，避免留下空转 agent。
+	runtimeCmd := runtimeCmdPath(cfg)
+	if runtimeCmd == "" {
+		return nil, errors.New("找不到稳定的 superctl 路径（先 go build -o super-agent/bin/superctl ./cmd/superctl）：回报通道没有可执行的命令")
+	}
 	pane, err := acquirePane(ctx, cfg, hc, recipe.Workspace)
 	if err != nil {
 		return nil, err
@@ -501,16 +508,35 @@ func dispatchLocal(ctx context.Context, cfg config.Config, hc *herdr.Client, age
 		return nil, fmt.Errorf("起 %s: %w", name, err)
 	}
 	resultPath := filepath.Join(cfg.ResultsDir(), name+".md")
-	prompt := localPrompt(recipe, body, attachments, resultPath)
-	if err := hc.AgentPrompt(ctx, name, prompt, false, 0); err != nil {
-		return nil, fmt.Errorf("任务已起到 %s 但注入失败（agent 还在跑，用 superctl cancel --agent %s 收掉）: %w", name, name, err)
-	}
 	if note == "" {
 		note = noteLine(body)
 	}
+	// 先登记再注入：注入一旦落地，agent 可能立刻 report 或结束回合；在途清单晚一步
+	// 写，这些信号会按「陌生 agent」被静默丢掉。失败时再把条目撤掉。
 	e := inflight.Entry{Kind: inflight.KindLocal, Agent: name, Pane: pane, Capability: recipe.Key, Note: note, AddedAt: time.Now()}
 	if err := inflight.Add(cfg.InflightPath(), e); err != nil {
-		return nil, fmt.Errorf("本地活已派出（%s）但登记在途清单失败: %w", name, err)
+		if cerr := hc.PaneClose(ctx, pane); cerr != nil {
+			return nil, fmt.Errorf("起 %s 后登记在途清单失败，pane %s 也没关掉（用 superctl cancel --agent %s 收掉）: %w", name, pane, name, err)
+		}
+		return nil, fmt.Errorf("起 %s 后登记在途清单失败（已关掉 pane）: %w", name, err)
+	}
+	prompt := localPrompt(recipe, name, body, attachments, resultPath, shellQuotePath(runtimeCmd))
+	// 注入必须确认落地：omp 启动窗口会吞掉大段粘贴的 Enter，agent 会空转在输入框上。
+	// 只报「提交成功」等于把空 pane 当成已开工——本次 6 分钟事故里 110 秒就丢在这里。
+	if _, err := boot.SubmitPrompt(ctx, hc, name, prompt, resultPath); err != nil {
+		reason := "重派一次"
+		if herdr.IsBlocked(err) {
+			// 启动期卡在信任/审批框：重派会再撞同一框，必须交回用户先处理。
+			reason = "它卡在要确认的界面上，需要用户先处理，处理完再派"
+		}
+		if cerr := hc.PaneClose(ctx, pane); cerr != nil {
+			// pane 还在：保留在途条目，主控可以用 cancel 找到它。
+			return nil, fmt.Errorf("任务已起到 %s 但注入没有落地，pane %s 也没关掉（用 superctl cancel --agent %s 收掉后%s）: %w", name, pane, name, reason, err)
+		}
+		if _, rerr := inflight.Remove(cfg.InflightPath(), func(e inflight.Entry) bool { return e.Agent == name }); rerr != nil {
+			return nil, fmt.Errorf("任务已起到 %s 但注入没有落地；pane 已关掉，但移出在途清单失败（用 cancel 收口）: %w", name, rerr)
+		}
+		return nil, fmt.Errorf("任务已起到 %s 但注入没有落地（已关掉该 pane，%s）: %w", name, reason, err)
 	}
 	ledger := ledgerDraft(cfg, name, "本地", name, note)
 	return map[string]string{"agent": name, "pane": pane, "result": resultPath, "ledger": ledger}, nil
@@ -522,7 +548,11 @@ func dispatchLocal(ctx context.Context, cfg config.Config, hc *herdr.Client, age
 // 派活不该因为一个文件缺失而失败。
 //
 // 附件单列成一段：承接的派活员要把它们原样带上平台，混在正文里靠自觉一定会漏。
-func localPrompt(recipe capability.Agent, body string, attachments []string, resultPath string) string {
+//
+// 回报通道（ADR 0029）：agent 知道自己的名字，就能在主控没轮询、平台也没有任务变化
+// 的时候主动把卡点与关键结果推回去；完成仍以结果文件 + 运行时的状态事件为准，不要求
+// 再发一条收尾报告。
+func localPrompt(recipe capability.Agent, name, body string, attachments []string, resultPath, runtimeCmd string) string {
 	var b strings.Builder
 	if manual, err := os.ReadFile(recipe.Instructions); err == nil {
 		b.WriteString("[你的手册]\n")
@@ -538,8 +568,26 @@ func localPrompt(recipe capability.Agent, body string, attachments []string, res
 			b.WriteString(p)
 		}
 	}
-	fmt.Fprintf(&b, "\n\n完成后把结果写成 markdown 存到 %s，只回文件路径。", resultPath)
+	b.WriteString("\n\n[回报通道]（纪律见 agent-report 技能；注入只给你名字与命令）")
+	fmt.Fprintf(&b, "\n你的名字：%s（主控用这个名字找你）", name)
+	fmt.Fprintf(&b, "\n中途要主控知道的事（被卡住、需要裁决、拿到了用户可见的关键结果），运行：\n  %s report --agent %s --text \"<一句话>\"", runtimeCmd, name)
+	fmt.Fprintf(&b, "\n主控也可能用 tell 给你补信息；按它说的调整。")
+	fmt.Fprintf(&b, "\n完成后把结果写成 markdown 存到 %s，只回文件路径（运行时会发完成事件，不要再用 report 发收尾报告）。", resultPath)
 	return b.String()
+}
+
+// shellQuotePath 只在路径含 shell 特殊字符时加单引号：正常路径保持可读，含空格的
+// 仓库路径也不会让注入的 report 命令断成两截。
+func shellQuotePath(p string) string {
+	for _, r := range p {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '/', r == '.', r == '-', r == '_', r == '~':
+		default:
+			return "'" + strings.ReplaceAll(p, "'", `'\''`) + "'"
+		}
+	}
+	return p
 }
 
 // countActiveLocal 数某能力名下还没收口的本地作业。旧条目没有 capability 字段，

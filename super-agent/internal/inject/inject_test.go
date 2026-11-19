@@ -86,3 +86,12 @@ func TestDoPassesThroughPlainError(t *testing.T) {
 		t.Fatalf("want plain error passthrough, got %v", err)
 	}
 }
+
+// 能力 agent 的主动回报必须自带身份：主控要能分清这是内部回报还是用户消息。
+func TestBuildAgentReport(t *testing.T) {
+	got := BuildAgentReport("zhugui-055342", "HF-16139 已指派给林冲，单子进了开发中")
+	want := "[触发器: agent] zhugui-055342：HF-16139 已指派给林冲，单子进了开发中"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}

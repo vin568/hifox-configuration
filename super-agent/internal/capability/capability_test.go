@@ -573,11 +573,74 @@ func TestIndexSkillsHaveNoFilePath(t *testing.T) {
 	}
 	// 阳性对照：description 原文（含「何时用」）必须整句在——只列名字判断不了要不要加载，
 	// 按「何时用：」截断就只剩「这是干什么的」。
-	if !strings.Contains(idx, "- platform-dispatch（共享）：平台派发纪律。何时用：要让远端平台上的 agent 干活时") {
+	if !strings.Contains(idx, "- platform-dispatch（共享 → 未指派）：平台派发纪律。何时用：要让远端平台上的 agent 干活时") {
 		t.Fatalf("索引应输出完整 description:\n%s", idx)
 	}
 	// 归属必须区分：专属技能写成「共享」会让主控误以为那是所有 agent 的通用纪律。
 	if !strings.Contains(idx, "- direct-tiers（songjiang 专属）：三级授权。何时用：要亲自跑命令时") {
 		t.Fatalf("索引应标出专属归属:\n%s", idx)
+	}
+}
+
+// 共享技能的挂载范围是声明出来的：索引要写清谁有，不能只写「共享」让人以为人人都有。
+func TestIndexShowsSharedSkillAssignment(t *testing.T) {
+	repo := stubRepo(t)
+	writeFile(t, repo, "super-agent/capabilities/agents/songjiang/skills.yaml", "- platform-dispatch\n")
+	r, err := Load(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx := r.Index()
+	if !strings.Contains(idx, "- platform-dispatch（共享 → songjiang）：") {
+		t.Fatalf("索引应标出共享技能的声明人:\n%s", idx)
+	}
+	if strings.Contains(idx, "未指派") {
+		t.Fatalf("已声明的技能不该写成未指派:\n%s", idx)
+	}
+}
+
+// 声明的共享技能必须真的存在：拼错名字或忘了放目录，都会让 agent 以为挂上了。
+func TestCheckFlagsUnknownDeclaredSkill(t *testing.T) {
+	repo := stubRepo(t)
+	writeFile(t, repo, "super-agent/capabilities/agents/songjiang/skills.yaml", "- no-such-skill\n")
+	r, err := Load(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, r.Check(repo), `声明的共享技能 "no-such-skill" 不存在`)
+}
+
+// 同一共享技能重复声明：复制粘贴出来的典型，挂载面不会变，但声明本身是错的。
+func TestCheckFlagsDuplicateDeclaredSkill(t *testing.T) {
+	repo := stubRepo(t)
+	writeFile(t, repo, "super-agent/capabilities/agents/songjiang/skills.yaml", "- platform-dispatch\n- platform-dispatch\n")
+	r, err := Load(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, r.Check(repo), `共享技能 "platform-dispatch" 重复声明`)
+}
+
+// job agent 必须声明回报技能：被派出去却没有「怎么把卡点与关键结果推回主控」的纪律，
+// 就是 ADR 0029 说的断点。
+func TestCheckRequiresReportSkillForJob(t *testing.T) {
+	repo := stubRepo(t)
+	writeFile(t, repo, "super-agent/capabilities/agents/zhugui/capability.yaml", agentYAML("zhugui", "job"))
+	writeFile(t, repo, "super-agent/capabilities/agents/zhugui/instructions.md", "# 朱贵\n")
+	r, err := Load(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertContains(t, r.Check(repo), `role: job 必须声明共享技能 "agent-report"`)
+
+	// 补齐共享技能与声明后，这条漂移消失。
+	writeSkill(t, repo, "super-agent/capabilities/skills/agent-report", "agent-report", "回报主控", "回报主控")
+	writeFile(t, repo, "super-agent/capabilities/agents/zhugui/skills.yaml", "- agent-report\n")
+	r, err = Load(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(r.Check(repo), "\n"); strings.Contains(got, "role: job 必须声明") {
+		t.Fatalf("补齐后不该再报 job 回报技能漂移:\n%s", got)
 	}
 }

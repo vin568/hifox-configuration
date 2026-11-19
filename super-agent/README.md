@@ -1,13 +1,13 @@
 # super-agent — 宋江本地运行时
 
-宋江（主控）super agent 的 Go 单二进制运行时：飞书注入器、`superctl` CLI、作业巡检 tick、重启引导。术语见根 `GLOSSARY.md`「主控编排」节；架构与边界见 `docs/adr/0016`–`0028`。跑在本机 herdr 上，不经 x-deploy 部署。
+宋江（主控）super agent 的 Go 单二进制运行时：飞书注入器、`superctl` CLI、作业巡检 tick、重启引导。术语见根 `GLOSSARY.md`「主控编排」节；架构与边界见 `docs/adr/0016`–`0029`。跑在本机 herdr 上，不经 x-deploy 部署。
 
 ## 结构
 
 ```
 super-agent/
-├── cmd/superctl/        # 单二进制入口（serve/ensure/status/inject/tick/reply/halt/resume/new/dispatch/cancel/capabilities）
-├── capabilities/        # 能力声明（目录即注册表，ADR 0021）：agents/ skills/ scripts/ platforms/<平台>/；技能是标准 SKILL.md，位置即归属（ADR 0025）
+├── cmd/superctl/        # 单二进制入口（serve/ensure/status/inject/report/tell/tick/reply/halt/resume/new/dispatch/cancel/capabilities）
+├── capabilities/        # 能力声明（目录即注册表，ADR 0021）：agents/ skills/ scripts/ platforms/<平台>/；技能是标准 SKILL.md，位置即归属（ADR 0025）；共享技能按 agent 的 skills.yaml 声明挂载
 ├── internal/config/     # superctl.toml 加载与路径约定
 ├── internal/capability/ # 能力注册表：目录即声明 + 索引生成 + 漂移检查（ADR 0021）
 ├── internal/halt/       # 急停闸门状态文件（ADR 0020）
@@ -57,7 +57,7 @@ go build ./... && go vet ./... && go test -race ./...
    ./bin/superctl serve      # 飞书长连接 + outbox 投递 + 定时巡检
    ```
 
-常驻方式任选：launchd/tmux/nohup。serve 内置两路加速：**本地通道**按 pane 订阅 herdr 状态变化事件（能力 agent 一变即唤醒主控，订阅面 = 除主控外所有带 agent 的 pane，60s 重建收敛动态增删）；**平台通道**由哨兵每 `platform_poll_interval` 轮询在途清单里的平台条目，状态真变化才注入（首见只记基线）。巡检 tick（默认 10m）仅作兜底。
+常驻方式任选：launchd/tmux/nohup。serve 内置两路加速：**本地通道**按 pane 订阅 herdr 状态变化事件（只有**在途本地作业**的 done/blocked 才唤醒主控；working/idle 与常驻 agent 不叫醒。订阅面 = 除主控外所有带 agent 的 pane，60s 重建收敛动态增删）；**平台通道**由哨兵每 `platform_poll_interval` 轮询在途清单里的平台条目，状态真变化才注入（首见只记基线）。巡检 tick（默认 10m）仅作兜底。
 
 注入卫生与轮换（ADR 0022）：巡检注入只在三源任一非空时发（活跃区台账文件数、在途清单条数、jobs workspace 活动 agent 数），全空只记日志；每条注入只带增量，样板只在首条 prime。会话字节数超阈值且主控 idle 时自动换脑轮换（与急停共用同一管道，每轮次独立 session 目录留档）；急停期间按来源分流静默自动注入，白名单私聊照常通行（ADR 0020）。
 
@@ -68,6 +68,8 @@ go build ./... && go vet ./... && go test -race ./...
 | `ensure` | 幂等引导：按能力注册表对账拓扑，缺则补（注入前自动跑） |
 | `status` | session/workspaces/agents/活跃作业/在途清单条数/急停状态/主控会话体积/待发回帖 |
 | `inject` | 手工注入（`--source feishu\|event\|manual`，测试与事件钩子用） |
+| `report` | 能力 agent → 主控：中途回报一句（`--agent` 自己的名字 + `--text`）；身份以在途清单为界，急停期间静默（ADR 0029） |
+| `tell` | 主控 → 本地能力 agent：补信息或追问进度（`--agent` 目标 + `--text`）；目标 blocked 时如实失败，不替它按键 |
 | `tick` | 立即注入一次作业巡检（无在途内容时不发；cron 兜底用） |
 | `dispatch` | 派活统一入口：`--platform <hifox>` 先把能力 key 解析成唯一平台 ref（`--instance prod\|staging` 消歧，`--delegate` 可直通），再包 `hifox task create`；`--local --agent <能力 key>` 按配方起 jobs agent、把该 agent 的手册与任务一起注入。两条通道都自动登记在途清单与台账骨架（仅文件不存在时建）。**主控的平台派活只走 `--local --agent zhugui`（平台派活员，ADR 0023）**：主控不挑人、不解析 ref |
 | `cancel` | 撤销一件工作（平台任务：run 列表 → 取消 run；本地：关对应 pane）——撤销不走急停 |
@@ -84,7 +86,7 @@ go build ./... && go vet ./... && go test -race ./...
 
 ## 验收线（ADR/设计定稿 Q27）
 
-飞书私聊发「让戴宗跑一次 staging 验收」→ 10 秒内受理回音 → 主控把请求派给本地平台派活员（`superctl dispatch --local --agent zhugui`，正文带原话 + 层级 + 验收）→ 朱贵选人、调 `superctl dispatch --platform hifox` 建单并把任务号写进结果文件 → 主控读结果、收掉朱贵 → 平台哨兵跟踪到完成 → 结论回私聊。全程一体人设，无内部术语出口。
+飞书私聊发「让戴宗跑一次 staging 验收」→ 10 秒内受理回音 → 主控把请求派给本地平台派活员（`superctl dispatch --local --agent zhugui`，正文带原话 + 层级 + 验收）→ 主控写完台账即收轮（不轮询）→ 朱贵选人、调 `superctl dispatch --platform hifox` 建单，先 `report` 一句任务号与链接，再把结果写进结果文件 → 主控收到回报即回用户、收掉朱贵 → 平台哨兵跟踪到完成 → 结论回私聊。全程一体人设，无内部术语出口。
 
 ## 边界提醒
 

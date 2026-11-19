@@ -168,7 +168,7 @@ _Avoid_: 平台运维（它只派活，不运维）、吴用（那是人对平�
 _Avoid_: 派活信封（那是路由输入）、需求原话（转发原文，不是写给人看的正文）
 
 **能力技能（Capability Skill）**:
-本地运行时给 agent 的方法论技能，标准 `SKILL.md` 形态（frontmatter `name`/`description`），位置即归属：`capabilities/skills/<key>/` 共享给多个 agent，`capabilities/agents/<key>/skills/<key>/` 只给该 agent。真源目录直接进底层 CLI 的技能发现面，不复制；索引只列名字、归属与 description 原文（含「何时用」）。
+本地运行时给 agent 的方法论技能，标准 `SKILL.md` 形态（frontmatter `name`/`description`），位置即归属：`capabilities/skills/<key>/` 是共享池、按各 agent 同目录 `skills.yaml` 的声明挂载（未声明不可见），`capabilities/agents/<key>/skills/<key>/` 只给该 agent。真源目录直接进底层 CLI 的技能发现面，不复制；索引只列名字、归属与 description 原文（含「何时用」）。
 _Avoid_: 文档路径（那是铺副本之前的做法，会诱导整篇读文件）、开发 agent 技能（`.agents/skills/` 是另一类消费者）
 
 **消息附件（Message Attachment）**:
@@ -176,8 +176,12 @@ _Avoid_: 文档路径（那是铺副本之前的做法，会诱导整篇读文�
 _Avoid_: 缓存（原件是证据，不是可丢弃的副本）、图片链接（本机路径不是可分享的链接）
 
 **触发器（Trigger）**:
-驱动主控开始一轮工作的信号源：消息触发器（飞书私聊与放行群消息）、巡检触发器（定时对账兜底 + 两路加速：本地能力 agent 状态变化事件、平台哨兵的状态变化唤醒）。新信号只是新的来源标签，不建插件机制。
+驱动主控开始一轮工作的信号源：消息触发器（飞书私聊与放行群消息）、能力回报触发器（作业 agent 的 `superctl report`）、巡检触发器（定时对账兜底 + 两路加速：本地能力 agent 的 done/blocked 状态变化事件、平台哨兵的状态变化唤醒）。新信号只是新的来源标签，不建插件机制。
 _Avoid_: 事件总线（无此物）、webhook（只是可能的一种来源）
+
+**能力回报（Agent Report）**:
+作业中的本地能力 agent 经 `superctl report` 推给主控的增量消息（卡点、需要裁决的事、用户可见的关键结果），与状态事件并列；身份以在途清单为界，主控用 `superctl tell` 回它或追问。完成仍以结果文件 + done 事件为准，不要求收尾报告（ADR 0029）。
+_Avoid_: 结果文件（最终产物）、心跳（不是定时信号）、聊天（没有多轮会话语义）
 
 
 **平台哨兵（Platform Sentinel）**:

@@ -121,6 +121,14 @@ super-agent/bin/superctl capabilities   # 平台能力索引（key / 名 / space
 
 先定层级：信封 `层级=` 非空且不是「未指定」就用它；否则用 staging（只有用户明确要 prod 才 prod）。**层级必须作为 `--instance` 传下去**——它是承接人实例的选择依据；不传就会出现「正文写 prod、单建到 staging」的静默错派。
 
+建单/指派成功后**先主动回报一句，再写结果文件**——主控不必等你整轮跑完才听到消息：
+
+```bash
+super-agent/bin/superctl report --agent <你的名字> --text "HF-xxxxx 已建单/已指派给 <承接>（<层级>）：<链接>"
+```
+
+你的名字在派活注入的「回报通道」段里。何时该报、什么时候不该报、报不出去怎么办，见 `agent-report` 技能；主控也可能中途用 `tell` 给你补信息，按它说的调整。
+
 ```bash
 super-agent/bin/superctl dispatch --platform hifox --agent <承接 key> --instance <prod|staging> \
   --title "[<主题>] <标题>" \
@@ -148,7 +156,7 @@ super-agent/bin/superctl dispatch --platform hifox --agent <承接 key> --instan
 ## 3. 纪律
 
 - **委派即触发，一次到位**：`--delegate-agent` 设置成功的那一刻平台就让承接人开工。**绝不追加 `task summon`、私聊、@ 或另开会话**——那会开出第二个并行会话，同一任务两份执行互相踩踏（HF-15793 实例）。补充信息只写任务评论，或让主控带在正文里。
-- **只跑**：`super-agent/bin/superctl capabilities`、`super-agent/bin/superctl dispatch --platform hifox …`、只读的 `hifox task view <任务号>`，以及写正文用的 `cat > <写死的 /tmp 路径>`（§0.5）。其余命令一律不做——尤其不跑任何改代码、部署、查询类的命令。**别用 shell 变量存路径**：每次 bash 可能是新 shell，变量不跨命令，`$BRIEF` 为空就把正文写丢了。
+- **只跑**：`super-agent/bin/superctl capabilities`、`super-agent/bin/superctl dispatch --platform hifox …`、`super-agent/bin/superctl report --agent <你的名字> --text …`、只读的 `hifox task view <任务号>`，以及写正文用的 `cat > <写死的 /tmp 路径>`（§0.5）。其余命令一律不做——尤其不跑任何改代码、部署、查询类的命令。**别用 shell 变量存路径**：每次 bash 可能是新 shell，变量不跨命令，`$BRIEF` 为空就把正文写丢了。
 - **不猜不糊**：承接人、平台、层级、space 任一项定不下来就未建单，宁可多一轮也不派错人。
 - **不越界**：只处理派给你的这一个任务，不接别的任务、不读旧任务、不替主控做业务判断。写正文是整理用户给的料，不是替用户做决策——他说的现象、期望照录，没说的写「待补充」。
 - **密钥零出现**：token、凭据、机器标识（Computer / Machine / Runtime ID、路径、主机名、IP）不进结果文件——包括错误原文里的；转述报错前先删这些字段。

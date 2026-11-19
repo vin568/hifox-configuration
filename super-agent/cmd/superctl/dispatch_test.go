@@ -142,17 +142,38 @@ func TestLocalPromptInjectsManual(t *testing.T) {
 	if err := os.WriteFile(manual, []byte("工人手册正文\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got := localPrompt(capability.Agent{Key: "worker", Instructions: manual}, "跑一遍", nil, "/results/x.md")
-	for _, want := range []string{"[你的手册]", "工人手册正文\n\n[本轮任务]", "跑一遍", "/results/x.md", "只回文件路径"} {
+	got := localPrompt(capability.Agent{Key: "worker", Instructions: manual}, "worker-120000", "跑一遍", nil, "/results/x.md", "/opt/bin/superctl")
+	for _, want := range []string{
+		"[你的手册]", "工人手册正文\n\n[本轮任务]", "跑一遍", "/results/x.md", "只回文件路径",
+		"[回报通道]", "你的名字：worker-120000", "/opt/bin/superctl report --agent worker-120000",
+	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("prompt 缺 %q:\n%s", want, got)
 		}
 	}
 }
 
+// 没有稳定的 superctl 路径时 dispatch 必须在起 pane 之前失败：回报通道的命令
+// 不能是一条必失败的死路径。
+func TestDispatchLocalRequiresRuntimeCmd(t *testing.T) {
+	repo := testRepo(t)
+	if err := os.Remove(filepath.Join(repo, "super-agent", "bin", "superctl")); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testCfg(t, repo)
+	f := &dispatchFake{}
+	_, err := dispatchLocal(context.Background(), cfg, &herdr.Client{Run: f.run}, "worker", "跑一遍", "", nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "找不到稳定的 superctl 路径") {
+		t.Fatalf("缺运行时路径必须失败: %v", err)
+	}
+	if len(f.started) != 0 {
+		t.Fatalf("失败时不该起 agent: %v", f.started)
+	}
+}
+
 // 手册读不到不该让派活失败：退回只给任务正文（保持原样）。
 func TestLocalPromptFallsBackWithoutManual(t *testing.T) {
-	got := localPrompt(capability.Agent{Key: "worker", Instructions: filepath.Join(t.TempDir(), "nope.md")}, "跑一遍", nil, "/results/x.md")
+	got := localPrompt(capability.Agent{Key: "worker", Instructions: filepath.Join(t.TempDir(), "nope.md")}, "worker-120000", "跑一遍", nil, "/results/x.md", "/opt/bin/superctl")
 	if strings.Contains(got, "[你的手册]") {
 		t.Fatalf("没有手册就不该写手册段:\n%s", got)
 	}
@@ -164,8 +185,8 @@ func TestLocalPromptFallsBackWithoutManual(t *testing.T) {
 // 附件必须单列成段：承接的派活员要把它原样带上平台，混在正文里靠自觉一定会漏
 // （HF-16095：图片丢在透传上）。正文由派活员自己写，prompt 里不再有正文文件段。
 func TestLocalPromptCarriesBodyManualAndAttachments(t *testing.T) {
-	got := localPrompt(capability.Agent{Key: "zhugui"}, "信封正文",
-		[]string{"/state/media/om_1/img_a.jpg", "/state/media/om_1/img_b.png"}, "/state/results/x.md")
+	got := localPrompt(capability.Agent{Key: "zhugui"}, "zhugui-120000", "信封正文",
+		[]string{"/state/media/om_1/img_a.jpg", "/state/media/om_1/img_b.png"}, "/state/results/x.md", "/opt/bin/superctl")
 	for _, want := range []string{
 		"信封正文",
 		"[附件（建平台任务时逐个 --attachment 带上，一个不漏）]\n/state/media/om_1/img_a.jpg\n/state/media/om_1/img_b.png",
@@ -178,7 +199,7 @@ func TestLocalPromptCarriesBodyManualAndAttachments(t *testing.T) {
 
 // 没有附件时不得留下空段：派活员读到空标题会来问，白耗一轮。
 func TestLocalPromptOmitsEmptyExtras(t *testing.T) {
-	got := localPrompt(capability.Agent{Key: "worker"}, "跑一遍", nil, "/r/x.md")
+	got := localPrompt(capability.Agent{Key: "worker"}, "worker-120000", "跑一遍", nil, "/r/x.md", "/opt/bin/superctl")
 	if strings.Contains(got, "附件（") {
 		t.Fatalf("没有附件就不该有附件段:\n%s", got)
 	}
@@ -1028,5 +1049,194 @@ func TestDispatchHifoxReportsSpace(t *testing.T) {
 	}
 	if out["space"] == "" {
 		t.Fatalf("结果应回报 space: %v", out)
+	}
+}
+
+// 首条 prompt 被 omp 启动窗口吞掉时，dispatch 必须当场失败并收掉空转的 pane：
+// 只报「提交成功」会让主控以为已开工，实际整件活没人干（本次 6 分钟事故 110 秒）。
+type swallowFake struct {
+	name         string
+	session      string
+	closed       []string
+	closeErr     error
+	promptErr    error
+	inflightPath string
+	sawInflight  bool
+}
+
+func (f *swallowFake) run(_ context.Context, args []string) (string, error) {
+	switch strings.Join(args[:2], " ") {
+	case "workspace list":
+		return `{"result":{"workspaces":[{"workspace_id":"w1","label":"master"},{"workspace_id":"w3","label":"jobs"}]}}`, nil
+	case "api snapshot":
+		return `{"result":{"snapshot":{"layouts":[{"workspace_id":"w1","panes":[{"pane_id":"w1:p1"}]},{"workspace_id":"w3","panes":[{"pane_id":"w3:p1"}]}]}}}`, nil
+	case "agent list":
+		if f.name == "" {
+			return `{"result":{"agents":[]}}`, nil
+		}
+		return `{"result":{"agents":[{"agent":"omp","name":"` + f.name + `","agent_status":"idle","pane_id":"w3:p1","agent_session":{"value":"` + f.session + `"}}]}}`, nil
+	case "agent start":
+		f.name = args[2]
+		return `{"result":{"agent":{"agent":"omp","agent_status":"idle"}}}`, nil
+	case "agent prompt":
+		if f.inflightPath != "" {
+			if _, err := os.Stat(f.inflightPath); err == nil {
+				f.sawInflight = true
+			}
+		}
+		if f.promptErr != nil {
+			return "", f.promptErr
+		}
+		return `{}`, nil
+	case "agent send-keys":
+		// 模拟 omp 把粘贴折叠成 chip 后吞掉 Enter：会话文件始终不会出现任务文本。
+		return `{"result":{"type":"ok"}}`, nil
+	case "pane close":
+		if f.closeErr != nil {
+			return "", f.closeErr
+		}
+		f.closed = append(f.closed, args[2])
+		return `{"result":{"type":"ok"}}`, nil
+	}
+	return "", nil
+}
+
+func TestDispatchLocalFailsWhenPromptNeverLands(t *testing.T) {
+	fastFresh(t) // 复用毫秒级的注入等待
+	cfg := testCfg(t, testRepo(t))
+	session := filepath.Join(t.TempDir(), "session.jsonl")
+	if err := os.WriteFile(session, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := &swallowFake{session: session, inflightPath: cfg.InflightPath()}
+	_, err := dispatchLocal(context.Background(), cfg, &herdr.Client{Run: f.run}, "worker", "跑一遍", "", nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "注入没有落地") {
+		t.Fatalf("prompt 没落地必须报错: %v", err)
+	}
+	if len(f.closed) != 1 || f.closed[0] != "w3:p1" {
+		t.Fatalf("失败后必须收掉 pane: %v", f.closed)
+	}
+	if !f.sawInflight {
+		t.Fatal("注入前必须先在途登记：agent 一开工就可能 report/结束")
+	}
+	entries, lerr := inflight.Load(cfg.InflightPath())
+	if lerr != nil || len(entries) != 0 {
+		t.Fatalf("失败的派活不该登记在途清单: %+v %v", entries, lerr)
+	}
+}
+
+// 启动期卡在审批框：重派会再撞同一框，错误必须让主控先找用户，而不是说「重派一次」。
+func TestDispatchLocalBlockedStartupAsksUser(t *testing.T) {
+	fastFresh(t)
+	cfg := testCfg(t, testRepo(t))
+	session := filepath.Join(t.TempDir(), "session.jsonl")
+	if err := os.WriteFile(session, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := &swallowFake{session: session, promptErr: &herdr.CmdError{Code: "agent_blocked", Message: "blocked"}}
+	_, err := dispatchLocal(context.Background(), cfg, &herdr.Client{Run: f.run}, "worker", "跑一遍", "", nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "需要用户先处理") {
+		t.Fatalf("启动期 blocked 必须交回用户: %v", err)
+	}
+	if strings.Contains(err.Error(), "重派一次") {
+		t.Fatalf("启动期 blocked 不该建议直接重派: %v", err)
+	}
+}
+
+// 注入没落地且 pane 也关不掉：错误必须让主控知道还有一个活着的 agent，别直接重派。
+func TestDispatchLocalReportsPaneCloseFailure(t *testing.T) {
+	fastFresh(t)
+	cfg := testCfg(t, testRepo(t))
+	session := filepath.Join(t.TempDir(), "session.jsonl")
+	if err := os.WriteFile(session, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := &swallowFake{session: session, closeErr: errors.New("pane busy")}
+	_, err := dispatchLocal(context.Background(), cfg, &herdr.Client{Run: f.run}, "worker", "跑一遍", "", nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "也没关掉") || !strings.Contains(err.Error(), "cancel") {
+		t.Fatalf("关 pane 失败必须如实说明: %v", err)
+	}
+	// 关不掉 pane 时条目必须保留：主控要靠它找到还活着的 agent 并 cancel。
+	entries, lerr := inflight.Load(cfg.InflightPath())
+	if lerr != nil || len(entries) != 1 {
+		t.Fatalf("pane 关不掉时应保留在途条目: %+v %v", entries, lerr)
+	}
+}
+
+// 共享技能根必须挂到作业 agent 的启动参数上：回报纪律（agent-report）是每个 agent
+// 都要有的能力，漏挂就是「技能装了但没人看得到」（与主控那条装配同一段代码）。
+func TestDispatchLocalMountsSharedSkills(t *testing.T) {
+	repo := testRepo(t)
+	writeRepoFile(t, filepath.Join(repo, "super-agent", "capabilities", "skills", "agent-report"), "SKILL.md",
+		"---\nname: agent-report\ndescription: 回报主控\n---\n\n# 回报主控\n")
+	cfg := testCfg(t, repo)
+	f := &dispatchFake{}
+	if _, err := dispatchLocal(context.Background(), cfg, &herdr.Client{Run: f.run}, "worker", "跑一遍", "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.startArgs) != 1 {
+		t.Fatalf("应起一个 agent: %v", f.startArgs)
+	}
+	var overlay string
+	for i, a := range f.startArgs[0] {
+		if a == "--config" && i+1 < len(f.startArgs[0]) {
+			overlay = f.startArgs[0][i+1]
+		}
+	}
+	if overlay == "" {
+		t.Fatalf("作业 agent 启动参数缺技能覆盖: %v", f.startArgs[0])
+	}
+	data, err := os.ReadFile(overlay)
+	if err != nil {
+		t.Fatalf("覆盖配置读不到: %v", err)
+	}
+	if want := filepath.Join(repo, "super-agent", "capabilities", "skills"); !strings.Contains(string(data), want) {
+		t.Fatalf("覆盖配置应指向共享技能根 %s:\n%s", want, data)
+	}
+	if strings.Contains(string(data), "ignoredSkills") {
+		t.Fatalf("已声明的共享技能不该被排除:\n%s", data)
+	}
+}
+
+// 没有声明的共享技能必须挡在发现面外：共享根是仓库里的存放位置，不是「人人都有」。
+func TestDispatchLocalFiltersUndeclaredSharedSkills(t *testing.T) {
+	repo := testRepo(t)
+	// 再放一份共享技能，但不声明给 worker。
+	writeRepoFile(t, filepath.Join(repo, "super-agent", "capabilities", "skills", "other-skill"),
+		"SKILL.md", "---\nname: other-skill\ndescription: 别的纪律\n---\n\n# 别的\n")
+	cfg := testCfg(t, repo)
+	f := &dispatchFake{}
+	if _, err := dispatchLocal(context.Background(), cfg, &herdr.Client{Run: f.run}, "worker", "跑一遍", "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	var overlay string
+	for i, a := range f.startArgs[0] {
+		if a == "--config" && i+1 < len(f.startArgs[0]) {
+			overlay = f.startArgs[0][i+1]
+		}
+	}
+	data, err := os.ReadFile(overlay)
+	if err != nil {
+		t.Fatalf("覆盖配置读不到: %v", err)
+	}
+	if !strings.Contains(string(data), "ignoredSkills:\n    - other-skill") {
+		t.Fatalf("未声明的共享技能应被排除:\n%s", data)
+	}
+	if strings.Contains(string(data), "    - agent-report") {
+		t.Fatalf("已声明的技能不该被排除:\n%s", data)
+	}
+}
+
+// 含空格的仓库路径必须被单引号包住，注入的 report 命令才不会被 shell 拆成两截。
+func TestShellQuotePath(t *testing.T) {
+	cases := map[string]string{
+		"/opt/bin/superctl":       "/opt/bin/superctl",
+		"/Users/a b/bin/superctl": "'/Users/a b/bin/superctl'",
+		"/tmp/it's/superctl":      `'/tmp/it'\''s/superctl'`,
+	}
+	for in, want := range cases {
+		if got := shellQuotePath(in); got != want {
+			t.Errorf("shellQuotePath(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

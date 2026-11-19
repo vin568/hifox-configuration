@@ -2,6 +2,7 @@ package boot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,8 +19,9 @@ const PrimeSentinel = "[初始化注入]"
 // 换脑/急停会在后面追加自己的指令，按「以那段为准」执行。
 const PrimeBanner = PrimeSentinel + " 以下是你的岗位手册与本机路径。这条注入本身没有任务：读完即止，不要回复用户、不要调用工具，等真实触发器进来再开始工作；如果后面另有指令，以那段为准。"
 
-// 首条注入的送达校验：prompt 提交后轮询 agent 的会话文件，确认 PrimeSentinel 真的落进去。
-// 只提交成功不代表送达——omp 启动窗口里回车可能被吞，文本停在输入框。
+// 注入的送达校验：prompt 提交后轮询 agent 的会话文件，确认锚点真的落进去。
+// 只提交成功不代表送达——omp 启动窗口里回车可能被吞、大段粘贴会折叠成 chip，
+// 文本停在输入框。主控首条注入与本地派活的首条任务共用这套校验。
 var (
 	PrimeFirstWait = 3 * time.Second        // 先等这么久；没送达就补一次 Enter
 	PrimeWait      = 15 * time.Second       // 补 Enter 后的总等待
@@ -194,34 +196,44 @@ func PrimePrompt(manual string, p Paths) string {
 	return b.String()
 }
 
-// primeAgent 注入首条 prompt，确认它真的进了当前会话后再落盘标记。
-// 只提交成功不代表送达：omp 启动窗口里回车会被吞，文本停在输入框——这里先等一会儿，
-// 没落进会话就补一次 Enter（提交输入框里那坨文本）；仍不成功就不写标记，下一轮重试。
-func primeAgent(ctx context.Context, c *herdr.Client, exp Expected, name, prime string) error {
-	text := strings.TrimRight(prime, "\n")
+// SubmitPrompt 提交一条 prompt，并确认它真的进了 agent 当前会话（sentinel 已出现在
+// 会话文件里）才返回。只提交成功不代表送达：omp 启动窗口里回车会被吞，大段粘贴又会
+// 折叠成 paste chip 并把紧随的 Enter 一起吃掉。补 Enter 最多三次，blocked 时绝不按
+// （那是在替用户答审批框）。主控首条注入与本地派活的首条任务共用这一条校验。
+func SubmitPrompt(ctx context.Context, c *herdr.Client, name, text, sentinel string) (string, error) {
+	text = strings.TrimRight(text, "\n")
 	if err := c.AgentPrompt(ctx, name, text, false, 0); err != nil {
-		return fmt.Errorf("prime %s: %w", name, err)
-	}
-	sentinel := PrimeSentinel
-	if !strings.Contains(prime, PrimeSentinel) {
-		// 换脑/急停的自定义首条注入不一定带 banner：用首行当锚点，有 banner 时用固定锚点。
-		sentinel = firstLine(text)
+		return "", err
 	}
 	delivered, session := waitPrimeLanded(ctx, c, name, sentinel, PrimeFirstWait)
-	// omp 会把大段粘贴折叠成 paste chip（输入框里的 #1），并把紧随的 Enter 一起吞掉；
 	// 首条注入恰好是大文本，所以「补 Enter」不是边角情况，而是主路径。给三次机会，
-	// 每次之间留出 TUI 消化粘贴的时间；blocked 时绝不按（那是在替用户答审批框）。
+	// 每次之间留出 TUI 消化粘贴的时间。
 	for attempt := 0; !delivered && attempt < 3; attempt++ {
 		if st, ok := agentStatus(ctx, c, name); ok && st == "blocked" {
 			break
 		}
 		if err := c.AgentSendKeys(ctx, name, "enter"); err != nil {
-			return fmt.Errorf("prime %s: 补交 Enter: %w", name, err)
+			return "", fmt.Errorf("补交 Enter: %w", err)
 		}
 		delivered, session = waitPrimeLanded(ctx, c, name, sentinel, PrimeWait/3)
 	}
 	if !delivered {
-		return fmt.Errorf("prime %s: 首条注入没有进入会话（输入框可能卡住，检查 pane 后重跑 ensure）", name)
+		return "", errors.New("prompt 没有进入会话（输入框可能卡住）")
+	}
+	return session, nil
+}
+
+// primeAgent 注入首条 prompt，确认它真的进了当前会话后再落盘标记。
+func primeAgent(ctx context.Context, c *herdr.Client, exp Expected, name, prime string) error {
+	text := strings.TrimRight(prime, "\n")
+	sentinel := PrimeSentinel
+	if !strings.Contains(prime, PrimeSentinel) {
+		// 换脑/急停的自定义首条注入不一定带 banner：用首行当锚点，有 banner 时用固定锚点。
+		sentinel = firstLine(text)
+	}
+	session, err := SubmitPrompt(ctx, c, name, text, sentinel)
+	if err != nil {
+		return fmt.Errorf("prime %s: %w", name, err)
 	}
 	if exp.PrimeMarkerDir != "" {
 		if err := os.MkdirAll(exp.PrimeMarkerDir, 0o755); err != nil {

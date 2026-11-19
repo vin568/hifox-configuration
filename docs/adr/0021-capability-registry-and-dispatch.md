@@ -4,7 +4,7 @@
 
 **决策：**
 
-- **`super-agent/capabilities/` 目录即声明，目录结构即数据**：`agents/<key>/{capability.yaml,instructions.md}`、`skills/<key>/SKILL.md`（共享；agent 专属放 `agents/<key>/skills/<key>/SKILL.md`）、`scripts/<key>.yaml`、`cloud/<key>.yaml` 四类；key 取目录名，不再有第二处清单。
+- **`super-agent/capabilities/` 目录即声明，目录结构即数据**：`agents/<key>/{capability.yaml,instructions.md}` + 可选 `skills.yaml`（该 agent 挂载哪些共享技能，见 0025 修订）、`skills/<key>/SKILL.md`（共享池；agent 专属放 `agents/<key>/skills/<key>/SKILL.md`）、`scripts/<key>.yaml`、`cloud/<key>.yaml` 四类；key 取目录名，不再有第二处清单。
 - **字段沿用 x-deploy 词汇**（key/name/description 为基础），按类型扩：agent 加 role(master|retro|job)、workspace(master|crew|jobs)、kind、args、maxConcurrent；skill 用 frontmatter 的 name/description（不再有独立元数据文件，见修订条）；script 加 path；cloud 加 space、org、note。词汇一致是为了让人在两个仓库间读同一种声明不需要翻译。
 - **主控与复盘者也是注册表条目**（role=master / retro）：本地拓扑由注册表派生，引导逻辑不再硬编码「哪些 agent、在哪个 workspace、常驻几个」。拓扑与声明同源，是漂移的根治法。
 - **云端条目只写指针，真源仍是 `config/`**：`cloud/<key>.yaml` 指向 `config/hifox/agents/<key>` 或 `config/apifox/agents/<key>`，检查项校验指针目标存在。不在本目录复制云端声明——复制即两份真源。

@@ -11,6 +11,7 @@ import (
 
 	"super-agent/internal/config"
 	"super-agent/internal/herdr"
+	"super-agent/internal/inflight"
 	"super-agent/internal/inject"
 )
 
@@ -45,7 +46,7 @@ func testIdx() herdr.PaneIndex {
 		MasterPane: "w11:p1",
 		ByPane: map[string]herdr.Agent{
 			"w11:p1": {Agent: "omp", Name: "songjiang", PaneID: "w11:p1"},
-			"w12:p1": {Agent: "omp", Name: "jiangjing", PaneID: "w12:p1"},
+			"w12:p1": {Agent: "omp", Name: "worker-120000", PaneID: "w12:p1"},
 		},
 	}
 }
@@ -87,9 +88,29 @@ func TestHandleAgentEventSkipsMasterUnknownAndWrongType(t *testing.T) {
 	}
 }
 
-func TestHandleAgentEventInjectsCapabilityChange(t *testing.T) {
+// eventCfg 造一份带临时状态目录的主控配置；tracked=true 时把 w12:p1 上的 job agent
+// 登记为在途本地作业（新契约只认这条身份边界）。
+func eventCfg(t *testing.T, tracked bool) config.Config {
+	t.Helper()
 	cfg := config.Default()
 	cfg.MasterAgent = "songjiang"
+	cfg.StateDir = t.TempDir()
+	if err := cfg.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	if tracked {
+		if err := inflight.Add(cfg.InflightPath(), inflight.Entry{
+			Kind: inflight.KindLocal, Agent: "worker-120000", Pane: "w12:p1", Capability: "worker",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return cfg
+}
+
+// 在途本地作业的 blocked 是主控必须知道的信号（它在等用户处理）。
+func TestHandleAgentEventInjectsInFlightLocalJob(t *testing.T) {
+	cfg := eventCfg(t, true)
 	var prompted []string
 	c := injectClient(&prompted)
 	ok, err := handleAgentEvent(context.Background(), cfg, c, testIdx(),
@@ -97,21 +118,64 @@ func TestHandleAgentEventInjectsCapabilityChange(t *testing.T) {
 	if err != nil || !ok || len(prompted) != 1 {
 		t.Fatalf("ok=%v err=%v prompted=%v", ok, err, prompted)
 	}
-	for _, want := range []string{"jiangjing", "w12:p1", "blocked", "[触发器: event]"} {
+	for _, want := range []string{"worker-120000", "w12:p1", "blocked", "[触发器: event]"} {
 		if !strings.Contains(prompted[0], want) {
 			t.Fatalf("prompt missing %q: %s", want, prompted[0])
 		}
 	}
 }
 
+// 完成事件必须带结果文件路径，主控不必再猜它写哪了。
+func TestHandleAgentEventDoneCarriesResultPath(t *testing.T) {
+	cfg := eventCfg(t, true)
+	var prompted []string
+	c := injectClient(&prompted)
+	ok, err := handleAgentEvent(context.Background(), cfg, c, testIdx(),
+		herdr.Event{Event: "pane.agent_status_changed", Data: herdr.EventData{PaneID: "w12:p1", AgentStatus: "done"}})
+	if err != nil || !ok || len(prompted) != 1 {
+		t.Fatalf("ok=%v err=%v prompted=%v", ok, err, prompted)
+	}
+	want := filepath.Join(cfg.ResultsDir(), "worker-120000.md")
+	if !strings.Contains(prompted[0], want) {
+		t.Fatalf("done 事件缺结果路径 %s: %s", want, prompted[0])
+	}
+	// done 不等于交付：它也可能是在等用户回话，措辞必须点破。
+	if !strings.Contains(prompted[0], "不代表已交付") {
+		t.Fatalf("done 事件要说明回合结束 ≠ 已交付: %s", prompted[0])
+	}
+}
+
+// working/idle 与不在在途清单里的 agent 一律不叫醒主控：前者是噪声，后者是别人
+// （常驻 agent、别处起的 pane）的状态，不该插进主控回合。
+func TestHandleAgentEventSkipsNoise(t *testing.T) {
+	cfg := eventCfg(t, true)
+	var prompted []string
+	c := injectClient(&prompted)
+	for _, status := range []string{"working", "idle"} {
+		ok, err := handleAgentEvent(context.Background(), cfg, c, testIdx(),
+			herdr.Event{Event: "pane.agent_status_changed", Data: herdr.EventData{PaneID: "w12:p1", AgentStatus: status}})
+		if ok || err != nil {
+			t.Fatalf("%s 不该注入: ok=%v err=%v", status, ok, err)
+		}
+	}
+	untracked := eventCfg(t, false)
+	ok, err := handleAgentEvent(context.Background(), untracked, c, testIdx(),
+		herdr.Event{Event: "pane.agent_status_changed", Data: herdr.EventData{PaneID: "w12:p1", AgentStatus: "done"}})
+	if ok || err != nil {
+		t.Fatalf("不在在途清单的 agent 不该注入: ok=%v err=%v", ok, err)
+	}
+	if len(prompted) != 0 {
+		t.Fatalf("nothing should be injected: %v", prompted)
+	}
+}
+
 func TestHandleAgentEventBlockedMapsToErrBlocked(t *testing.T) {
-	cfg := config.Default()
-	cfg.MasterAgent = "songjiang"
+	cfg := eventCfg(t, true)
 	c := &herdr.Client{Run: func(context.Context, []string) (string, error) {
 		return "", &herdr.CmdError{Code: "agent_blocked", Message: "blocked"}
 	}}
 	_, err := handleAgentEvent(context.Background(), cfg, c, testIdx(),
-		herdr.Event{Event: "pane.agent_status_changed", Data: herdr.EventData{PaneID: "w12:p1", AgentStatus: "idle"}})
+		herdr.Event{Event: "pane.agent_status_changed", Data: herdr.EventData{PaneID: "w12:p1", AgentStatus: "blocked"}})
 	if !errors.Is(err, inject.ErrBlocked) {
 		t.Fatalf("want ErrBlocked, got %v", err)
 	}
@@ -133,6 +197,8 @@ func TestExpectedTopoMountsSkills(t *testing.T) {
 	cfg.MasterAgentArgs = []string{"--slow", "y"}
 	writeRepoFile(t, filepath.Join(repo, "super-agent", "capabilities", "agents", "songjiang"), "capability.yaml",
 		"key: songjiang\nname: 宋江\nrole: master\nworkspace: master\nkind: omp\nargs: [\"--model\", \"x\"]\n")
+	writeRepoFile(t, filepath.Join(repo, "super-agent", "capabilities", "agents", "songjiang"), "skills.yaml",
+		"- platform-dispatch\n")
 	exp, err := expectedTopo(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -165,6 +231,10 @@ func TestExpectedTopoMountsSkills(t *testing.T) {
 	// 真源目录直接交给 CLI，不生成副本。
 	if _, err := os.Stat(filepath.Join(skillsRoot, "platform-dispatch", "SKILL.md")); err != nil {
 		t.Fatalf("真源 SKILL.md 不该被搬走: %v", err)
+	}
+	// 只剩 agent-report 没被声明：它必须出现在排除清单里。
+	if !strings.Contains(string(data), "ignoredSkills:") || !strings.Contains(string(data), "    - agent-report") {
+		t.Fatalf("未声明的共享技能应被排除:\n%s", data)
 	}
 }
 
@@ -248,5 +318,50 @@ func TestFeishuConfigFromWiresMedia(t *testing.T) {
 	}
 	if fc.DedupPath != cfg.DedupPath() {
 		t.Fatalf("DedupPath 没接上: %q", fc.DedupPath)
+	}
+}
+
+// go run / go test 的临时构建产物不能写进跨会话注入：进程一换路径就消失，
+// 主控第一次 reply 就会撞上 No such file（实测）。
+func TestIsEphemeralBuildPath(t *testing.T) {
+	cases := map[string]bool{
+		"/Users/vin/Library/Caches/go-build/51/xx/superctl":                   true,
+		"/var/folders/7l/T/go-build4141458898/b001/exe/superctl":              true,
+		filepath.Join(os.TempDir(), "superctl"):                               true,
+		"/Users/vin/code/apifox/hifox-configuration/super-agent/bin/superctl": false,
+		"": true,
+	}
+	for p, want := range cases {
+		if got := isEphemeralBuildPath(p); got != want {
+			t.Errorf("isEphemeralBuildPath(%q)=%v, want %v", p, got, want)
+		}
+	}
+}
+
+func resolvedTempDir(t *testing.T) string {
+	t.Helper()
+	p, err := filepath.EvalSymlinks(os.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// 临时构建回退到仓库构建好的 bin；没有就留空（prime 不打印），绝不灌死路径。
+func TestStableRuntimeCmd(t *testing.T) {
+	repo := t.TempDir()
+	if got := stableRuntimeCmd(repo); got != "" {
+		t.Fatalf("没有 bin 时应留空: %q", got)
+	}
+	bin := filepath.Join(repo, "super-agent", "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	exe := filepath.Join(bin, "superctl")
+	if err := os.WriteFile(exe, []byte("bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := stableRuntimeCmd(repo); got != exe {
+		t.Fatalf("应回退到 %q, got %q", exe, got)
 	}
 }

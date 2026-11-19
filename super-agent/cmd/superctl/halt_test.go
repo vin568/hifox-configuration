@@ -39,7 +39,12 @@ func testRepo(t *testing.T) string {
 	write("super-agent/capabilities/agents/songjiang/instructions.md", "手册")
 	write("super-agent/capabilities/agents/worker/capability.yaml",
 		"key: worker\nname: 工人\ndescription: 测试用本地能力\nrole: job\nworkspace: jobs\nkind: omp\nmaxConcurrent: 1\n")
+	write("super-agent/capabilities/agents/worker/skills.yaml", "- agent-report\n")
 	write("super-agent/capabilities/agents/worker/instructions.md", "工人手册")
+	// 稳定 runtime 路径：dispatch 要求回报通道有可执行命令，测试仓库也给一份。
+	write("super-agent/bin/superctl", "#!/bin/sh\n")
+	write("super-agent/capabilities/skills/agent-report/SKILL.md",
+		"---\nname: agent-report\ndescription: 回报主控\n---\n\n# 回报主控\n")
 	write("super-agent/capabilities/platforms/hifox/daizong.yaml", "key: daizong\nname: 戴宗\nspace: HiFox\nnote: 验收\n")
 	write("config/hifox/agents/daizong/agent.yaml", "key: daizong\nname: 戴宗\n")
 	// 平台指针要有部署记录才算闭环（capabilities --check 的第三条），平台归属看 cli.app。
@@ -1087,6 +1092,8 @@ func TestDispatchLocalMountsSkills(t *testing.T) {
 	// 配方原有的 args 必须保留：加技能不能把它们挤掉。
 	writeRepoFile(t, filepath.Join(repo, "super-agent", "capabilities", "agents", "worker"), "capability.yaml",
 		"key: worker\nname: 工人\ndescription: 测试用本地能力\nrole: job\nworkspace: jobs\nkind: omp\nmaxConcurrent: 1\nargs: [\"--model\", \"fast\"]\n")
+	writeRepoFile(t, filepath.Join(repo, "super-agent", "capabilities", "agents", "worker"), "skills.yaml",
+		"- agent-report\n- shared-skill\n")
 	writeRepoFile(t, filepath.Join(repo, "super-agent", "capabilities", "skills", "shared-skill"),
 		"SKILL.md", "---\nname: shared-skill\ndescription: 共享纪律\n---\n\n# 共享\n")
 	f := &dispatchFake{}
@@ -1123,6 +1130,12 @@ func TestDispatchLocalMountsSkills(t *testing.T) {
 // 从启动参数上看不出来。
 func TestDispatchLocalOmitsConfigWithoutSkills(t *testing.T) {
 	repo := testRepo(t)
+	// 这个用例要的是「一个技能都没有」的仓库：清掉共享根与声明，专属根也不存在。
+	if err := os.RemoveAll(filepath.Join(repo, "super-agent", "capabilities", "skills")); err != nil {
+		t.Fatal(err)
+	}
+	writeRepoFile(t, filepath.Join(repo, "super-agent", "capabilities", "agents", "worker"), "capability.yaml",
+		"key: worker\nname: 工人\ndescription: 测试用本地能力\nrole: job\nworkspace: jobs\nkind: omp\nmaxConcurrent: 1\n")
 	cfg := testCfg(t, repo)
 	f := &dispatchFake{}
 	if _, err := dispatchLocal(context.Background(), cfg, &herdr.Client{Run: f.run}, "worker", "跑一遍", "", nil, nil); err != nil {

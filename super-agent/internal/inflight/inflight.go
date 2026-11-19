@@ -224,6 +224,17 @@ func Local(entries []Entry) []Entry {
 	return out
 }
 
+// HasLocal 判定清单里是否有该 agent 的本地作业。回报通道与状态事件的身份边界
+// 共用这一处，避免两边各写一遍「Kind 相同 + Agent 相同」而漏掉一边。
+func HasLocal(entries []Entry, agent string) bool {
+	for _, e := range entries {
+		if e.Kind == KindLocal && e.Agent == agent {
+			return true
+		}
+	}
+	return false
+}
+
 // healCorrupt 把坏文件另存 `.corrupt-<ts>` 再删原文件，让下一轮从空清单继续。
 func healCorrupt(path string, original []byte) {
 	aside := fmt.Sprintf("%s.corrupt-%d", path, time.Now().Unix())

@@ -25,5 +25,6 @@ description: 本机 herdr 能力 agent 的派活方式与动态 agent 并发上�
 
   它会按注册表的配方（kind/args/workspace/并发上限）拉起 agent、把**该 agent 自己的手册**与任务一起注入、把结果路径写进任务、并登记在途清单；结果落盘后你读文件。`--attachment <路径>`（可重复）会单列成注入里的一段，交给承接 agent 原样带上。
 - **派活一律用 `superctl dispatch --local`**：确认要与批准都走派活信封，你不在派活前替副手做判断。
+- **回报通道（ADR 0029）**：作业中的 agent 用 `superctl report --agent <名字> --text` 主动找主控；你收到 `[触发器: agent]` 就按需回 `superctl tell --agent <名字> --text`。回合结束时运行时会发 `[触发器: event] ... done（不代表已交付，可能是在等你回话）；结果：<路径>`，读结果文件判断。**派完就收轮**，不要轮询或 `herdr agent wait`；巡检时对没消息的作业用 `tell` 问一句（同一作业每轮最多一次，两次没回音上报用户）。
 - **收掉**：`superctl cancel --agent <名字>`（关 pane、移出在途清单）。干完的活不要留着占并发额度。
 - 并发上限来自该能力的 `maxConcurrent`（默认 3）：满了就先收口再派。

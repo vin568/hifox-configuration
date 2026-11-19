@@ -17,6 +17,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -26,6 +27,10 @@ import (
 
 	"super-agent/internal/hifox"
 )
+
+// ReportSkill 是回报主控通道的共享技能名：每个 role=job 的本地能力都必须声明它，
+// 否则被派出去之后没有「怎么把卡点与关键结果推回主控」的纪律（ADR 0029）。
+const ReportSkill = "agent-report"
 
 // Agent 是 <workspace> 里一个常驻或按需拉起的能力 agent。
 type Agent struct {
@@ -37,7 +42,15 @@ type Agent struct {
 	Kind          string   `yaml:"kind"`
 	Args          []string `yaml:"args"`
 	MaxConcurrent int      `yaml:"maxConcurrent"`
-	Instructions  string   `yaml:"instructions"` // 解析后的绝对路径
+	// Skills 是显式声明的共享技能（capabilities/skills/<key>），来自同目录的
+	// skills.yaml，不是 capability.yaml 的字段。共享根里的技能默认不挂给任何
+	// agent：不声明就看不见——「共享」是存放位置，不是分发对象。agent 专属技能
+	// （agents/<key>/skills/）不需要声明，自动挂载。
+	//
+	// 单独成文件是为了滚动升级：capability.yaml 按 KnownFields 解析，旧版运行时
+	// 遇到新字段会整份解析失败；新文件旧版根本不读，additive 变更不打断在跑的进程。
+	Skills       []string `yaml:"-"`
+	Instructions string   `yaml:"instructions"` // 解析后的绝对路径
 }
 
 // Skill 是一份可加载的技能：SKILL.md 是唯一载体（Agent Skills 开放标准形态，
@@ -139,10 +152,22 @@ func (r *Registry) Index() string {
 	if len(r.Skills) == 0 {
 		b.WriteString("（无）\n")
 	}
+	assigned := map[string][]string{}
+	for _, a := range r.Agents {
+		for _, key := range a.Skills {
+			assigned[key] = append(assigned[key], a.Key)
+		}
+	}
 	for _, s := range r.Skills {
 		scope := "共享"
 		if s.Owner != "" {
 			scope = s.Owner + " 专属"
+		} else if names := assigned[orKey(s.Name, s.Key)]; len(names) > 0 {
+			// 共享技能不是天然对所有 agent 可见：挂载范围以 skills.yaml 的声明
+			// 为准，索引把它写出来，避免「共享」被读成「人人都有」。
+			scope = "共享 → " + strings.Join(names, "、")
+		} else {
+			scope = "共享 → 未指派"
 		}
 		// 打印 frontmatter 的 name（底层按它注册）；--check 强制 name == 目录 key，
 		// 不一致会直接报漂移，所以索引名字与加载名字始终是同一个。
@@ -246,6 +271,31 @@ func (r *Registry) Check(repoDir string) []string {
 			continue
 		}
 		seen[name] = skillLabel(s)
+	}
+
+	// 共享技能的挂载范围由 agent 的 skills 声明决定（不是声明了就一定存在，也不是
+	// 存在了就人人都有）。两条都核对：声明必须命中共享根；job agent 必须声明回报通道。
+	shared := map[string]bool{}
+	for _, s := range reg.Skills {
+		if s.Owner == "" {
+			shared[orKey(s.Name, s.Key)] = true
+		}
+	}
+	for _, a := range reg.Agents {
+		declared := map[string]bool{}
+		for _, key := range a.Skills {
+			if declared[key] {
+				out = append(out, fmt.Sprintf("agents/%s：共享技能 %q 重复声明", a.Key, key))
+				continue
+			}
+			declared[key] = true
+			if !shared[key] {
+				out = append(out, fmt.Sprintf("agents/%s：声明的共享技能 %q 不存在（应放在 skills/%s/SKILL.md）", a.Key, key, key))
+			}
+		}
+		if a.Role == "job" && !declared[ReportSkill] {
+			out = append(out, fmt.Sprintf("agents/%s：role: job 必须声明共享技能 %q（被派出去后要有回报主控的纪律，见 ADR 0029）", a.Key, ReportSkill))
+		}
 	}
 
 	for _, s := range reg.Scripts {
@@ -533,6 +583,10 @@ func scan(root string) (*Registry, []error, []string) {
 			name = "instructions.md"
 		}
 		a.Instructions = filepath.Join(dir, name)
+		if err := readDeclaredSkills(filepath.Join(dir, "skills.yaml"), &a); err != nil {
+			fatal = append(fatal, err)
+			continue
+		}
 		reg.Skills = append(reg.Skills, scanSkills(filepath.Join(dir, "skills"), key, &problems)...)
 		reg.Agents = append(reg.Agents, a)
 	}
@@ -622,14 +676,37 @@ func yamlKey(name string) (string, bool) {
 	return "", false
 }
 
+// readDeclaredSkills 读 agent 声明的共享技能（skills.yaml，裸 YAML 列表）。
+// 文件不存在或为空 = 不挂任何共享技能；存在但解析失败是硬错误（写了却没生效最难排查）。
+func readDeclaredSkills(path string, a *Agent) error {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+	if strings.TrimSpace(string(data)) == "" {
+		return nil
+	}
+	if err := decodeYAML(path, data, &a.Skills); err != nil && !errors.Is(err, io.EOF) {
+		return err // 只有注释时 Decode 返回 EOF：那等于没有文档，不是坏声明
+	}
+	return nil
+}
+
 // readYAML 解析一个声明文件，错误带路径便于人读。
 func readYAML(path string, v any) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
-	// KnownFields：声明里拼错的字段当场报错。登记表是唯一真源，静默忽略拼写错误
-	// 等于让「写了但没生效」的声明长期潜伏。
+	return decodeYAML(path, data, v)
+}
+
+// decodeYAML 统一解析口径：KnownFields 让拼错的字段当场报错。登记表是唯一真源，
+// 静默忽略拼写错误等于让「写了但没生效」的声明长期潜伏。
+func decodeYAML(path string, data []byte, v any) error {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(v); err != nil {

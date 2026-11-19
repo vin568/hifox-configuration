@@ -49,6 +49,12 @@ func BuildEvent(detail string) string {
 	return fmt.Sprintf("[触发器: event] 能力 agent 状态变化：%s", detail)
 }
 
+// BuildAgentReport 拼装能力 agent 主动回报的信封（ADR 0029）：与 feishu/event/sweep
+// 并列的触发器，主控据此知道这是内部回报，不是用户说话。
+func BuildAgentReport(agent, text string) string {
+	return fmt.Sprintf("[触发器: agent] %s：%s", agent, text)
+}
+
 // BuildHaltIntent 拼装换脑后的首条注入：用户按了急停，当前会话是新起的，
 // 手上有什么由运行时给出的机器真值清单回答。要求主控逐件请示是否停，
 // 用户回话前不自动继续（ADR 0020）。

@@ -225,6 +225,17 @@ func agentPromptArgs(target, text string, wait bool, timeoutMS int) []string {
 	return args
 }
 
+func agentPromptUntilArgs(target, text string, untils []string, timeoutMS int) []string {
+	args := []string{"agent", "prompt", target, text, "--wait"}
+	for _, u := range untils {
+		args = append(args, "--until", u)
+	}
+	if timeoutMS > 0 {
+		args = append(args, "--timeout", strconv.Itoa(timeoutMS))
+	}
+	return args
+}
+
 // AgentStart 在既有空闲 shell pane 上启动具名 agent；extra 原样透传给底层 CLI。
 func (c *Client) AgentStart(ctx context.Context, name, kind, pane string, extra []string) error {
 	_, err := c.Run(ctx, agentStartArgs(name, kind, pane, extra))
@@ -234,6 +245,14 @@ func (c *Client) AgentStart(ctx context.Context, name, kind, pane string, extra 
 // AgentPrompt 注入一条 prompt。wait=true 时阻塞到 settled（lifecycle，不懂 turn）。
 func (c *Client) AgentPrompt(ctx context.Context, target, text string, wait bool, timeoutMS int) error {
 	_, err := c.Run(ctx, agentPromptArgs(target, text, wait, timeoutMS))
+	return err
+}
+
+// AgentPromptUntil 注入 prompt 并等一个指定状态出现（--wait --until ...）。
+// 用于「消息已递交且 agent 真的动了起来」的确认：blocked 会在写输入前被拒，
+// 从非工作态提交后 5 秒内没有任何活动则返回 agent_prompt_stalled。
+func (c *Client) AgentPromptUntil(ctx context.Context, target, text string, untils []string, timeoutMS int) error {
+	_, err := c.Run(ctx, agentPromptUntilArgs(target, text, untils, timeoutMS))
 	return err
 }
 

@@ -60,3 +60,10 @@ echo "session=$HERDR_SESSION args=$*"
 		t.Fatalf("ExecRunner output wrong: %q", out)
 	}
 }
+
+func TestAgentPromptUntilArgs(t *testing.T) {
+	want := []string{"agent", "prompt", "worker-1", "hi", "--wait", "--until", "working", "--until", "blocked", "--timeout", "15000"}
+	if got := agentPromptUntilArgs("worker-1", "hi", []string{"working", "blocked"}, 15000); !reflect.DeepEqual(got, want) {
+		t.Fatalf("agentPromptUntilArgs = %v, want %v", got, want)
+	}
+}

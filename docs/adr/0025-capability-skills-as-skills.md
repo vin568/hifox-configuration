@@ -37,4 +37,14 @@
 - **frontmatter 是硬约束**：手写技能漏 `description` 时底层静默跳过，`capabilities --check` 是唯一能看见的地方。
 - **主控仍看得见 `~/.agents/skills` 的 80 个开发工具技能**：这是 omp 的发现语义（家目录层始终生效）。彻底隔离要给主控专属 HOME，代价大于收益。
 - **技能名必须 kebab-case**：`direct-tiers` / `local-agents` / `platform-dispatch` 都合规；新增时用别的字符会被 `--check` 拦下，而不是在启动时静默失效。
-- **共享根现在是空的**：三份能力文档全是宋江的岗位纪律，都落在他自己的 `skills/` 下。共享根保留给将来真正跨 agent 的方法（判据见上），空着比塞一份角色专属的文档好。
+- **共享根从一开始是空的**：三份能力文档全是宋江的岗位纪律，都落在他自己的 `skills/` 下。共享根保留给真正跨 agent 的方法（判据见上）；首批放入的是 `agent-report`（作业 agent 的回报纪律），挂载范围见本文件 2026-11 修订。
+
+## 2026-11 修订：共享池的挂载范围显式声明
+
+「按需拉起的 job agent 也带技能」落地后暴露了反向问题：`capabilities/skills/` 是共享池，但恒挂给每个 agent 意味着主控、复盘者与每个 job agent 都会看到一个自己用不上的技能——首批 `agent-report` 只对作业 agent 有意义。ADR 0029 因此把「共享池」与「挂载范围」分开：
+
+- **归属不变**：技能仍在 `capabilities/skills/<key>/`（共享池）或 `agents/<key>/skills/<key>/`（专属）；位置仍是归属，`skills.yaml` 不是所有权声明。
+- **挂载范围显式**：agent 用同目录的 `skills.yaml` 列出要挂的共享技能；一个都没声明就完全不挂共享根，部分声明时用 omp 的 `ignoredSkills` 排掉同根里未声明的技能。专属技能仍自动挂载。
+- **为什么另起文件**：`capability.yaml` 走 `KnownFields`，加字段会让滚动升级中的旧进程整份解析失败；`skills.yaml` 对旧版不可见，是 additive 变更。原先「在 `capability.yaml` 里声明 `skills:`」的否决仍然成立——本条是独立的挂载清单，不是把声明塞回 agent 元数据。
+- **校验**：`--check` 增补「声明的共享技能必须存在」「不得重复声明」「role: job 必须声明 `agent-report`（ADR 0029）」。
+- **索引**：`## 技能` 的归属列从「共享」改为「共享 → <agent…>」/「共享（未指派）」，避免把「共享池」读成「人人都有」。

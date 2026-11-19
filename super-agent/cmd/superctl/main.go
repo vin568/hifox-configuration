@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -35,6 +36,8 @@ const usage = `superctl — 宋江 super agent 本地运行时（super-agent/，
   ensure       幂等引导：按能力注册表对账 herdr 拓扑（master/crew/jobs + 常驻 agent），缺则补齐
   status       概览：session / workspaces / agents / 活跃作业 / 在途清单 / 急停状态 / 待发回帖
   inject       手工注入一条 prompt 到主控（--source feishu|event|manual）
+  report       能力 agent → 主控：中途回报一句（--agent 自己的名字 --text）
+  tell         主控 → 本地能力 agent：补信息或追问（--agent 目标 --text）
   tick         立即注入一次作业巡检（无在途内容时不发）
   reply        追加一条回帖到 outbox（主控回用户的唯一通道）
   serve        常驻：飞书长连接 + outbox 投递 + 定时巡检 + 注入闸门
@@ -57,6 +60,8 @@ var commands = map[string]func(args []string) error{
 	"ensure":        cmdEnsure,
 	"status":        cmdStatus,
 	"inject":        cmdInject,
+	"report":        cmdReport,
+	"tell":          cmdTell,
 	"tick":          cmdTick,
 	"platformwatch": cmdPlatformwatch,
 	"reply":         cmdReply,
@@ -689,7 +694,12 @@ func cmdProbe(args []string) error {
 
 // handleAgentEvent 处理一条本地能力 agent 状态变化事件：只认
 // pane.agent_status_changed；主控 pane（按 master workspace 拓扑解析）与
-// 主控大名的翻转是常态不是信号；陌生 pane（其他 session）跳过；其余注入主控。
+// 主控大名的翻转是常态不是信号；陌生 pane（其他 session）跳过。
+//
+// 只有「经 superctl dispatch 派出的在途本地作业」的 done/blocked 才叫醒主控：
+// working/idle 是噪声（本次 6 分钟事故里 working 事件插进主控回合，什么也没带来），
+// 常驻/别处起的 agent（蒋敬的日常起动）也不该吵主控。done 附结果文件路径，
+// 主控不必再猜「它把结果写哪了」。
 func handleAgentEvent(ctx context.Context, cfg config.Config, hc *herdr.Client, idx herdr.PaneIndex, ev herdr.Event) (bool, error) {
 	if ev.Event != "pane.agent_status_changed" || ev.Data.AgentStatus == "" || ev.Data.PaneID == "" {
 		return false, nil
@@ -708,7 +718,25 @@ func handleAgentEvent(ctx context.Context, cfg config.Config, hc *herdr.Client, 
 	if name == cfg.MasterAgent {
 		return false, nil
 	}
-	if err := inject.Do(ctx, hc, cfg.MasterAgent, inject.BuildEvent(fmt.Sprintf("%s（%s）状态 → %s", name, ev.Data.PaneID, ev.Data.AgentStatus))); err != nil {
+	switch ev.Data.AgentStatus {
+	case "done", "blocked":
+	default:
+		return false, nil
+	}
+	entries, err := inflight.LoadMigrating(cfg.InflightPath(), cfg.LegacyWatchlistPath())
+	if err != nil {
+		return false, err
+	}
+	if !inflight.HasLocal(entries, name) {
+		return false, nil
+	}
+	detail := fmt.Sprintf("%s（%s）状态 → %s", name, ev.Data.PaneID, ev.Data.AgentStatus)
+	if ev.Data.AgentStatus == "done" {
+		// done 只是「这一回合结束了」：它可能是真做完，也可能是跑完 report 在等你回话。
+		// 措辞必须点破这一点，否则主控会把「等用户拍板」当成收口。
+		detail += "（回合结束，不代表已交付——可能是在等用户回话）；结果：" + filepath.Join(cfg.ResultsDir(), name+".md")
+	}
+	if err := inject.Do(ctx, hc, cfg.MasterAgent, inject.BuildEvent(detail)); err != nil {
 		return false, err
 	}
 	return true, nil
