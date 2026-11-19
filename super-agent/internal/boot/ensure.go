@@ -11,6 +11,21 @@ import (
 	"super-agent/internal/herdr"
 )
 
+// PrimeSentinel 是首条注入的固定锚点：送达校验按它判定，初始化回合按它保持沉默。
+const PrimeSentinel = "[初始化注入]"
+
+// PrimeBanner 是首条注入的开头：初始化阶段没有明确任务时读完即止，不回复、不调工具。
+// 换脑/急停会在后面追加自己的指令，按「以那段为准」执行。
+const PrimeBanner = PrimeSentinel + " 以下是你的岗位手册与本机路径。这条注入本身没有任务：读完即止，不要回复用户、不要调用工具，等真实触发器进来再开始工作；如果后面另有指令，以那段为准。"
+
+// 首条注入的送达校验：prompt 提交后轮询 agent 的会话文件，确认 PrimeSentinel 真的落进去。
+// 只提交成功不代表送达——omp 启动窗口里回车可能被吞，文本停在输入框。
+var (
+	PrimeFirstWait = 3 * time.Second        // 先等这么久；没送达就补一次 Enter
+	PrimeWait      = 15 * time.Second       // 补 Enter 后的总等待
+	PrimePoll      = 250 * time.Millisecond // 轮询间隔（测试里调小）
+)
+
 // Expected 是幂等引导的目标拓扑（ADR 0018）：master / crew / jobs 三个 workspace
 // + 主控与复盘两个常驻 agent。动态作业 agent 不在此列（jobs workspace 只建容器）。
 type Expected struct {
@@ -99,20 +114,20 @@ func Ensure(ctx context.Context, c *herdr.Client, exp Expected) (*Report, error)
 	if err != nil {
 		return nil, fmt.Errorf("agent list: %w", err)
 	}
-	hasAgent := func(name string) bool {
-		_, ok := herdr.FindAgent(agents, name)
-		return ok
-	}
-
 	ensureAgent := func(name, wsLabel, prime, sessionDir string, args []string) error {
-		primed := exp.PrimeMarkerDir != "" && primeMarkerExists(exp.PrimeMarkerDir, name)
-		if hasAgent(name) {
-			if primed || prime == "" {
+		a, running := herdr.FindAgent(agents, name)
+		if running {
+			primed := prime == "" || primeMarkerFresh(exp.PrimeMarkerDir, name, a.AgentSession.Value)
+			if primed {
 				rep.AlreadyRunning = append(rep.AlreadyRunning, name)
 				return nil
 			}
-			// agent 在跑但从未 prime 成功（上次失败/标记丢失）：补 prime。
-			// 没有这一支，hasAgent 短路会让它永远收不到操作手册。
+			// 在跑但没有为「这个会话」prime 过（启动窗口丢过手册 / 换脑后的新会话 /
+			// 标记缺失）：补 prime。正在工作时先不动，避免打断在途回合，下一轮再补。
+			if a.AgentStatus == "working" || a.AgentStatus == "blocked" {
+				rep.AlreadyRunning = append(rep.AlreadyRunning, name)
+				return nil
+			}
 			if err := primeAgent(ctx, c, exp, name, prime); err != nil {
 				return err
 			}
@@ -153,6 +168,8 @@ func Ensure(ctx context.Context, c *herdr.Client, exp Expected) (*Report, error)
 // PrimePrompt 拼装主控首条注入：操作手册全文 + 本机绝对路径。
 func PrimePrompt(manual string, p Paths) string {
 	var b strings.Builder
+	b.WriteString(PrimeBanner)
+	b.WriteString("\n\n")
 	b.WriteString(manual)
 	b.WriteString("\n\n---\n本机路径（重启后以这条为准）：\n")
 	fmt.Fprintf(&b, "- 能力目录：%s\n", p.CapabilitiesDir)
@@ -177,22 +194,115 @@ func PrimePrompt(manual string, p Paths) string {
 	return b.String()
 }
 
-// primeAgent 注入首条 prompt 并在成功后落盘标记；标记写失败视为 prime 失败
-// （宁可下轮重 prime，不可误判已就绪）。
+// primeAgent 注入首条 prompt，确认它真的进了当前会话后再落盘标记。
+// 只提交成功不代表送达：omp 启动窗口里回车会被吞，文本停在输入框——这里先等一会儿，
+// 没落进会话就补一次 Enter（提交输入框里那坨文本）；仍不成功就不写标记，下一轮重试。
 func primeAgent(ctx context.Context, c *herdr.Client, exp Expected, name, prime string) error {
-	if err := c.AgentPrompt(ctx, name, prime, false, 0); err != nil {
+	text := strings.TrimRight(prime, "\n")
+	if err := c.AgentPrompt(ctx, name, text, false, 0); err != nil {
 		return fmt.Errorf("prime %s: %w", name, err)
+	}
+	sentinel := PrimeSentinel
+	if !strings.Contains(prime, PrimeSentinel) {
+		// 换脑/急停的自定义首条注入不一定带 banner：用首行当锚点，有 banner 时用固定锚点。
+		sentinel = firstLine(text)
+	}
+	delivered, session := waitPrimeLanded(ctx, c, name, sentinel, PrimeFirstWait)
+	if !delivered {
+		// 输入框里大概率就是这坨文本：补一次 Enter。只在可接收输入的状态下补，
+		// blocked 时按回车等于替用户答审批框，绝不干。
+		if st, ok := agentStatus(ctx, c, name); ok && (st == "idle" || st == "done") {
+			if err := c.AgentSendKeys(ctx, name, "enter"); err != nil {
+				return fmt.Errorf("prime %s: 补交 Enter: %w", name, err)
+			}
+		}
+		delivered, session = waitPrimeLanded(ctx, c, name, sentinel, PrimeWait)
+	}
+	if !delivered {
+		return fmt.Errorf("prime %s: 首条注入没有进入会话（输入框可能卡住，检查 pane 后重跑 ensure）", name)
 	}
 	if exp.PrimeMarkerDir != "" {
 		if err := os.MkdirAll(exp.PrimeMarkerDir, 0o755); err != nil {
 			return fmt.Errorf("prime %s: marker dir: %w", name, err)
 		}
-		stamp := time.Now().UTC().Format(time.RFC3339) + "\n"
+		stamp := time.Now().UTC().Format(time.RFC3339) + "\n" + session + "\n"
 		if err := os.WriteFile(filepath.Join(exp.PrimeMarkerDir, name), []byte(stamp), 0o644); err != nil {
 			return fmt.Errorf("prime %s: marker write: %w", name, err)
 		}
 	}
 	return nil
+}
+
+// waitPrimeLanded 轮询 agent 的会话文件，确认首条注入确实落进去了。
+// 只核对「能核对的前提」：agent 不在册、会话路径为空、文件还没出现，都按已送达放行
+// ——那不是丢输入，是无从判定；真正的失败形态是文件在、内容里没有这段（停在输入框）。
+func waitPrimeLanded(ctx context.Context, c *herdr.Client, name, sentinel string, timeout time.Duration) (bool, string) {
+	if sentinel == "" {
+		return true, ""
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		agents, err := c.AgentList(ctx)
+		if err == nil {
+			a, ok := herdr.FindAgent(agents, name)
+			if !ok {
+				return true, ""
+			}
+			session := a.AgentSession.Value
+			if session == "" {
+				return true, ""
+			}
+			data, err := os.ReadFile(session)
+			if err != nil {
+				return true, session
+			}
+			if strings.Contains(string(data), sentinel) {
+				return true, session
+			}
+		}
+		if time.Now().After(deadline) {
+			return false, ""
+		}
+		time.Sleep(PrimePoll)
+	}
+}
+
+func firstLine(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		if t := strings.TrimSpace(line); t != "" {
+			return t
+		}
+	}
+	return ""
+}
+
+func agentStatus(ctx context.Context, c *herdr.Client, name string) (string, bool) {
+	agents, err := c.AgentList(ctx)
+	if err != nil {
+		return "", false
+	}
+	a, ok := herdr.FindAgent(agents, name)
+	if !ok {
+		return "", false
+	}
+	return a.AgentStatus, true
+}
+
+// primeMarkerFresh 判断标记是否属于当前会话。老格式只有时间戳：拿得到会话路径时
+// 视为不匹配（补一次手册），拿不到时按已 prime 处理，避免每轮巡检重复灌手册。
+func primeMarkerFresh(dir, name, session string) bool {
+	if dir == "" {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		return false
+	}
+	parts := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(parts) < 2 {
+		return session == ""
+	}
+	return parts[1] == session
 }
 
 func primeMarkerExists(dir, name string) bool {

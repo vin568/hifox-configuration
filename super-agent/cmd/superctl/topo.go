@@ -96,7 +96,7 @@ func expectedTopo(cfg config.Config) (boot.Expected, error) {
 		}
 		retroArgs := append(append([]string{}, retro.Args...), retroSkillOpts...)
 		exp.RetroAgent = retro.Key
-		exp.RetroPrime = string(doc)
+		exp.RetroPrime = boot.PrimeBanner + "\n\n" + string(doc)
 		exp.RetroArgs = retroArgs
 		exp.RetroSessionDir = newSessionDir(cfg, "start")
 	} else {

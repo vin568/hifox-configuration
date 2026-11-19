@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"super-agent/internal/herdr"
 )
@@ -24,7 +25,28 @@ type fakeHerdr struct {
 func (f *fakeHerdr) run(_ context.Context, args []string) (string, error) {
 	switch strings.Join(args[:2], " ") {
 	case "agent list":
-		return f.agents, nil
+		// 冷启动时 f.agents 是空列表；把本次已 start 的 agent 合进去，
+		// 否则 prime 送达校验找不到会话，会误判失败。
+		base := strings.TrimSpace(f.agents)
+		if base == "" {
+			base = `{"result":{"agents":[]}}`
+		}
+		inner := strings.TrimSuffix(base, `]}}`)
+		entries := ""
+		for i, n := range f.started {
+			if i > 0 {
+				entries += ","
+			}
+			entries += `{"agent":"omp","name":"` + n + `","agent_status":"idle","pane_id":"w1:p1"}`
+		}
+		if entries != "" {
+			if strings.HasSuffix(inner, "[") {
+				inner += entries
+			} else {
+				inner += "," + entries
+			}
+		}
+		return inner + `]}}`, nil
 	case "workspace list":
 		return f.workspaces, nil
 	case "api snapshot":
@@ -196,7 +218,7 @@ func TestPrimePromptIncludesPaths(t *testing.T) {
 	got := PrimePrompt("手册正文", Paths{CapabilitiesDir: "/cap", ActiveDir: "/active", ArchivedDir: "/archived",
 		ResultsDir: "/results", BriefsDir: "/briefs", MediaDir: "/media",
 		InflightPath: "/inflight", RuntimeCmd: "/opt/bin/superctl", Index: "## 平台能力\n- 戴宗：发布验收"})
-	for _, want := range []string{"手册正文", "/cap", "/active", "/archived", "/results",
+	for _, want := range []string{PrimeSentinel, "手册正文", "/cap", "/active", "/archived", "/results",
 		"/briefs", "任务正文", "/media", "消息附件",
 		"/inflight", "superctl reply", "/opt/bin/superctl", "运行时命令", "## 平台能力", "戴宗"} {
 		if !strings.Contains(got, want) {
@@ -236,4 +258,112 @@ func writeFileHelper(dir, name string) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(dir, name), []byte("primed\n"), 0o644)
+}
+
+// prime 送达校验：模拟 omp 启动窗口吞掉回车——文本停在输入框，补一次 Enter 才提交。
+func TestPrimeAgentSubmitsPendingPrompt(t *testing.T) {
+	fastPrime(t)
+	session := filepath.Join(t.TempDir(), "session.jsonl")
+	if err := os.WriteFile(session, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := &primeFake{session: session, status: "idle", writeOnEnter: true}
+	exp := Expected{MasterAgent: "songjiang", PrimeMarkerDir: t.TempDir()}
+	if err := primeAgent(context.Background(), clientPrime(f), exp, "songjiang", PrimePrompt("手册", Paths{})); err != nil {
+		t.Fatal(err)
+	}
+	if !f.enter {
+		t.Fatal("没有补发 Enter，输入框里的文本不会提交")
+	}
+	if !primeMarkerExists(exp.PrimeMarkerDir, "songjiang") {
+		t.Fatal("送达后必须写 prime 标记")
+	}
+	marker, _ := os.ReadFile(filepath.Join(exp.PrimeMarkerDir, "songjiang"))
+	if !strings.Contains(string(marker), session) {
+		t.Fatalf("标记应记下会话路径: %q", marker)
+	}
+}
+
+// 输入框卡住且补 Enter 也无效：不许写标记，否则下一轮永远不会重试。
+func TestPrimeAgentFailsWhenPromptNeverLands(t *testing.T) {
+	fastPrime(t)
+	session := filepath.Join(t.TempDir(), "session.jsonl")
+	if err := os.WriteFile(session, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := &primeFake{session: session, status: "idle", writeOnEnter: false}
+	exp := Expected{MasterAgent: "songjiang", PrimeMarkerDir: t.TempDir()}
+	if err := primeAgent(context.Background(), clientPrime(f), exp, "songjiang", PrimePrompt("手册", Paths{})); err == nil {
+		t.Fatal("首条注入没进会话必须报错")
+	}
+	if primeMarkerExists(exp.PrimeMarkerDir, "songjiang") {
+		t.Fatal("失败不得写 prime 标记")
+	}
+}
+
+func TestPrimeMarkerFresh(t *testing.T) {
+	dir := t.TempDir()
+	write := func(s string) {
+		if err := os.WriteFile(filepath.Join(dir, "songjiang"), []byte(s), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("2026-11-19T03:36:04Z\n")
+	if primeMarkerFresh(dir, "songjiang", "/sessions/new.jsonl") {
+		t.Fatal("老标记没有会话路径，不能算作当前会话已 prime")
+	}
+	write("2026-11-19T03:36:04Z\n/sessions/old.jsonl\n")
+	if primeMarkerFresh(dir, "songjiang", "/sessions/new.jsonl") {
+		t.Fatal("会话已更换，必须重 prime")
+	}
+	write("2026-11-19T03:36:04Z\n/sessions/new.jsonl\n")
+	if !primeMarkerFresh(dir, "songjiang", "/sessions/new.jsonl") {
+		t.Fatal("同一会话应视为已 prime")
+	}
+}
+
+// primeFake 只覆盖 primeAgent 需要的 herdr 面：agent list / prompt / send-keys。
+type primeFake struct {
+	session      string
+	status       string
+	writeOnEnter bool
+	composer     string
+	enter        bool
+}
+
+func clientPrime(f *primeFake) *herdr.Client { return &herdr.Client{Run: f.run} }
+
+func (f *primeFake) run(_ context.Context, args []string) (string, error) {
+	switch strings.Join(args[:2], " ") {
+	case "agent list":
+		status := f.status
+		if status == "" {
+			status = "idle"
+		}
+		sess := ""
+		if f.session != "" {
+			sess = `,"agent_session":{"value":"` + f.session + `"}`
+		}
+		return `{"result":{"agents":[{"agent":"omp","name":"songjiang","agent_status":"` + status + `"` + sess + `}]}}`, nil
+	case "agent prompt":
+		f.composer = args[3]
+		return `{}`, nil
+	case "agent send-keys":
+		f.enter = true
+		if f.writeOnEnter && f.composer != "" {
+			if err := os.WriteFile(f.session, []byte(f.composer), 0o644); err != nil {
+				return "", err
+			}
+			f.composer = ""
+		}
+		return `{"result":{"type":"ok"}}`, nil
+	}
+	return "", nil
+}
+
+func fastPrime(t *testing.T) {
+	t.Helper()
+	oldFirst, oldWait, oldPoll := PrimeFirstWait, PrimeWait, PrimePoll
+	PrimeFirstWait, PrimeWait, PrimePoll = 20*time.Millisecond, 100*time.Millisecond, 5*time.Millisecond
+	t.Cleanup(func() { PrimeFirstWait, PrimeWait, PrimePoll = oldFirst, oldWait, oldPoll })
 }

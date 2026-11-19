@@ -1,6 +1,6 @@
 # super-agent — 宋江本地运行时
 
-宋江（主控）super agent 的 Go 单二进制运行时：飞书注入器、`superctl` CLI、作业巡检 tick、重启引导。术语见根 `GLOSSARY.md`「主控编排」节；架构与边界见 `docs/adr/0016`–`0027`。跑在本机 herdr 上，不经 x-deploy 部署。
+宋江（主控）super agent 的 Go 单二进制运行时：飞书注入器、`superctl` CLI、作业巡检 tick、重启引导。术语见根 `GLOSSARY.md`「主控编排」节；架构与边界见 `docs/adr/0016`–`0028`。跑在本机 herdr 上，不经 x-deploy 部署。
 
 ## 结构
 

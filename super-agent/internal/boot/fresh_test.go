@@ -3,6 +3,8 @@ package boot
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +24,7 @@ type freshFake struct {
 	sentKeys    []string
 	closedPanes []string
 	prompted    []string
+	sessionDir  string
 	ignoreCtrlD bool // 模拟 ctrl+d 退不回去
 	ignoreExit  bool // 模拟 /exit 也不生效，只能关 pane
 }
@@ -37,7 +40,7 @@ func (f *freshFake) run(_ context.Context, args []string) (string, error) {
 			if f.sameSession {
 				sess = f.oldSession
 			} else {
-				sess = fmt.Sprintf("/sessions/s%d.jsonl", f.sessionSeq)
+				sess = f.sessionPath()
 			}
 		}
 		st := "idle"
@@ -80,9 +83,25 @@ func (f *freshFake) run(_ context.Context, args []string) (string, error) {
 			return `{}`, nil
 		}
 		f.prompted = append(f.prompted, args[3])
+		if f.sessionSeq > 0 && !f.sameSession {
+			if err := os.WriteFile(f.sessionPath(), []byte(args[3]), 0o644); err != nil {
+				return "", err
+			}
+		}
 		return `{}`, nil
 	}
 	return "", nil
+}
+
+func (f *freshFake) sessionPath() string {
+	if f.sessionDir == "" {
+		d, err := os.MkdirTemp("", "fresh-session")
+		if err != nil {
+			return ""
+		}
+		f.sessionDir = d
+	}
+	return filepath.Join(f.sessionDir, fmt.Sprintf("s%d.jsonl", f.sessionSeq))
 }
 
 func freshClient(f *freshFake) *herdr.Client { return &herdr.Client{Run: f.run} }
