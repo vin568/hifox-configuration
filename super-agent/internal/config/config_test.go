@@ -215,3 +215,64 @@ func TestMediaRetention(t *testing.T) {
 		t.Fatalf("非法 media_retention 应报错: %v", err)
 	}
 }
+
+func TestLoadContextMapsAndLimits(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "superctl.toml")
+	body := `session = "t"
+state_dir = "` + filepath.Join(dir, "state") + `"
+repo_dir = "` + dir + `"
+context_model_db = "~/models.db"
+context_warn_ratio = 0.6
+[context_windows]
+"hifox/deepseek-flash" = 1000000
+[context_probes]
+opencode = "probe --json"
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ContextWarnRatio != 0.6 || c.ContextWindows["hifox/deepseek-flash"] != 1000000 {
+		t.Fatalf("context windows not loaded: %+v", c)
+	}
+	if c.ContextProbes["opencode"] != "probe --json" {
+		t.Fatalf("context probes not loaded: %+v", c.ContextProbes)
+	}
+	if c.ContextModelDB == "~/models.db" || !strings.HasSuffix(c.ContextModelDB, "/models.db") {
+		t.Fatalf("context_model_db should expand ~: %q", c.ContextModelDB)
+	}
+}
+
+func TestExampleConfigLoads(t *testing.T) {
+	if _, err := Load("../../config.example.toml"); err != nil {
+		t.Fatalf("config.example.toml 必须能被解析: %v", err)
+	}
+}
+
+func TestContextConfigRejectsInvalidValues(t *testing.T) {
+	base := "session = \"t\"\nstate_dir = \"/tmp/state\"\nrepo_dir = \"/tmp/repo\"\n"
+	cases := []struct{ name, extra string }{
+		{"warn zero", "context_warn_ratio = 0\n"},
+		{"warn one", "context_warn_ratio = 1\n"},
+		{"reserve negative", "context_reserve_ratio = -0.1\n"},
+		{"reserve one", "context_reserve_ratio = 1\n"},
+		{"reserve min negative", "context_reserve_min_tokens = -1\n"},
+		{"stall negative", "local_stall_after = \"-1m\"\n"},
+		{"stall invalid", "local_stall_after = \"nope\"\n"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "superctl.toml")
+			if err := os.WriteFile(path, []byte(base+c.extra), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(path); err == nil {
+				t.Fatalf("expected validation error for %s", c.name)
+			}
+		})
+	}
+}

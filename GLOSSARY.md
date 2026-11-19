@@ -209,8 +209,24 @@ _Avoid_: 重启（换的是会话与上下文，不只是进程）、清屏（�
 _Avoid_: 摘要（不压缩历史，只减少新增）、节流（不是限频）
 
 **轮换（Rotation）**:
-会话文件超过阈值且 agent idle 时自动换脑：新会话先读机器真值交接文件与活跃区台账恢复状态。与急停、人工清空共用换脑管道，只是触发者不同。
-_Avoid_: 压缩（压缩是模型侧的行为，轮换是换会话）、重启（进程与服务不动，只看会话）
+受控 agent 的上下文占用达到保留区（`window - max(15%, 16k)`；小窗口退化为保留一半）且它 idle/done 时自动换脑：新会话先读机器真值交接文件与活跃区台账恢复状态。分子是 provider 回报的 prompt token，不是会话字节数；测量不可用时才退回字节兜底。与急停、人工清空共用换脑管道，只是触发者不同。
+_Avoid_: 压缩（压缩是模型侧的行为，轮换是换会话）、重启（进程与服务不动，只看会话）、按文件大小轮换（已降级为 unknown 兜底）
+
+**受控 agent（Controlled Agent）**:
+上下文治理与 handoff 的适用面：常驻 master/retro 与 `inflight.kind=local` 的 job agent。平台任务不在本机 herdr，非在途 herdr agent 没有 `report/tell/cancel` 身份，都不纳入。
+_Avoid_: 所有 agent（不是全机扫描）、herdr 里的 agent（非在途的不算）
+
+**上下文快照（Context Snapshot）**:
+运行时对一个受控 agent 的上下文测量：provider 回报的最近一次 prompt token（含 cache）+ 本次 output + 最后一次测量之后的估算增量，除以该模型窗口。来源分 `measured / estimated / bytes / unknown`；unknown 不得用于自动 handoff。
+_Avoid_: token 用量（那是账单累计，不是当前上下文）、字节数（只是未知时的兜底）
+
+**交接（Handoff）**:
+受控 job agent 到达上下文保留区后的续跑动作：先 checkpoint 把进度写进 progress 文件，再停旧 agent，用归档 brief + progress 重新拉起一个新 agent，结果写回原路径。交接物是机器真值，不是主控的对话记忆，也不是 worker 的 transcript。
+_Avoid_: 换脑（那是常驻 master/retro 的会话替换）、重试（同任务从头再跑一遍，不继承 progress）
+
+**进度文件（Progress）**:
+job agent 的交接前置产物：`progress/<agent>.md`，含状态、已完成、未完成、下一步、改过的文件、验证、待决问题、可续标记。checkpoint 只负责让它落盘；handoff 拒绝没有 progress 的交接。
+_Avoid_: 结果文件（最终交付，不是中途状态）、台账（主控叙事，不是 worker 自述）
 
 **作业（Job）**:
 作业台账的最小单位：一次平台委派、一次本地派发或一件直连活，含重试计数与处置记录。
@@ -221,7 +237,7 @@ _Avoid_: 事项（吴用调度台账的单位）、任务（平台任务板资�
 _Avoid_: 调度台账（吴用的）、记忆库（不是检索系统）
 
 **作业巡检（Job Sweep）**:
-巡检触发器驱动的例行对账：逐条核对在途作业、机械失败按策略重试、异常上报；本地通道另由状态变化事件加速唤醒。
+巡检触发器驱动的例行对账：逐条核对在途作业、机械失败按策略重试、异常上报；本地通道另由状态变化事件加速唤醒。巡检还做监督对账：agent 消失但结果就绪 → 提醒收口；消失且无结果 → 提醒重派；working 但会话文件长时间无写入 → 停滞告警。只告警，不自动 cancel。
 _Avoid_: 台账巡检（吴用的 automation）、监控（不承诺实时）
 
 **主控复盘（Master Retrospective）**:

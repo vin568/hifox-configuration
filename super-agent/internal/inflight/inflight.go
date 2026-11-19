@@ -27,14 +27,23 @@ const legacyKindCloud = "cloud"
 // Entry 是清单一项。Kind 区分两条通道；Platform 只在平台通道上有值（hifox，将来还有
 // 别的平台 CLI）。
 type Entry struct {
-	Kind       string    `json:"kind"` // platform | local
-	Platform   string    `json:"platform,omitempty"`
-	TaskID     string    `json:"task_id,omitempty"`
-	Agent      string    `json:"agent,omitempty"`
-	Pane       string    `json:"pane,omitempty"`
-	Capability string    `json:"capability,omitempty"` // 本地：派给哪个能力（并发上限按它计）
-	Note       string    `json:"note,omitempty"`
-	AddedAt    time.Time `json:"added_at"`
+	Kind       string `json:"kind"` // platform | local
+	Platform   string `json:"platform,omitempty"`
+	TaskID     string `json:"task_id,omitempty"`
+	Agent      string `json:"agent,omitempty"`
+	Pane       string `json:"pane,omitempty"`
+	Capability string `json:"capability,omitempty"` // 本地：派给哪个能力（并发上限按它计）
+	Note       string `json:"note,omitempty"`
+	// 本地作业的机器真值路径：handoff 不依赖主控的对话记忆，靠这三份文件恢复。
+	Brief          string    `json:"brief,omitempty"`
+	Progress       string    `json:"progress,omitempty"`
+	Result         string    `json:"result,omitempty"`
+	RetryCount     int       `json:"retry_count,omitempty"`
+	IdempotencyKey string    `json:"idempotency_key,omitempty"`
+	Args           []string  `json:"args,omitempty"`       // 派活时的额外启动参数（模型/模式等），handoff 必须原样继承
+	HandoffAt      time.Time `json:"handoff_at,omitempty"` // 交接进行中标记；健康对账在宽限期内跳过
+	Ledger         string    `json:"ledger,omitempty"`     // 该作业的唯一台账路径；handoff 必须沿用
+	AddedAt        time.Time `json:"added_at"`
 }
 
 // normalize 把旧形状就地升级：kind 缺失或为 "cloud" 的条目一律当平台条目（旧 watchlist
@@ -178,6 +187,23 @@ func Add(path string, e Entry) error {
 	return Save(path, append(entries, e))
 }
 
+// Replace 用同 kind/agent 的新条目原位替换旧条目（交接用）：一次 Save 完成，
+// 中间不会出现「旧已删、新未写」的空窗。
+func Replace(path, oldAgent string, e Entry) error {
+	entries, err := Load(path)
+	if err != nil {
+		return err
+	}
+	e.normalize()
+	for i := range entries {
+		if entries[i].Kind == KindLocal && entries[i].Agent == oldAgent {
+			entries[i] = e
+			return Save(path, entries)
+		}
+	}
+	return Add(path, e)
+}
+
 // Remove 删除所有匹配项，返回删除条数；无匹配时不落盘。
 func Remove(path string, match func(Entry) bool) (int, error) {
 	entries, err := Load(path)
@@ -222,6 +248,16 @@ func Local(entries []Entry) []Entry {
 		}
 	}
 	return out
+}
+
+// FindLocal 按 agent 名取本地作业条目；返回副本，调用方可安全改字段后再 Add。
+func FindLocal(entries []Entry, agent string) (Entry, bool) {
+	for _, e := range entries {
+		if e.Kind == KindLocal && e.Agent == agent {
+			return e, true
+		}
+	}
+	return Entry{}, false
 }
 
 // HasLocal 判定清单里是否有该 agent 的本地作业。回报通道与状态事件的身份边界

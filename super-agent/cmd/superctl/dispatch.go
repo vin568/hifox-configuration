@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -477,6 +479,12 @@ func dispatchLocal(ctx context.Context, cfg config.Config, hc *herdr.Client, age
 	if err != nil {
 		return nil, err
 	}
+	idemKey := localIdempotencyKey(recipe.Key, body, attachments)
+	for _, e := range inflight.Local(entries) {
+		if e.IdempotencyKey == idemKey {
+			return nil, fmt.Errorf("%s 已有同一任务的活跃作业（agent %s）；先收口或 cancel，避免重复副作用", recipe.Key, e.Agent)
+		}
+	}
 	limit := recipe.MaxConcurrent
 	if limit <= 0 {
 		limit = 3
@@ -492,35 +500,35 @@ func dispatchLocal(ctx context.Context, cfg config.Config, hc *herdr.Client, age
 	if runtimeCmd == "" {
 		return nil, errors.New("找不到稳定的 superctl 路径（先 go build -o super-agent/bin/superctl ./cmd/superctl）：回报通道没有可执行的命令")
 	}
+	name := fmt.Sprintf("%s-%s", agentKey, time.Now().UTC().Format("150405"))
+	resultPath := filepath.Join(cfg.ResultsDir(), name+".md")
+	progressPath := filepath.Join(cfg.ProgressDir(), name+".md")
+	briefPath := filepath.Join(cfg.BriefsDir(), name+".md")
+	if err := writeLocalBrief(cfg, recipe, name, body, attachments, resultPath, progressPath, briefPath); err != nil {
+		return nil, fmt.Errorf("写本地作业 brief 失败（未起 agent）: %w", err)
+	}
 	pane, err := acquirePane(ctx, cfg, hc, recipe.Workspace)
 	if err != nil {
 		return nil, err
 	}
-	name := fmt.Sprintf("%s-%s", agentKey, time.Now().UTC().Format("150405"))
-	// 按需拉起的 agent 也要拿到技能：共享的 + 它自己那份。三条启动路径（master /
-	// retro / job）必须是同一段装配，否则某个 agent 专属的技能只在常驻会话里可见。
-	skillOpts, err := skillArgs(cfg, recipe)
-	if err != nil {
-		return nil, err
-	}
-	args := append(append(append([]string{}, recipe.Args...), skillOpts...), extra...)
-	if err := hc.AgentStart(ctx, name, orDefault(recipe.Kind, "omp"), pane, args); err != nil {
-		return nil, fmt.Errorf("起 %s: %w", name, err)
-	}
-	resultPath := filepath.Join(cfg.ResultsDir(), name+".md")
 	if note == "" {
 		note = noteLine(body)
 	}
+	if err := startLocal(ctx, cfg, hc, recipe, name, pane, extra); err != nil {
+		return nil, err
+	}
 	// 先登记再注入：注入一旦落地，agent 可能立刻 report 或结束回合；在途清单晚一步
 	// 写，这些信号会按「陌生 agent」被静默丢掉。失败时再把条目撤掉。
-	e := inflight.Entry{Kind: inflight.KindLocal, Agent: name, Pane: pane, Capability: recipe.Key, Note: note, AddedAt: time.Now()}
+	e := inflight.Entry{Kind: inflight.KindLocal, Agent: name, Pane: pane, Capability: recipe.Key, Note: note,
+		Brief: briefPath, Progress: progressPath, Result: resultPath, IdempotencyKey: idemKey,
+		Args: append([]string{}, extra...), AddedAt: time.Now()}
 	if err := inflight.Add(cfg.InflightPath(), e); err != nil {
 		if cerr := hc.PaneClose(ctx, pane); cerr != nil {
 			return nil, fmt.Errorf("起 %s 后登记在途清单失败，pane %s 也没关掉（用 superctl cancel --agent %s 收掉）: %w", name, pane, name, err)
 		}
 		return nil, fmt.Errorf("起 %s 后登记在途清单失败（已关掉 pane）: %w", name, err)
 	}
-	prompt := localPrompt(recipe, name, body, attachments, resultPath, shellQuotePath(runtimeCmd))
+	prompt := localPrompt(recipe, name, body, attachments, resultPath, progressPath, shellQuotePath(runtimeCmd))
 	// 注入必须确认落地：omp 启动窗口会吞掉大段粘贴的 Enter，agent 会空转在输入框上。
 	// 只报「提交成功」等于把空 pane 当成已开工——本次 6 分钟事故里 110 秒就丢在这里。
 	if _, err := boot.SubmitPrompt(ctx, hc, name, prompt, resultPath); err != nil {
@@ -539,7 +547,69 @@ func dispatchLocal(ctx context.Context, cfg config.Config, hc *herdr.Client, age
 		return nil, fmt.Errorf("任务已起到 %s 但注入没有落地（已关掉该 pane，%s）: %w", name, reason, err)
 	}
 	ledger := ledgerDraft(cfg, name, "本地", name, note)
-	return map[string]string{"agent": name, "pane": pane, "result": resultPath, "ledger": ledger}, nil
+	e.Ledger = ledger
+	if err := inflight.Add(cfg.InflightPath(), e); err != nil {
+		// 任务已经在跑，台账元数据写失败不该让派活失败；下一轮 handoff 会退回按 slug 找。
+		slog.Warn("superctl: 回填台账路径失败", "agent", name, "error", err)
+	}
+	return map[string]string{"agent": name, "pane": pane, "result": resultPath, "brief": briefPath, "progress": progressPath, "ledger": ledger}, nil
+}
+
+// startLocal 是「按配方起一个 job agent」的共享装配：dispatch 与 handoff 都必须
+// 走同一条路径，否则技能与启动参数会分叉。注入必须等登记之后再做（agent 一开工
+// 就可能 report/结束回合），所以启动与注入分成两步。
+func startLocal(ctx context.Context, cfg config.Config, hc *herdr.Client, recipe capability.Agent, name, pane string, extra []string) error {
+	skillOpts, err := skillArgs(cfg, recipe)
+	if err != nil {
+		return err
+	}
+	args := append(append(append([]string{}, recipe.Args...), skillOpts...), extra...)
+	if err := hc.AgentStart(ctx, name, orDefault(recipe.Kind, "omp"), pane, args); err != nil {
+		return fmt.Errorf("起 %s: %w", name, err)
+	}
+	return nil
+}
+
+// localIdempotencyKey 是本地作业的防重复键：同一能力 + 同一正文 + 同一附件组，
+// 有活跃条目未收口时拒绝再派。重派要先 cancel，避免两个 agent 对同一件事产生双份副作用。
+func localIdempotencyKey(agentKey, body string, attachments []string) string {
+	// 正文去首尾空白、附件排序：同一件事换个换行/附件顺序仍是同一件事，不能因为
+	// 封装差异再派一个 agent 产生双份副作用。
+	atts := append([]string{}, attachments...)
+	sort.Strings(atts)
+	h := sha256.New()
+	h.Write([]byte(agentKey))
+	h.Write([]byte{0})
+	h.Write([]byte(strings.TrimSpace(body)))
+	for _, a := range atts {
+		h.Write([]byte{0})
+		h.Write([]byte(a))
+	}
+	return fmt.Sprintf("%x", h.Sum(nil))[:16]
+}
+
+// writeLocalBrief 在起 agent 前落盘完整任务正文。worker 崩溃或 handoff 时，运行时
+// 必须有一份不依赖主控对话记忆的机器真值；写不进去就不派。
+func writeLocalBrief(cfg config.Config, recipe capability.Agent, name, body string, attachments []string, resultPath, progressPath, briefPath string) error {
+	if err := os.MkdirAll(cfg.BriefsDir(), 0o755); err != nil {
+		return err
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "# 本地作业 Brief\n\n")
+	fmt.Fprintf(&b, "- 能力：%s（%s）\n", recipe.Key, orDefault(recipe.Kind, "omp"))
+	fmt.Fprintf(&b, "- agent：%s\n", name)
+	fmt.Fprintf(&b, "- 创建：%s\n", time.Now().UTC().Format(time.RFC3339))
+	fmt.Fprintf(&b, "- 结果：%s\n", resultPath)
+	fmt.Fprintf(&b, "- 进度：%s\n\n", progressPath)
+	b.WriteString("## 任务正文\n\n")
+	b.WriteString(strings.TrimSpace(body))
+	if len(attachments) > 0 {
+		b.WriteString("\n\n## 附件\n\n")
+		for _, p := range attachments {
+			b.WriteString("- " + p + "\n")
+		}
+	}
+	return os.WriteFile(briefPath, []byte(b.String()), 0o644)
 }
 
 // localPrompt 拼注入本地 agent 的首条 prompt：recipe.Instructions 是扫描时解析好的
@@ -552,7 +622,7 @@ func dispatchLocal(ctx context.Context, cfg config.Config, hc *herdr.Client, age
 // 回报通道（ADR 0029）：agent 知道自己的名字，就能在主控没轮询、平台也没有任务变化
 // 的时候主动把卡点与关键结果推回去；完成仍以结果文件 + 运行时的状态事件为准，不要求
 // 再发一条收尾报告。
-func localPrompt(recipe capability.Agent, name, body string, attachments []string, resultPath, runtimeCmd string) string {
+func localPrompt(recipe capability.Agent, name, body string, attachments []string, resultPath, progressPath, runtimeCmd string) string {
 	var b strings.Builder
 	if manual, err := os.ReadFile(recipe.Instructions); err == nil {
 		b.WriteString("[你的手册]\n")
@@ -568,6 +638,9 @@ func localPrompt(recipe capability.Agent, name, body string, attachments []strin
 			b.WriteString(p)
 		}
 	}
+	b.WriteString("\n\n[进度文件]\n")
+	fmt.Fprintf(&b, "长任务或上下文变大时，把「状态 / 已完成 / 未完成 / 下一步 / 改过的文件 / 验证 / 待决问题 / 可续」写进 %s。\n", progressPath)
+	b.WriteString("收到 checkpoint 指令时，先把进度写进这个文件，再结束回合；不要继续任务。")
 	b.WriteString("\n\n[回报通道]（纪律见 agent-report 技能；注入只给你名字与命令）")
 	fmt.Fprintf(&b, "\n你的名字：%s（主控用这个名字找你）", name)
 	fmt.Fprintf(&b, "\n中途要主控知道的事（被卡住、需要裁决、拿到了用户可见的关键结果），运行：\n  %s report --agent %s --text \"<一句话>\"", runtimeCmd, name)

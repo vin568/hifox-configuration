@@ -11,7 +11,15 @@ repo_dir  = "~/code/apifox/hifox-configuration-super-agent"  # agent pane 的 cw
 tick_interval       = "10m"  # 作业巡检兜底周期（三源皆空不发，见 ADR 0022）
 platform_poll_interval = "60s"  # 平台哨兵轮询周期（纯 CLI 轮询零 LLM 成本，有变化才唤醒主控）
 
-# 上下文轮换：主控会话文件超过这个字节数且主控 idle 时换脑（0 = 关闭）
+# 上下文轮换（ADR 0030）：主判定 = provider 回报的 token / 模型 contextWindow；
+# context_reserve_* 决定 handoff 触发点（window - max(15%, 16k)）。session_max_bytes
+# 只在测量不可用（旧会话/未知模型）时作字节兜底；0 = 关闭字节兜底。
+context_warn_ratio = 0.70
+context_reserve_ratio = 0.15
+context_reserve_min_tokens = 16000
+context_warn_margin_tokens = 8000
+context_model_db = "~/.omp/agent/models.db"
+local_stall_after = "45m"  # working 但会话文件这么久没写入 → 巡检告警（0 = 关）
 session_max_bytes = 8388608
 # 会话留档保留轮数（每轮一个 state_dir/sessions/<时间>-<原因> 目录）
 sessions_keep = 5
@@ -37,3 +45,13 @@ admin_chat_id = ""
 
 # agent start 透传给主控底层 CLI（omp）的参数，如指定快模型；留空用默认
 master_agent_args = []
+
+# 模型窗口覆盖：provider/model 或 model -> contextWindow。harness 自报优先；
+# 这里只补 omp 本地目录查不到的自定义模型。
+[context_windows]
+# "hifox/deepseek-flash" = 1000000
+
+# 通用上下文探针：kind -> 命令。命令输出统一 JSON（见 super-agent/README.md）。
+# opencode 等 non-omp harness 用它接入，不需要改运行时。
+[context_probes]
+# opencode = "/path/to/probe-opencode-context"

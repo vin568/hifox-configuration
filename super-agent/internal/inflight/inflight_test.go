@@ -364,3 +364,34 @@ func TestSaveEmpty(t *testing.T) {
 		t.Fatalf("data=%q err=%v", data, err)
 	}
 }
+
+func TestReplaceSwapsEntryInOneWrite(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "inflight.json")
+	if err := Add(path, Entry{Kind: KindLocal, Agent: "old", Capability: "worker", Result: "/old.md"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Add(path, Entry{Kind: KindLocal, Agent: "other", Capability: "worker"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Replace(path, "old", Entry{Kind: KindLocal, Agent: "new", Capability: "worker", Result: "/stable.md", RetryCount: 1}); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := Load(path)
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("entries=%+v err=%v", entries, err)
+	}
+	if entries[0].Agent != "new" || entries[0].Result != "/stable.md" || entries[0].RetryCount != 1 {
+		t.Fatalf("replace lost fields: %+v", entries[0])
+	}
+	if entries[1].Agent != "other" {
+		t.Fatalf("replace must not touch other entries: %+v", entries)
+	}
+	// 目标不存在时退化为 Add，不能丢条目。
+	if err := Replace(path, "missing", Entry{Kind: KindLocal, Agent: "third"}); err != nil {
+		t.Fatal(err)
+	}
+	if entries, _ := Load(path); len(entries) != 3 {
+		t.Fatalf("missing replace should append: %+v", entries)
+	}
+}

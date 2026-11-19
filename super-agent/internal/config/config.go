@@ -38,9 +38,20 @@ type Config struct {
 	AdminChatID          string   `toml:"admin_chat_id"`
 	PlatformPollInterval string   `toml:"platform_poll_interval"`
 	MasterAgentArgs      []string `toml:"master_agent_args"`
-	SessionMaxBytes      int64    `toml:"session_max_bytes"` // 会话文件超过它且主控 idle 时换脑（0 = 关）
+	SessionMaxBytes      int64    `toml:"session_max_bytes"` // unknown 时的字节兜底（0 = 关）；主判定改用 context_* 比例
 	SessionsKeep         int      `toml:"sessions_keep"`     // 会话留档目录保留轮数（0 = 默认 5）
 	MediaRetentionRaw    string   `toml:"media_retention"`   // 飞书落盘附件保留期（空 = 适配层默认 30 天）
+
+	// 上下文度量（ADR 0030）：主判定用 provider 回报的 token + 模型窗口；字节数只
+	// 在测量不可用时兜底。保留区策略见 ctxmeter.Policy。
+	ContextWarnRatio        float64           `toml:"context_warn_ratio"`
+	ContextReserveRatio     float64           `toml:"context_reserve_ratio"`
+	ContextReserveMinTokens int64             `toml:"context_reserve_min_tokens"`
+	ContextWarnMarginTokens int64             `toml:"context_warn_margin_tokens"`
+	ContextProbes           map[string]string `toml:"context_probes"`    // kind -> 通用探针命令（omp 内置）
+	ContextWindows          map[string]int64  `toml:"context_windows"`   // "provider/model" 或 "model" -> contextWindow
+	ContextModelDB          string            `toml:"context_model_db"`  // omp models.db；空 = ~/.omp/agent/models.db
+	LocalStallAfterRaw      string            `toml:"local_stall_after"` // working 但会话文件多久没写入算卡死（0 = 关）
 }
 
 func Default() Config {
@@ -52,8 +63,14 @@ func Default() Config {
 		PlatformPollInterval: "60s",
 		// 不设 media_retention：空 = 走 feishu.DefaultMediaRetention（30 天），
 		// 30 天只在一处定义，改一处不会分叉。
-		SessionMaxBytes: 8 << 20, // 8 MiB：约两千条消息；超过它就换脑重置上下文
+		SessionMaxBytes: 8 << 20, // unknown 时的兜底；主判定见 context_* 比例
 		SessionsKeep:    5,
+
+		ContextWarnRatio:        0.70,
+		ContextReserveRatio:     0.15,
+		ContextReserveMinTokens: 16000,
+		ContextWarnMarginTokens: 8000,
+		LocalStallAfterRaw:      "45m",
 	}
 }
 
@@ -80,6 +97,7 @@ func Load(path string) (Config, error) {
 	}
 	c.StateDir = ExpandPath(c.StateDir)
 	c.RepoDir = ExpandPath(c.RepoDir)
+	c.ContextModelDB = ExpandPath(c.ContextModelDB)
 	return c, c.Validate()
 }
 
@@ -103,6 +121,18 @@ func (c Config) Validate() error {
 	if _, err := c.MediaRetention(); err != nil {
 		return fmt.Errorf("media_retention: %w", err)
 	}
+	if _, err := c.LocalStallAfter(); err != nil {
+		return fmt.Errorf("local_stall_after: %w", err)
+	}
+	if c.ContextWarnRatio <= 0 || c.ContextWarnRatio >= 1 {
+		return fmt.Errorf("context_warn_ratio 必须在 (0,1) 内")
+	}
+	if c.ContextReserveRatio < 0 || c.ContextReserveRatio >= 1 {
+		return fmt.Errorf("context_reserve_ratio 必须在 [0,1) 内")
+	}
+	if c.ContextReserveMinTokens < 0 {
+		return fmt.Errorf("context_reserve_min_tokens 不能为负")
+	}
 	return nil
 }
 
@@ -112,6 +142,21 @@ func (c Config) MediaRetention() (time.Duration, error) {
 		return 0, nil // 适配层按默认 30 天处理
 	}
 	return parsePositiveDuration("media_retention", c.MediaRetentionRaw)
+}
+
+// LocalStallAfter 解析本地作业的停滞判定阈值；空或 0 = 关闭。
+func (c Config) LocalStallAfter() (time.Duration, error) {
+	if strings.TrimSpace(c.LocalStallAfterRaw) == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(c.LocalStallAfterRaw)
+	if err != nil {
+		return 0, fmt.Errorf("local_stall_after %q: %w", c.LocalStallAfterRaw, err)
+	}
+	if d < 0 {
+		return 0, fmt.Errorf("local_stall_after %q must not be negative", c.LocalStallAfterRaw)
+	}
+	return d, nil
 }
 
 // SweepInterval 解析巡检周期。
@@ -132,6 +177,10 @@ func (c Config) HaltPath() string            { return filepath.Join(c.StateDir, 
 func (c Config) SessionsDir() string         { return filepath.Join(c.StateDir, "sessions") }
 func (c Config) HandoffPath() string         { return filepath.Join(c.StateDir, "handoff.md") }
 func (c Config) PlatformSnapPath() string    { return filepath.Join(c.StateDir, "platform-snapshot.json") }
+func (c Config) ProgressDir() string         { return filepath.Join(c.StateDir, "progress") }
+func (c Config) HandoffsDir() string         { return filepath.Join(c.StateDir, "handoffs") }
+func (c Config) ContextAlertsPath() string   { return filepath.Join(c.StateDir, "context-alerts.json") }
+func (c Config) SupervisionPath() string     { return filepath.Join(c.StateDir, "supervision.json") }
 
 // LegacySnapPath 是改名前的哨兵快照（cloud 曾当 hifox 的同义词）。只在新的
 // platform-snapshot.json 还没生成时作迁移基线：否则升级后首轮会重打基线、丢掉变化。
@@ -194,7 +243,7 @@ func (c Config) DirectDir() string  { return filepath.Join(c.RepoDir, "super-age
 // EnsureDirs 建好运行时状态目录（台账 active/archived、结果、正文、会话留档、父目录）。
 // 附件目录不在这里建：它由 mediaStore 自己按 0700 建（用户原图不该混进 0755 的目录树）。
 func (c Config) EnsureDirs() error {
-	for _, d := range []string{c.ActiveDir(), c.ArchivedDir(), c.ResultsDir(), c.BriefsDir(), c.SkillsDir(), c.SessionsDir(), filepath.Dir(c.OutboxPath())} {
+	for _, d := range []string{c.ActiveDir(), c.ArchivedDir(), c.ResultsDir(), c.BriefsDir(), c.ProgressDir(), c.HandoffsDir(), c.SkillsDir(), c.SessionsDir(), filepath.Dir(c.OutboxPath())} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err
 		}

@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -28,16 +27,18 @@ import (
 	"super-agent/internal/tick"
 )
 
-const usage = `superctl — 宋江 super agent 本地运行时（super-agent/，ADR 0016–0023）
+const usage = `superctl — 宋江 super agent 本地运行时（super-agent/，ADR 0016–0030）
 
 用法：superctl <命令> [参数]
 
 命令：
   ensure       幂等引导：按能力注册表对账 herdr 拓扑（master/crew/jobs + 常驻 agent），缺则补齐
-  status       概览：session / workspaces / agents / 活跃作业 / 在途清单 / 急停状态 / 待发回帖
+  status       概览：session / workspaces / agents / 活跃作业 / 在途清单 / 急停状态 / 受控 agent 上下文 / 待发回帖
   inject       手工注入一条 prompt 到主控（--source feishu|event|manual）
   report       能力 agent → 主控：中途回报一句（--agent 自己的名字 --text）
   tell         主控 → 本地能力 agent：补信息或追问（--agent 目标 --text）
+  checkpoint   让 idle/done 的本地作业把进度写进 progress 文件（交接前置）
+  handoff      交接本地作业：停旧 agent，用 brief + progress 重新拉起，结果写回原路径
   tick         立即注入一次作业巡检（无在途内容时不发）
   reply        追加一条回帖到 outbox（主控回用户的唯一通道）
   serve        常驻：飞书长连接 + outbox 投递 + 定时巡检 + 注入闸门
@@ -62,6 +63,8 @@ var commands = map[string]func(args []string) error{
 	"inject":        cmdInject,
 	"report":        cmdReport,
 	"tell":          cmdTell,
+	"checkpoint":    cmdCheckpoint,
+	"handoff":       cmdHandoff,
 	"tick":          cmdTick,
 	"platformwatch": cmdPlatformwatch,
 	"reply":         cmdReply,
@@ -203,15 +206,16 @@ func cmdStatus(args []string) error {
 		return err
 	}
 	type status struct {
-		Session        string   `json:"session"`
-		Workspaces     []string `json:"workspaces"`
-		Agents         []string `json:"agents"`
-		ActiveJobs     int      `json:"active_jobs"`
-		InFlight       int      `json:"inflight"`
-		Halted         bool     `json:"halted"`
-		MasterSession  string   `json:"master_session,omitempty"`
-		SessionBytes   int64    `json:"master_session_bytes,omitempty"`
-		PendingReplies int      `json:"pending_replies"`
+		Session        string             `json:"session"`
+		Workspaces     []string           `json:"workspaces"`
+		Agents         []string           `json:"agents"`
+		ActiveJobs     int                `json:"active_jobs"`
+		InFlight       int                `json:"inflight"`
+		Halted         bool               `json:"halted"`
+		MasterSession  string             `json:"master_session,omitempty"`
+		SessionBytes   int64              `json:"master_session_bytes,omitempty"`
+		AgentContexts  []agentContextJSON `json:"agent_contexts,omitempty"`
+		PendingReplies int                `json:"pending_replies"`
 	}
 	labels := make([]string, 0, len(ws))
 	for _, w := range ws {
@@ -243,6 +247,13 @@ func cmdStatus(args []string) error {
 		if fi, err := os.Stat(master.AgentSession.Value); err == nil {
 			st.SessionBytes = fi.Size()
 		}
+	}
+	if measured, merr := measureControlled(ctx, cfg, hc); merr == nil {
+		for _, c := range measured {
+			st.AgentContexts = append(st.AgentContexts, c.json())
+		}
+	} else {
+		slog.Warn("superctl: measure agent contexts failed", "error", merr)
 	}
 	return jsonPrint(st)
 }
@@ -325,6 +336,9 @@ func cmdTick(args []string) error {
 	// 轮换先于巡检：主控刚被巡检叫起来就是 working，轮换会永远撞不上窗口。
 	if err := maybeRotate(ctx, cfg, hc); err != nil {
 		slog.Warn("superctl: rotate failed", "error", err)
+	}
+	if alerts, health := runSupervisionScans(ctx, cfg, hc); alerts+health > 0 {
+		fmt.Printf("supervision alerts injected: context=%d health=%d\n", alerts, health)
 	}
 	if !tick.Needed(sweepSignals(ctx, cfg, hc)) {
 		fmt.Println("sweep skipped (no in-flight work)")
@@ -544,6 +558,9 @@ func cmdServe(args []string) error {
 				if err := maybeRotate(ctx, cfg, hc); err != nil {
 					slog.Warn("superctl: rotate failed", "error", err)
 				}
+				if alerts, health := runSupervisionScans(ctx, cfg, hc); alerts+health > 0 {
+					slog.Info("superctl: supervision alerts injected", "context", alerts, "health", health)
+				}
 				// 注入卫生（ADR 0022）：三源皆空就不叫醒主控。
 				if sig := sweepSignals(ctx, cfg, hc); !tick.Needed(sig) {
 					slog.Debug("superctl: sweep skipped (no in-flight work)", "signals", sig)
@@ -734,7 +751,10 @@ func handleAgentEvent(ctx context.Context, cfg config.Config, hc *herdr.Client, 
 	if ev.Data.AgentStatus == "done" {
 		// done 只是「这一回合结束了」：它可能是真做完，也可能是跑完 report 在等你回话。
 		// 措辞必须点破这一点，否则主控会把「等用户拍板」当成收口。
-		detail += "（回合结束，不代表已交付——可能是在等用户回话）；结果：" + filepath.Join(cfg.ResultsDir(), name+".md")
+		detail += "（回合结束，不代表已交付——可能是在等用户回话）；结果：" + localResultPath(cfg, name)
+		if snap, ok := measureAgent(ctx, cfg, hc, name); ok && snap.Known() {
+			detail += fmt.Sprintf("；上下文 %d/%d（%.0f%%）", snap.Used(), snap.WindowTokens, snap.Ratio()*100)
+		}
 	}
 	if err := inject.Do(ctx, hc, cfg.MasterAgent, inject.BuildEvent(detail)); err != nil {
 		return false, err

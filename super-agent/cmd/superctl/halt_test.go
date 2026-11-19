@@ -93,6 +93,11 @@ type dispatchFake struct {
 	closed    []string
 	paneSeq   int
 	startErr  error
+	promptErr error
+	session   string // 默认会话；单个 agent 的 AgentSession.Value 优先，并会被 prompt 追加
+	// onPrompt / onPaneClose 在对应命令前调用（测试观察交接窗口内的在途状态）。
+	onPrompt    func(args []string)
+	onPaneClose func(args []string)
 }
 
 func (f *dispatchFake) run(_ context.Context, args []string) (string, error) {
@@ -104,9 +109,19 @@ func (f *dispatchFake) run(_ context.Context, args []string) (string, error) {
 	case "agent list":
 		agents := make([]string, 0, len(f.agents))
 		for _, a := range f.agents {
-			agents = append(agents, `{"agent":"omp","name":"`+a.Name+`","agent_status":"`+a.AgentStatus+`","pane_id":"`+a.PaneID+`"}`)
+			item := `{"agent":"omp","name":"` + a.Name + `","agent_status":"` + a.AgentStatus + `","pane_id":"` + a.PaneID + `"`
+			sess := a.AgentSession.Value
+			if sess == "" {
+				sess = f.session
+			}
+			if sess != "" {
+				item += `,"agent_session":{"kind":"path","source":"herdr:omp","value":"` + sess + `"}`
+			}
+			agents = append(agents, item+`}`)
 		}
 		return `{"result":{"agents":[` + strings.Join(agents, ",") + `]}}`, nil
+	case "workspace create":
+		return `{"result":{"workspace":{"workspace_id":"w9","label":"crew"},"root_pane":{"pane_id":"w9:p1"}}}`, nil
 	case "pane split":
 		f.paneSeq++
 		return `{"result":{"pane":{"pane_id":"w3:p` + string(rune('1'+f.paneSeq)) + `"}}}`, nil
@@ -126,10 +141,32 @@ func (f *dispatchFake) run(_ context.Context, args []string) (string, error) {
 		f.agents = append(f.agents, herdr.Agent{Name: name, AgentStatus: "idle", PaneID: pane})
 		return `{"result":{"agent":{"agent":"omp","agent_status":"idle"}}}`, nil
 	case "agent prompt":
+		if f.onPrompt != nil {
+			f.onPrompt(args)
+		}
+		if f.promptErr != nil {
+			return "", f.promptErr
+		}
 		f.prompts = append(f.prompts, args[3])
+		if f.session != "" {
+			if file, err := os.OpenFile(f.session, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+				_, _ = file.WriteString(args[3] + "\n")
+				_ = file.Close()
+			}
+		}
 		return `{}`, nil
 	case "pane close":
+		if f.onPaneClose != nil {
+			f.onPaneClose(args)
+		}
 		f.closed = append(f.closed, args[2])
+		kept := f.agents[:0]
+		for _, a := range f.agents {
+			if a.PaneID != args[2] {
+				kept = append(kept, a)
+			}
+		}
+		f.agents = kept
 		return `{"result":{"type":"ok"}}`, nil
 	}
 	return "", nil

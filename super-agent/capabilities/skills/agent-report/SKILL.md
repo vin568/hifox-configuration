@@ -50,3 +50,9 @@ description: 作业 agent 向主控的回报通道（superctl report 与 tell �
 ## 主控那边的动作
 
 主控收到你的回报后用 `superctl tell` 回你，或在巡检时用 `tell` 问你进度。它那边怎么用这条通道，写在它的 `local-agents` 技能里，不需要你关心。
+
+## 上下文与进度
+
+- 长任务每完成一个阶段，就把进度写进派活注入里给的 progress 文件：状态 / 已完成 / 未完成 / 下一步 / 改过的文件 / 验证 / 待决问题 / 可续。
+- 收到 `[checkpoint]` 指令时，先写 progress，再结束回合；不要继续任务。没有 progress，主控无法安全 handoff。
+- 工具输出用 `rg` / `head` / 行范围收敛；不要把大文件、整段日志、整份 diff 倒进对话。

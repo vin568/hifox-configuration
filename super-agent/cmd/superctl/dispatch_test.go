@@ -142,7 +142,7 @@ func TestLocalPromptInjectsManual(t *testing.T) {
 	if err := os.WriteFile(manual, []byte("工人手册正文\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got := localPrompt(capability.Agent{Key: "worker", Instructions: manual}, "worker-120000", "跑一遍", nil, "/results/x.md", "/opt/bin/superctl")
+	got := localPrompt(capability.Agent{Key: "worker", Instructions: manual}, "worker-120000", "跑一遍", nil, "/results/x.md", "/progress/x.md", "/opt/bin/superctl")
 	for _, want := range []string{
 		"[你的手册]", "工人手册正文\n\n[本轮任务]", "跑一遍", "/results/x.md", "只回文件路径",
 		"[回报通道]", "你的名字：worker-120000", "/opt/bin/superctl report --agent worker-120000",
@@ -173,7 +173,7 @@ func TestDispatchLocalRequiresRuntimeCmd(t *testing.T) {
 
 // 手册读不到不该让派活失败：退回只给任务正文（保持原样）。
 func TestLocalPromptFallsBackWithoutManual(t *testing.T) {
-	got := localPrompt(capability.Agent{Key: "worker", Instructions: filepath.Join(t.TempDir(), "nope.md")}, "worker-120000", "跑一遍", nil, "/results/x.md", "/opt/bin/superctl")
+	got := localPrompt(capability.Agent{Key: "worker", Instructions: filepath.Join(t.TempDir(), "nope.md")}, "worker-120000", "跑一遍", nil, "/results/x.md", "/progress/x.md", "/opt/bin/superctl")
 	if strings.Contains(got, "[你的手册]") {
 		t.Fatalf("没有手册就不该写手册段:\n%s", got)
 	}
@@ -186,7 +186,7 @@ func TestLocalPromptFallsBackWithoutManual(t *testing.T) {
 // （HF-16095：图片丢在透传上）。正文由派活员自己写，prompt 里不再有正文文件段。
 func TestLocalPromptCarriesBodyManualAndAttachments(t *testing.T) {
 	got := localPrompt(capability.Agent{Key: "zhugui"}, "zhugui-120000", "信封正文",
-		[]string{"/state/media/om_1/img_a.jpg", "/state/media/om_1/img_b.png"}, "/state/results/x.md", "/opt/bin/superctl")
+		[]string{"/state/media/om_1/img_a.jpg", "/state/media/om_1/img_b.png"}, "/state/results/x.md", "/state/progress/x.md", "/opt/bin/superctl")
 	for _, want := range []string{
 		"信封正文",
 		"[附件（建平台任务时逐个 --attachment 带上，一个不漏）]\n/state/media/om_1/img_a.jpg\n/state/media/om_1/img_b.png",
@@ -199,7 +199,7 @@ func TestLocalPromptCarriesBodyManualAndAttachments(t *testing.T) {
 
 // 没有附件时不得留下空段：派活员读到空标题会来问，白耗一轮。
 func TestLocalPromptOmitsEmptyExtras(t *testing.T) {
-	got := localPrompt(capability.Agent{Key: "worker"}, "worker-120000", "跑一遍", nil, "/r/x.md", "/opt/bin/superctl")
+	got := localPrompt(capability.Agent{Key: "worker"}, "worker-120000", "跑一遍", nil, "/r/x.md", "/p/x.md", "/opt/bin/superctl")
 	if strings.Contains(got, "附件（") {
 		t.Fatalf("没有附件就不该有附件段:\n%s", got)
 	}

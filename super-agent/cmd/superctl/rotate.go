@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"super-agent/internal/config"
 	"super-agent/internal/herdr"
@@ -24,43 +26,51 @@ func cmdNew(args []string) error {
 	return jsonPrint(rep)
 }
 
-// maybeRotate 是轮换（ADR 0022）：常驻 agent 的会话文件超过阈值且它 idle 时换脑。
-// 交接材料由机器真值生成（在途清单 + 活跃区台账），新会话读它恢复状态——
-// 跨会话记忆只有这两处，所以轮换不依赖任何 LLM 自述。
+// maybeRotate 是轮换（ADR 0022/0030）：常驻 agent 的上下文占用超过保留区且它
+// idle 时换脑。主判定用 provider 回报的 token / 模型窗口；只有测量不可用（旧会话、
+// 非 path 形态、模型窗口未知）时才退回 session_max_bytes 字节兜底。
 func maybeRotate(ctx context.Context, cfg config.Config, hc *herdr.Client) error {
-	if cfg.SessionMaxBytes <= 0 {
-		return nil
-	}
-	exp, err := expectedTopo(cfg)
+	policy := contextPolicy(cfg)
+	measured, err := measureControlled(ctx, cfg, hc)
 	if err != nil {
 		return err
 	}
-	agents, err := hc.AgentList(ctx)
-	if err != nil {
-		return err
-	}
-	names := []string{exp.MasterAgent}
-	if exp.RetroAgent != "" {
-		names = append(names, exp.RetroAgent)
-	}
-	for _, name := range names {
-		a, ok := herdr.FindAgent(agents, name)
-		if !ok || !isIdle(a.AgentStatus) {
+	for _, c := range measured {
+		name := c.Target.Name
+		if c.Target.Role != "master" && c.Target.Role != "retro" {
 			continue
 		}
-		size := sessionBytes(a.AgentSession.Value)
-		if size < cfg.SessionMaxBytes {
+		if !isIdle(c.Target.Status) {
 			continue
+		}
+		reason := ""
+		if c.Snapshot.Trusted() {
+			used := c.Snapshot.Used()
+			ceiling := policy.Ceiling(c.Snapshot.WindowTokens)
+			if ceiling <= 0 || used < ceiling {
+				continue
+			}
+			reason = fmt.Sprintf("context %d/%d (%.0f%%)", used, c.Snapshot.WindowTokens, c.Snapshot.Ratio()*100)
+		} else {
+			// 测量不可用：保留旧的字节口径作安全网；0 = 关闭。
+			if cfg.SessionMaxBytes <= 0 {
+				continue
+			}
+			size := sessionBytes(c.Target.SessionPath)
+			if size < cfg.SessionMaxBytes {
+				continue
+			}
+			reason = fmt.Sprintf("session bytes %d/%d", size, cfg.SessionMaxBytes)
 		}
 		intent := "本会话是新的一轮（上一轮的上下文已按体积归档）。先把在途状态读回来：" + handoffPath(ctx, cfg, hc) +
 			"；再按活跃区台账继续手上的事，不要重复已经做完的。"
-		if name == exp.RetroAgent {
+		if c.Target.Role == "retro" {
 			intent = "本会话是新的一轮。先读活跃区台账与结果目录，准备下一轮复盘；不要面向用户说话。"
 		}
 		if _, err := freshBrain(ctx, cfg, hc, name, "rotate", intent); err != nil {
 			return err
 		}
-		slog.Info("superctl: 会话超阈值已换脑", "agent", name, "bytes", size, "threshold", cfg.SessionMaxBytes)
+		slog.Info("superctl: 上下文超阈值已换脑", "agent", name, "reason", reason)
 	}
 	return nil
 }
@@ -75,6 +85,11 @@ func isIdle(status string) bool {
 func handoffPath(ctx context.Context, cfg config.Config, hc *herdr.Client) string {
 	path := cfg.HandoffPath()
 	body := "# 换脑交接（机器真值）\n\n" + collectTruth(ctx, cfg, hc).forMaster(cfg)
+	if measured, err := measureControlled(ctx, cfg, hc); err == nil {
+		if lines := contextBriefLines(measured); len(lines) > 0 {
+			body += "\n\n## 受控 agent 上下文\n\n" + strings.Join(lines, "\n")
+		}
+	}
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		slog.Warn("superctl: write handoff failed", "error", err)
 	}
