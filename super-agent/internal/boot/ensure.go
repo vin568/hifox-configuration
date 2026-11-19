@@ -208,15 +208,17 @@ func primeAgent(ctx context.Context, c *herdr.Client, exp Expected, name, prime 
 		sentinel = firstLine(text)
 	}
 	delivered, session := waitPrimeLanded(ctx, c, name, sentinel, PrimeFirstWait)
-	if !delivered {
-		// 输入框里大概率就是这坨文本：补一次 Enter。只在可接收输入的状态下补，
-		// blocked 时按回车等于替用户答审批框，绝不干。
-		if st, ok := agentStatus(ctx, c, name); ok && (st == "idle" || st == "done") {
-			if err := c.AgentSendKeys(ctx, name, "enter"); err != nil {
-				return fmt.Errorf("prime %s: 补交 Enter: %w", name, err)
-			}
+	// omp 会把大段粘贴折叠成 paste chip（输入框里的 #1），并把紧随的 Enter 一起吞掉；
+	// 首条注入恰好是大文本，所以「补 Enter」不是边角情况，而是主路径。给三次机会，
+	// 每次之间留出 TUI 消化粘贴的时间；blocked 时绝不按（那是在替用户答审批框）。
+	for attempt := 0; !delivered && attempt < 3; attempt++ {
+		if st, ok := agentStatus(ctx, c, name); ok && st == "blocked" {
+			break
 		}
-		delivered, session = waitPrimeLanded(ctx, c, name, sentinel, PrimeWait)
+		if err := c.AgentSendKeys(ctx, name, "enter"); err != nil {
+			return fmt.Errorf("prime %s: 补交 Enter: %w", name, err)
+		}
+		delivered, session = waitPrimeLanded(ctx, c, name, sentinel, PrimeWait/3)
 	}
 	if !delivered {
 		return fmt.Errorf("prime %s: 首条注入没有进入会话（输入框可能卡住，检查 pane 后重跑 ensure）", name)
@@ -234,30 +236,24 @@ func primeAgent(ctx context.Context, c *herdr.Client, exp Expected, name, prime 
 }
 
 // waitPrimeLanded 轮询 agent 的会话文件，确认首条注入确实落进去了。
-// 只核对「能核对的前提」：agent 不在册、会话路径为空、文件还没出现，都按已送达放行
-// ——那不是丢输入，是无从判定；真正的失败形态是文件在、内容里没有这段（停在输入框）。
+// 只有「拿不到会话路径」（非 path 形态）才按已送达放行；agent 尚未在册、文件尚未
+// 出现都继续等——新会话的 jsonl 往往要等首次提交才落盘。真正的失败是等满超时仍
+// 没有这段文本（停在输入框）。
 func waitPrimeLanded(ctx context.Context, c *herdr.Client, name, sentinel string, timeout time.Duration) (bool, string) {
 	if sentinel == "" {
 		return true, ""
 	}
 	deadline := time.Now().Add(timeout)
 	for {
-		agents, err := c.AgentList(ctx)
-		if err == nil {
-			a, ok := herdr.FindAgent(agents, name)
-			if !ok {
-				return true, ""
-			}
-			session := a.AgentSession.Value
-			if session == "" {
-				return true, ""
-			}
-			data, err := os.ReadFile(session)
-			if err != nil {
-				return true, session
-			}
-			if strings.Contains(string(data), sentinel) {
-				return true, session
+		if agents, err := c.AgentList(ctx); err == nil {
+			if a, ok := herdr.FindAgent(agents, name); ok {
+				session := a.AgentSession.Value
+				if session == "" {
+					return true, ""
+				}
+				if data, err := os.ReadFile(session); err == nil && strings.Contains(string(data), sentinel) {
+					return true, session
+				}
 			}
 		}
 		if time.Now().After(deadline) {

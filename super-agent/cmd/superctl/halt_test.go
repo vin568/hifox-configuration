@@ -52,8 +52,13 @@ func testRepo(t *testing.T) string {
 func fastFresh(t *testing.T) {
 	t.Helper()
 	oldT, oldP := boot.FreshTimeout, boot.FreshPoll
+	oldPF, oldPW, oldPP := boot.PrimeFirstWait, boot.PrimeWait, boot.PrimePoll
 	boot.FreshTimeout, boot.FreshPoll = 50*time.Millisecond, time.Millisecond
-	t.Cleanup(func() { boot.FreshTimeout, boot.FreshPoll = oldT, oldP })
+	boot.PrimeFirstWait, boot.PrimeWait, boot.PrimePoll = 20*time.Millisecond, 100*time.Millisecond, time.Millisecond
+	t.Cleanup(func() {
+		boot.FreshTimeout, boot.FreshPoll = oldT, oldP
+		boot.PrimeFirstWait, boot.PrimeWait, boot.PrimePoll = oldPF, oldPW, oldPP
+	})
 }
 
 func testCfg(t *testing.T, repo string) config.Config {
@@ -476,8 +481,21 @@ func TestCommandUnknownFallsThrough(t *testing.T) {
 
 // freshFakeForCommands 是命令测试用的最小 herdr：拓扑齐全、每次 start 换新会话、prompt 记账。
 type freshFakeForCommands struct {
-	started  []string
-	prompted string
+	started    []string
+	prompted   string
+	sessionDir string
+}
+
+// sess 给每个 agent 一个真实可写的会话文件：首条注入必须真的落盘，prime 才会通过。
+func (f *freshFakeForCommands) sess(name string) string {
+	if f.sessionDir == "" {
+		f.sessionDir, _ = os.MkdirTemp("", "superctl-fresh")
+	}
+	rel := "master-after.jsonl"
+	if name == "jiangjing" {
+		rel = "retro-after.jsonl"
+	}
+	return filepath.Join(f.sessionDir, rel)
 }
 
 func (f *freshFakeForCommands) startedNamed(name string) bool {
@@ -498,10 +516,10 @@ func (f *freshFakeForCommands) run(_ context.Context, args []string) (string, er
 	case "agent list":
 		var parts []string
 		if f.startedNamed("songjiang") {
-			parts = append(parts, `{"agent":"omp","name":"songjiang","agent_status":"idle","pane_id":"w1:p1","agent_session":{"value":"/sessions/master-after.jsonl"}}`)
+			parts = append(parts, `{"agent":"omp","name":"songjiang","agent_status":"idle","pane_id":"w1:p1","agent_session":{"value":"`+f.sess("songjiang")+`"}}`)
 		}
 		if f.startedNamed("jiangjing") {
-			parts = append(parts, `{"agent":"omp","name":"jiangjing","agent_status":"idle","pane_id":"w2:p1","agent_session":{"value":"/sessions/retro-after.jsonl"}}`)
+			parts = append(parts, `{"agent":"omp","name":"jiangjing","agent_status":"idle","pane_id":"w2:p1","agent_session":{"value":"`+f.sess("jiangjing")+`"}}`)
 		}
 		return `{"result":{"agents":[` + strings.Join(parts, ",") + `]}}`, nil
 	case "workspace create":
@@ -511,6 +529,9 @@ func (f *freshFakeForCommands) run(_ context.Context, args []string) (string, er
 		return `{"result":{"agent":{"agent":"omp","agent_status":"idle"}}}`, nil
 	case "agent prompt":
 		f.prompted = args[3]
+		if err := os.WriteFile(f.sess(args[2]), []byte(args[3]), 0o644); err != nil {
+			return "", err
+		}
 		return `{}`, nil
 	case "agent send-keys":
 		return `{"result":{"type":"ok"}}`, nil
@@ -580,7 +601,7 @@ func TestMaybeRotateMatrix(t *testing.T) {
 			if err := os.WriteFile(sess, make([]byte, c.sessionSz), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			f := &rotateFake{status: c.status, session: sess}
+			f := &rotateFake{status: c.status, session: sess, after: filepath.Join(t.TempDir(), "after.jsonl")}
 			if err := maybeRotate(context.Background(), cfg, &herdr.Client{Run: f.run}); err != nil {
 				t.Fatalf("maybeRotate: %v", err)
 			}
@@ -595,6 +616,7 @@ func TestMaybeRotateMatrix(t *testing.T) {
 type rotateFake struct {
 	status      string
 	session     string
+	after       string
 	freshCalled bool
 	gone        bool
 	started     []string
@@ -612,7 +634,7 @@ func (f *rotateFake) run(_ context.Context, args []string) (string, error) {
 		}
 		sess := f.session
 		if f.freshCalled {
-			sess = "/sessions/after.jsonl"
+			sess = f.after
 		}
 		return `{"result":{"agents":[{"agent":"omp","name":"songjiang","agent_status":"` + f.status + `","pane_id":"w1:p1","agent_session":{"value":"` + sess + `"}}]}}`, nil
 	case "workspace create":
@@ -623,6 +645,11 @@ func (f *rotateFake) run(_ context.Context, args []string) (string, error) {
 		f.gone = false
 		return `{"result":{"agent":{"agent":"omp","agent_status":"idle"}}}`, nil
 	case "agent prompt":
+		if f.freshCalled {
+			if err := os.WriteFile(f.after, []byte(args[3]), 0o644); err != nil {
+				return "", err
+			}
+		}
 		return `{}`, nil
 	case "agent send-keys":
 		f.gone = true

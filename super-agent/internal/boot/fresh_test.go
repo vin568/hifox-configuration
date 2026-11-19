@@ -24,6 +24,7 @@ type freshFake struct {
 	sentKeys    []string
 	closedPanes []string
 	prompted    []string
+	pending     string
 	sessionDir  string
 	ignoreCtrlD bool // 模拟 ctrl+d 退不回去
 	ignoreExit  bool // 模拟 /exit 也不生效，只能关 pane
@@ -63,6 +64,19 @@ func (f *freshFake) run(_ context.Context, args []string) (string, error) {
 		return `{"result":{"agent":{"agent":"omp","agent_status":"idle"}}}`, nil
 	case "agent send-keys":
 		f.sentKeys = append(f.sentKeys, args[2]+":"+strings.Join(args[3:], ","))
+		if args[3] == "enter" {
+			// 补交首条注入：把输入框里的文本落到当前会话文件。
+			if f.pending != "" {
+				path := f.sessionPath()
+				if f.sameSession {
+					path = f.oldSession
+				}
+				if err := os.WriteFile(path, []byte(f.pending), 0o644); err != nil {
+					return "", err
+				}
+			}
+			return `{"result":{"type":"ok"}}`, nil
+		}
 		if args[3] == "esc" {
 			f.working = false
 			return `{"result":{"type":"ok"}}`, nil
@@ -83,6 +97,7 @@ func (f *freshFake) run(_ context.Context, args []string) (string, error) {
 			return `{}`, nil
 		}
 		f.prompted = append(f.prompted, args[3])
+		f.pending = args[3]
 		if f.sessionSeq > 0 && !f.sameSession {
 			if err := os.WriteFile(f.sessionPath(), []byte(args[3]), 0o644); err != nil {
 				return "", err
@@ -108,9 +123,10 @@ func freshClient(f *freshFake) *herdr.Client { return &herdr.Client{Run: f.run} 
 
 func freshExp(t *testing.T) Expected {
 	t.Helper()
+	// fresh 测试只覆盖主控；复盘 agent 的 prime 路径由 cmd 层测试覆盖。
 	return Expected{
-		RepoDir: "/repo", MasterAgent: "songjiang", RetroAgent: "jiangjing",
-		Kind: "omp", DynamicWS: "jobs", MasterPrime: "prime-master", RetroPrime: "prime-retro",
+		RepoDir: "/repo", MasterAgent: "songjiang",
+		Kind: "omp", DynamicWS: "jobs", MasterPrime: "prime-master",
 		PrimeMarkerDir: t.TempDir(),
 	}
 }
@@ -119,6 +135,7 @@ func withFastPoll(t *testing.T) {
 	t.Helper()
 	oldTimeout, oldPoll := FreshTimeout, FreshPoll
 	FreshTimeout, FreshPoll = 60*time.Millisecond, time.Millisecond
+	fastPrime(t)
 	t.Cleanup(func() { FreshTimeout, FreshPoll = oldTimeout, oldPoll })
 }
 
@@ -180,10 +197,14 @@ func TestFreshWithoutRunningAgentJustStarts(t *testing.T) {
 // 会话没换 = 换脑失败：绝不能静默当成成功（否则急停等于没停）。
 func TestFreshFailsWhenSessionNotChanged(t *testing.T) {
 	withFastPoll(t)
-	f := &freshFake{agentRunning: true, oldSession: "/sessions/old.jsonl", sameSession: true}
+	oldSession := filepath.Join(t.TempDir(), "old.jsonl")
+	f := &freshFake{agentRunning: true, oldSession: oldSession, sameSession: true}
 	rep, err := Fresh(context.Background(), freshClient(f), freshExp(t), "songjiang", "/state/sessions/round-4", "")
 	if err == nil {
 		t.Fatalf("会话未更换必须报错，rep=%+v", rep)
+	}
+	if rep == nil {
+		t.Fatalf("应返回报告以便说明失败原因，err=%v", err)
 	}
 	if rep.SessionFresh {
 		t.Fatal("报告不应标记为 fresh")

@@ -272,7 +272,7 @@ func TestPrimeAgentSubmitsPendingPrompt(t *testing.T) {
 	if err := primeAgent(context.Background(), clientPrime(f), exp, "songjiang", PrimePrompt("手册", Paths{})); err != nil {
 		t.Fatal(err)
 	}
-	if !f.enter {
+	if f.enter == 0 {
 		t.Fatal("没有补发 Enter，输入框里的文本不会提交")
 	}
 	if !primeMarkerExists(exp.PrimeMarkerDir, "songjiang") {
@@ -287,10 +287,8 @@ func TestPrimeAgentSubmitsPendingPrompt(t *testing.T) {
 // 输入框卡住且补 Enter 也无效：不许写标记，否则下一轮永远不会重试。
 func TestPrimeAgentFailsWhenPromptNeverLands(t *testing.T) {
 	fastPrime(t)
+	// 会话文件先不存在（新会话要等首次提交才落盘），且补 Enter 也不生效。
 	session := filepath.Join(t.TempDir(), "session.jsonl")
-	if err := os.WriteFile(session, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
 	f := &primeFake{session: session, status: "idle", writeOnEnter: false}
 	exp := Expected{MasterAgent: "songjiang", PrimeMarkerDir: t.TempDir()}
 	if err := primeAgent(context.Background(), clientPrime(f), exp, "songjiang", PrimePrompt("手册", Paths{})); err == nil {
@@ -328,7 +326,7 @@ type primeFake struct {
 	status       string
 	writeOnEnter bool
 	composer     string
-	enter        bool
+	enter        int
 }
 
 func clientPrime(f *primeFake) *herdr.Client { return &herdr.Client{Run: f.run} }
@@ -349,7 +347,7 @@ func (f *primeFake) run(_ context.Context, args []string) (string, error) {
 		f.composer = args[3]
 		return `{}`, nil
 	case "agent send-keys":
-		f.enter = true
+		f.enter++
 		if f.writeOnEnter && f.composer != "" {
 			if err := os.WriteFile(f.session, []byte(f.composer), 0o644); err != nil {
 				return "", err
