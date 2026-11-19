@@ -1,6 +1,6 @@
 # super-agent — 宋江本地运行时
 
-宋江（主控）super agent 的 Go 单二进制运行时：飞书注入器、`superctl` CLI、作业巡检 tick、重启引导。术语见根 `GLOSSARY.md`「主控编排」节；架构与边界见 `docs/adr/0016`–`0025`。跑在本机 herdr 上，不经 x-deploy 部署。
+宋江（主控）super agent 的 Go 单二进制运行时：飞书注入器、`superctl` CLI、作业巡检 tick、重启引导。术语见根 `GLOSSARY.md`「主控编排」节；架构与边界见 `docs/adr/0016`–`0027`。跑在本机 herdr 上，不经 x-deploy 部署。
 
 ## 结构
 
@@ -89,6 +89,7 @@ go build ./... && go vet ./... && go test -race ./...
 ## 边界提醒
 
 - 主控与吴用分面（ADR 0017）：两个 bot 两套台账，互不同步。平台派活员朱贵是第三面（本机 job agent，机器入口，ADR 0023）：主控不挑人、不解析平台 ref。
+- 主控不自己干活：平台/产品交付 → 朱贵；其余本机活（调研、排查、改本仓、写脚本）→ 本地副手石秀（ADR 0027）。直连三级的「只读自由跑」只覆盖编排核对，不覆盖业务调研。
 - `config/<集合>/agents/<key>` 声明与 `capabilities/platforms/<平台>/<key>.yaml` 双向一一对应（同步规矩，ADR 0023），由 `capabilities --check` 强制。
 - 密钥只走环境变量，不进配置文件、台账、结果文件（密钥卫生）。
 - `direct/` 白名单按需添加，不预制占位脚本。
