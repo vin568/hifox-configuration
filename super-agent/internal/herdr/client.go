@@ -22,19 +22,43 @@ func (e *CmdError) Error() string {
 	return fmt.Sprintf("herdr %s: %s", e.Code, e.Message)
 }
 
-// IsBlocked 判定主控/能力 agent 是否停在审批或提问 UI（prompt 会被整体拒绝）。
-func IsBlocked(err error) bool {
+// cmdCode 取出 herdr CLI 的结构化错误码（沿 Unwrap 链找第一个 CmdError）。
+// 谓词们共用一处解包语义，免得加第三类错误码时复制出第二套实现。
+func cmdCode(err error) (string, bool) {
 	for err != nil {
 		if ce, ok := err.(*CmdError); ok {
-			return ce.Code == "agent_blocked"
+			return ce.Code, true
 		}
 		u, ok := err.(interface{ Unwrap() error })
 		if !ok {
-			return false
+			return "", false
 		}
 		err = u.Unwrap()
 	}
-	return false
+	return "", false
+}
+
+// IsBlocked 判定主控/能力 agent 是否停在审批或提问 UI（prompt 会被整体拒绝）。
+func IsBlocked(err error) bool {
+	code, ok := cmdCode(err)
+	return ok && code == "agent_blocked"
+}
+
+// IsNotReady 判定 agent 还没准备好接输入：herdr 的 agent list 会先于 prompt
+// 可用来看到新 agent（实测状态 idle、interactive_ready=false，prompt 返回
+// agent_not_found / agent_not_ready），omp 冷启动时这个窗口可能持续数秒到
+// 几十秒。herdr 在解析目标/检查就绪时就拒绝，早于写输入，重试是安全的。
+func IsNotReady(err error) bool {
+	code, ok := cmdCode(err)
+	return ok && (code == "agent_not_found" || code == "agent_not_ready")
+}
+
+// IsStartBlocked 判定 agent start 在启动期撞上审批/提问界面：herdr 对这种
+// 情况立即返回 agent_not_ready，但保留名字与 pane，必须由用户先处理弹框。
+// 它与 prompt 的 agent_not_ready（还没就绪）同名不同义，只在 start 路径用。
+func IsStartBlocked(err error) bool {
+	code, ok := cmdCode(err)
+	return ok && code == "agent_not_ready"
 }
 
 // Runner 执行一条 herdr 命令并返回 stdout；错误时返回包装的 CmdError。
@@ -205,8 +229,16 @@ func workspaceCreateArgs(cwd, label string) []string {
 	return []string{"workspace", "create", "--cwd", cwd, "--label", label, "--no-focus"}
 }
 
+// agentStartTimeoutMS 是 herdr 等「交互就绪」的上限。herdr 默认 30s，但 omp
+// 冷启动偶尔会超过它（加载配置/模型/更新检查）；只对 omp 放宽到 2 分钟，别的
+// kind 起不来时仍按默认 30s 失败，不把调用方白拖两分钟。herdr 上限 300000。
+const agentStartTimeoutMS = 120000
+
 func agentStartArgs(name, kind, pane string, extra []string) []string {
 	args := []string{"agent", "start", name, "--kind", kind, "--pane", pane}
+	if kind == "omp" {
+		args = append(args, "--timeout", strconv.Itoa(agentStartTimeoutMS))
+	}
 	if len(extra) > 0 {
 		args = append(args, "--")
 		args = append(args, extra...)

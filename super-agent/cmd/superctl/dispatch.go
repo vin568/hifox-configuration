@@ -576,7 +576,7 @@ func startLocal(ctx context.Context, cfg config.Config, hc *herdr.Client, recipe
 	}
 	args := append(append(append([]string{}, recipe.Args...), skillOpts...), extra...)
 	if err := hc.AgentStart(ctx, name, orDefault(recipe.Kind, "omp"), pane, args); err != nil {
-		return fmt.Errorf("起 %s: %w", name, err)
+		return boot.StartError(name, err)
 	}
 	return nil
 }

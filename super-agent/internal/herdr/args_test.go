@@ -19,9 +19,14 @@ func TestWorkspaceCreateArgs(t *testing.T) {
 }
 
 func TestAgentStartArgs(t *testing.T) {
-	base := []string{"agent", "start", "songjiang", "--kind", "omp", "--pane", "w11:p1"}
+	base := []string{"agent", "start", "songjiang", "--kind", "omp", "--pane", "w11:p1", "--timeout", "120000"}
 	if got := agentStartArgs("songjiang", "omp", "w11:p1", nil); !reflect.DeepEqual(got, base) {
 		t.Fatalf("agentStartArgs no extra = %v", got)
+	}
+	// 非 omp 不吃 120s 的放宽：起不来时仍按 herdr 默认 30s 失败。
+	other := []string{"agent", "start", "worker", "--kind", "codex", "--pane", "w11:p1"}
+	if got := agentStartArgs("worker", "codex", "w11:p1", nil); !reflect.DeepEqual(got, other) {
+		t.Fatalf("agentStartArgs non-omp = %v, want %v", got, other)
 	}
 	withExtra := append(append([]string{}, base...), "--", "--model", "fast")
 	if got := agentStartArgs("songjiang", "omp", "w11:p1", []string{"--model", "fast"}); !reflect.DeepEqual(got, withExtra) {

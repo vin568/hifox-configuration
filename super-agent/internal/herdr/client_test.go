@@ -1,6 +1,7 @@
 package herdr
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -70,6 +71,37 @@ func TestWrapErrUnstructured(t *testing.T) {
 func TestIsBlockedNil(t *testing.T) {
 	if IsBlocked(nil) {
 		t.Fatal("IsBlocked(nil) must be false")
+	}
+}
+
+// 冷启动拒绝（写输入之前）必须能被识别并重试；blocked 与普通错误不能走重试路径
+// ——前者是审批框、后者可能已经把文本写进去了。
+func TestIsNotReady(t *testing.T) {
+	for _, code := range []string{"agent_not_found", "agent_not_ready"} {
+		err := &CmdError{Code: code, Message: "not ready"}
+		if !IsNotReady(err) {
+			t.Fatalf("IsNotReady(%s) must be true", code)
+		}
+		if IsBlocked(err) {
+			t.Fatalf("%s 不是 blocked", code)
+		}
+	}
+	if IsNotReady(&CmdError{Code: "agent_blocked"}) {
+		t.Fatal("blocked 不能按未就绪重试")
+	}
+	if IsNotReady(nil) || IsNotReady(nilErr()) {
+		t.Fatal("IsNotReady 只认结构化 herdr 拒绝")
+	}
+	wrapped := fmt.Errorf("补交失败: %w", &CmdError{Code: "agent_not_ready", Message: "still starting"})
+	if !IsNotReady(wrapped) || IsBlocked(wrapped) {
+		t.Fatal("IsNotReady 必须沿 %w 包装链识别 CmdError")
+	}
+	// start 的 agent_not_ready 语义是「启动期卡在审批框」，与 prompt 的未就绪同名不同义。
+	if !IsStartBlocked(wrapped) {
+		t.Fatal("IsStartBlocked 必须识别启动期 agent_not_ready")
+	}
+	if IsStartBlocked(&CmdError{Code: "agent_not_found"}) {
+		t.Fatal("agent_not_found 不是启动期 blocked")
 	}
 }
 

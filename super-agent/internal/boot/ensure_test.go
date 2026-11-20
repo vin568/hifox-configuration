@@ -2,6 +2,8 @@ package boot
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,7 +21,8 @@ type fakeHerdr struct {
 	closed     []string
 	started    []string
 	prompted   []string
-	failPrompt int // 前 N 次 agent prompt 报错（模拟 prime 失败）
+	failPrompt int   // 前 N 次 agent prompt 报错（模拟 prime 失败）
+	startErr   error // agent start 直接失败（模拟启动期 blocked）
 }
 
 func (f *fakeHerdr) run(_ context.Context, args []string) (string, error) {
@@ -68,6 +71,9 @@ func (f *fakeHerdr) run(_ context.Context, args []string) (string, error) {
 		id := "w" + string(rune('0'+len(f.created)+10))
 		return `{"result":{"workspace":{"workspace_id":"` + id + `","label":"` + label + `"},"root_pane":{"pane_id":"` + id + `:p1"}}}`, nil
 	case "agent start":
+		if f.startErr != nil {
+			return "", f.startErr
+		}
 		f.started = append(f.started, args[2])
 		return `{"result":{"agent":{"agent":"` + args[2] + `","agent_status":"idle"}}}`, nil
 	case "agent prompt":
@@ -214,6 +220,18 @@ func TestEnsureRestartAgentOnExistingWorkspace(t *testing.T) {
 	}
 }
 
+// herdr 的 agent start 在启动期撞审批框时返回 agent_not_ready；这要翻译成
+// 「需要用户先处理」，不能当普通启动失败让调用方重派。
+func TestEnsureReportsStartupBlocked(t *testing.T) {
+	ws, snap := fullTopo()
+	f := &fakeHerdr{workspaces: ws, agents: `{"result":{"agents":[]}}`, snapshot: snap,
+		startErr: &herdr.CmdError{Code: "agent_not_ready", Message: "agent blocked during startup"}}
+	_, err := Ensure(context.Background(), client(f), exp(t.TempDir()))
+	if err == nil || !strings.Contains(err.Error(), "审批") {
+		t.Fatalf("启动期 blocked 应提示需要用户处理: %v", err)
+	}
+}
+
 func TestPrimePromptIncludesPaths(t *testing.T) {
 	got := PrimePrompt("手册正文", Paths{CapabilitiesDir: "/cap", ActiveDir: "/active", ArchivedDir: "/archived",
 		ResultsDir: "/results", BriefsDir: "/briefs", MediaDir: "/media",
@@ -299,6 +317,254 @@ func TestPrimeAgentFailsWhenPromptNeverLands(t *testing.T) {
 	}
 }
 
+// omp 冷启动时 agent 会先出现在 agent list 里、prompt 还不能写：这类拒绝发生在
+// 写输入之前，必须等它就绪后重试，而不是把首条注入丢掉。
+func TestSubmitPromptRetriesWhileAgentStarts(t *testing.T) {
+	fastPrime(t)
+	session := filepath.Join(t.TempDir(), "session.jsonl")
+	f := &primeFake{session: session, status: "idle", writeOnEnter: true, notReady: 3}
+	exp := Expected{MasterAgent: "songjiang", PrimeMarkerDir: t.TempDir()}
+	if err := primeAgent(context.Background(), clientPrime(f), exp, "songjiang", PrimePrompt("手册", Paths{})); err != nil {
+		t.Fatal(err)
+	}
+	if f.notReady != 0 {
+		t.Fatalf("应重试到 agent 接输入，剩余 notReady=%d", f.notReady)
+	}
+	if f.prompts != 4 {
+		t.Fatalf("应 3 次就绪拒绝 + 1 次成功，实际 prompt %d 次", f.prompts)
+	}
+	if !primeMarkerExists(exp.PrimeMarkerDir, "songjiang") {
+		t.Fatal("就绪后送达必须落标记")
+	}
+}
+
+// agent 不在 agent list 里（名字错/根本没起）时不能白等满 90s 再报同一句错。
+func TestSubmitPromptFailsFastWhenAgentAbsent(t *testing.T) {
+	fastPrime(t)
+	f := &primeFake{status: "absent", notReady: 1 << 30}
+	_, err := SubmitPrompt(context.Background(), clientPrime(f), "songjiang", "文本", "SENTINEL")
+	if err == nil {
+		t.Fatal("agent 不存在必须报错")
+	}
+	if !herdr.IsNotReady(err) {
+		t.Fatalf("应把原始拒绝透出给调用方: %v", err)
+	}
+	if f.prompts != 1 {
+		t.Fatalf("agent 不在列表应立即失败，实际 prompt %d 次", f.prompts)
+	}
+}
+
+// 已 working 说明文本多半进了输入框；omp 在首个 assistant 消息出现前不落会话文件。
+// 落盘后必须用真会话路径写标记，且不许补 Enter。
+func TestSubmitPromptWaitsForWorkingFlush(t *testing.T) {
+	fastPrime(t)
+	PrimeFirstWait = 0 // 第一次检查只读一次列表，保证落盘发生在 working 长等里
+	session := filepath.Join(t.TempDir(), "session.jsonl")
+	f := &primeFake{session: session, status: "working", flushText: PrimeSentinel + " 手册", flushAfterList: 3}
+	exp := Expected{MasterAgent: "songjiang", PrimeMarkerDir: t.TempDir()}
+	if err := primeAgent(context.Background(), clientPrime(f), exp, "songjiang", PrimePrompt("手册", Paths{})); err != nil {
+		t.Fatal(err)
+	}
+	if f.flushText != "" {
+		t.Fatal("expected the fake to flush the session file")
+	}
+	if f.enter != 0 {
+		t.Fatalf("working 时不该补 Enter，实际 %d 次", f.enter)
+	}
+	marker, _ := os.ReadFile(filepath.Join(exp.PrimeMarkerDir, "songjiang"))
+	parts := strings.Split(strings.TrimSpace(string(marker)), "\n")
+	if len(parts) < 2 || parts[1] != session {
+		t.Fatalf("标记必须记下真落盘的会话路径: %q", marker)
+	}
+}
+
+// working 但会话永远不落盘：不能把 working 当送达（ADR 明确拒绝），必须报错且不写标记。
+// 落盘等空后仍在 working = 真回合在跑，绝不能再塞 Enter 干扰它。
+func TestSubmitPromptFailsWhenWorkingNeverFlushes(t *testing.T) {
+	fastPrime(t)
+	PrimeWorkingWait = 50 * time.Millisecond
+	f := &primeFake{session: filepath.Join(t.TempDir(), "session.jsonl"), status: "working"}
+	exp := Expected{MasterAgent: "songjiang", PrimeMarkerDir: t.TempDir()}
+	if err := primeAgent(context.Background(), clientPrime(f), exp, "songjiang", PrimePrompt("手册", Paths{})); err == nil {
+		t.Fatal("working 但永不落盘必须报错")
+	}
+	if primeMarkerExists(exp.PrimeMarkerDir, "songjiang") {
+		t.Fatal("失败不得写 prime 标记")
+	}
+	if f.enter != 0 {
+		t.Fatalf("仍在 working 时不许补 Enter（会打断在跑的回合），实际 %d 次", f.enter)
+	}
+}
+
+// 落盘等空但状态已不是 working：说明之前的 working 是启动窗口假象，文本还在输入框，
+// 这时必须回到补 Enter，否则首条注入永远进不去。
+func TestSubmitPromptPressesEnterWhenWorkingEndsUnflushed(t *testing.T) {
+	fastPrime(t)
+	PrimeFirstWait = 0 // 第一次检查只读一次列表，保证状态翻转发生在 working 长等里
+	PrimeWorkingWait = 50 * time.Millisecond
+	session := filepath.Join(t.TempDir(), "session.jsonl")
+	f := &primeFake{session: session, status: "working", idleAfterList: 3, writeOnEnter: true}
+	exp := Expected{MasterAgent: "songjiang", PrimeMarkerDir: t.TempDir()}
+	if err := primeAgent(context.Background(), clientPrime(f), exp, "songjiang", PrimePrompt("手册", Paths{})); err != nil {
+		t.Fatal(err)
+	}
+	if f.enter == 0 {
+		t.Fatal("状态落回 idle 后应补 Enter 把输入框里的文本提交")
+	}
+	if !primeMarkerExists(exp.PrimeMarkerDir, "songjiang") {
+		t.Fatal("补 Enter 送达后必须落标记")
+	}
+}
+
+// 补 Enter 真把文本提交后，回合启动、omp 仍要十几秒才落盘。这时第二次看到 working
+// 不能再按 Enter，也不能再吃一整轮 PrimeWorkingWait：长等只消费一次，之后仍在
+// working 说明是真回合，应报错留给下一轮。用 list 调用次数断言，避免墙钟。
+func TestSubmitPromptDoesNotEnterAfterWorkingResume(t *testing.T) {
+	fastPrime(t)
+	PrimeFirstWait = 0
+	PrimeWorkingWait = 150 * time.Millisecond
+	PrimeWait = 5 * time.Millisecond
+	PrimePoll = 5 * time.Millisecond
+	f := &primeFake{session: filepath.Join(t.TempDir(), "session.jsonl"),
+		status: "working", idleAfterList: 4, workingOnEnter: true}
+	exp := Expected{MasterAgent: "songjiang", PrimeMarkerDir: t.TempDir()}
+	if err := primeAgent(context.Background(), clientPrime(f), exp, "songjiang", PrimePrompt("手册", Paths{})); err == nil {
+		t.Fatal("回合重新跑起来但没落盘时必须报错")
+	}
+	if f.enter != 1 {
+		t.Fatalf("只允许补一次 Enter（救回假 working），实际 %d 次", f.enter)
+	}
+	// 一轮 150ms 长等 ≈ 30 次 list；多一轮就会翻倍。
+	if f.listCalls > 50 {
+		t.Fatalf("长等被重复消费（list 调用 %d 次），说明 working 守卫只在第一轮生效", f.listCalls)
+	}
+	if primeMarkerExists(exp.PrimeMarkerDir, "songjiang") {
+		t.Fatal("失败不得写 prime 标记")
+	}
+}
+
+// 长等落盘期间 agent 弹审批框（working→blocked）：绝不能补 Enter 替用户点确认，
+// 必须把真实 agent_blocked 透给 dispatch。
+func TestSubmitPromptDoesNotEnterWhenBlockedDuringWorkingWait(t *testing.T) {
+	fastPrime(t)
+	PrimeFirstWait = 0
+	PrimeWorkingWait = 50 * time.Millisecond
+	f := &primeFake{session: filepath.Join(t.TempDir(), "session.jsonl"),
+		status: "working", blockedAfterList: 3}
+	exp := Expected{MasterAgent: "songjiang", PrimeMarkerDir: t.TempDir()}
+	err := primeAgent(context.Background(), clientPrime(f), exp, "songjiang", PrimePrompt("手册", Paths{}))
+	if err == nil || !herdr.IsBlocked(err) {
+		t.Fatalf("应透出 agent_blocked: %v", err)
+	}
+	if f.enter != 0 {
+		t.Fatalf("blocked 时不许补 Enter（会替用户答审批框），实际 %d 次", f.enter)
+	}
+	if primeMarkerExists(exp.PrimeMarkerDir, "songjiang") {
+		t.Fatal("blocked 不得写 prime 标记")
+	}
+}
+
+// agent list 瞬时失败不能当成「agent 缺席」放弃重试：冷启动窗口里一次抖动就会
+// 让 dispatch 关掉 pane、丢掉任务。
+func TestSubmitPromptRetriesThroughListErrors(t *testing.T) {
+	fastPrime(t)
+	session := filepath.Join(t.TempDir(), "session.jsonl")
+	f := &primeFake{session: session, status: "idle", writeOnEnter: true, notReady: 2, listErrAt: 1}
+	exp := Expected{MasterAgent: "songjiang", PrimeMarkerDir: t.TempDir()}
+	if err := primeAgent(context.Background(), clientPrime(f), exp, "songjiang", PrimePrompt("手册", Paths{})); err != nil {
+		t.Fatal(err)
+	}
+	if !primeMarkerExists(exp.PrimeMarkerDir, "songjiang") {
+		t.Fatal("list 抖动后仍应重试到送达")
+	}
+}
+
+// 就绪预算耗尽：agent 一直在列表里但 prompt 永远拒绝，必须在上限后返回 not-ready。
+func TestSubmitPromptGivesUpWhenNeverReady(t *testing.T) {
+	fastPrime(t)
+	SubmitReadyWait = 25 * time.Millisecond
+	SubmitPoll = 5 * time.Millisecond
+	f := &primeFake{status: "idle", notReady: 1 << 30}
+	exp := Expected{MasterAgent: "songjiang", PrimeMarkerDir: t.TempDir()}
+	done := make(chan error, 1)
+	go func() {
+		done <- primeAgent(context.Background(), clientPrime(f), exp, "songjiang", PrimePrompt("手册", Paths{}))
+	}()
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("就绪预算没有生效：agent 永远拒绝时循环不退出")
+	}
+	if err == nil || !herdr.IsNotReady(err) {
+		t.Fatalf("预算耗尽应透出 not-ready 错误: %v", err)
+	}
+	if f.prompts < 2 {
+		t.Fatalf("应重试多次后才放弃，实际 prompt %d 次", f.prompts)
+	}
+	if primeMarkerExists(exp.PrimeMarkerDir, "songjiang") {
+		t.Fatal("未就绪不得写 prime 标记")
+	}
+}
+
+// 重试期间 agent 转 blocked：必须返回真实 agent_blocked，而不是把上一次 not-ready
+// 透给调用方——dispatch 靠 IsBlocked 决定要不要把审批框交回用户。
+func TestSubmitPromptStopsWhenAgentBecomesBlocked(t *testing.T) {
+	fastPrime(t)
+	f := &primeFake{status: "idle", notReady: 1, blocked: true}
+	exp := Expected{MasterAgent: "songjiang", PrimeMarkerDir: t.TempDir()}
+	err := primeAgent(context.Background(), clientPrime(f), exp, "songjiang", PrimePrompt("手册", Paths{}))
+	if err == nil || !herdr.IsBlocked(err) {
+		t.Fatalf("应透出 agent_blocked: %v", err)
+	}
+	if f.prompts != 2 {
+		t.Fatalf("应一次未就绪 + 一次 blocked，实际 prompt %d 次", f.prompts)
+	}
+	if primeMarkerExists(exp.PrimeMarkerDir, "songjiang") {
+		t.Fatal("blocked 不得写 prime 标记")
+	}
+}
+
+// 落盘等待必须可被 ctx 取消；否则 Ctrl+C 也要拖满 PrimeWorkingWait。
+func TestSubmitPromptHonorsContextCancel(t *testing.T) {
+	fastPrime(t)
+	PrimeFirstWait = 500 * time.Millisecond
+	PrimePoll = 5 * time.Millisecond
+	f := &primeFake{session: filepath.Join(t.TempDir(), "nope.jsonl"), status: "idle"} // prompt 接受，但会话永不落盘
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	time.AfterFunc(20*time.Millisecond, cancel)
+	start := time.Now()
+	_, err := SubmitPrompt(ctx, clientPrime(f), "songjiang", "文本", "SENTINEL")
+	elapsed := time.Since(start)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("取消必须透出 context.Canceled: %v", err)
+	}
+	if elapsed > 300*time.Millisecond {
+		t.Fatalf("取消后仍拖了 %s（等待未响应 ctx）", elapsed)
+	}
+}
+
+// 冷启动重试期间取消也要透出 context.Canceled，而不是上一次的 not-ready：
+// 否则调用方无法区分「用户中断」和「agent 起不来」。
+func TestSubmitPromptCancelDuringReadinessRetry(t *testing.T) {
+	fastPrime(t)
+	SubmitReadyWait = 5 * time.Second
+	SubmitPoll = 5 * time.Millisecond
+	f := &primeFake{status: "idle", notReady: 1 << 30}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	time.AfterFunc(20*time.Millisecond, cancel)
+	start := time.Now()
+	_, err := SubmitPrompt(ctx, clientPrime(f), "songjiang", "文本", "SENTINEL")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("就绪重试被取消时应透出 context.Canceled: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 300*time.Millisecond {
+		t.Fatalf("取消后仍拖了 %s", elapsed)
+	}
+}
+
 func TestPrimeMarkerFresh(t *testing.T) {
 	dir := t.TempDir()
 	write := func(s string) {
@@ -322,11 +588,21 @@ func TestPrimeMarkerFresh(t *testing.T) {
 
 // primeFake 只覆盖 primeAgent 需要的 herdr 面：agent list / prompt / send-keys。
 type primeFake struct {
-	session      string
-	status       string
-	writeOnEnter bool
-	composer     string
-	enter        int
+	session          string
+	status           string
+	writeOnEnter     bool
+	notReady         int    // 前 N 次 agent prompt 以 agent_not_found 拒绝（模拟冷启动）
+	blocked          bool   // agent 列表报 blocked，prompt 以 agent_blocked 拒绝
+	prompts          int    // agent prompt 总尝试次数（含被拒）
+	flushText        string // 第 flushAfterList 次 agent list 后写进会话文件（模拟 omp 落盘）
+	flushAfterList   int
+	idleAfterList    int  // 第 N 次 agent list 后状态从 working 落回 idle（启动窗口假象）
+	blockedAfterList int  // 第 N 次 agent list 后状态转 blocked（长等期间弹审批框）
+	listErrAt        int  // 第 N 次 agent list 返回拒绝（模拟 list 瞬时失败）
+	workingOnEnter   bool // send-keys 后状态回到 working（模拟 Enter 真把文本提交了）
+	listCalls        int
+	composer         string
+	enter            int
 }
 
 func clientPrime(f *primeFake) *herdr.Client { return &herdr.Client{Run: f.run} }
@@ -334,7 +610,31 @@ func clientPrime(f *primeFake) *herdr.Client { return &herdr.Client{Run: f.run} 
 func (f *primeFake) run(_ context.Context, args []string) (string, error) {
 	switch strings.Join(args[:2], " ") {
 	case "agent list":
+		if f.status == "absent" {
+			return `{"result":{"agents":[]}}`, nil
+		}
+		f.listCalls++
+		if f.listErrAt > 0 && f.listCalls == f.listErrAt {
+			return "", &herdr.CmdError{Code: "server_unavailable", Message: "transient"}
+		}
+		if f.idleAfterList > 0 && f.listCalls >= f.idleAfterList {
+			f.status = "idle"
+			f.idleAfterList = 0
+		}
+		if f.blockedAfterList > 0 && f.listCalls >= f.blockedAfterList {
+			f.blocked = true
+			f.blockedAfterList = 0
+		}
+		if f.flushText != "" && f.flushAfterList > 0 && f.listCalls >= f.flushAfterList {
+			if err := os.WriteFile(f.session, []byte(f.flushText), 0o644); err != nil {
+				return "", err
+			}
+			f.flushText = ""
+		}
 		status := f.status
+		if f.blocked {
+			status = "blocked"
+		}
 		if status == "" {
 			status = "idle"
 		}
@@ -344,10 +644,21 @@ func (f *primeFake) run(_ context.Context, args []string) (string, error) {
 		}
 		return `{"result":{"agents":[{"agent":"omp","name":"songjiang","agent_status":"` + status + `"` + sess + `}]}}`, nil
 	case "agent prompt":
+		f.prompts++
+		if f.notReady > 0 {
+			f.notReady--
+			return "", &herdr.CmdError{Code: "agent_not_found", Message: "agent still starting"}
+		}
+		if f.blocked {
+			return "", &herdr.CmdError{Code: "agent_blocked", Message: "agent is blocked"}
+		}
 		f.composer = args[3]
 		return `{}`, nil
 	case "agent send-keys":
 		f.enter++
+		if f.workingOnEnter {
+			f.status = "working"
+		}
 		if f.writeOnEnter && f.composer != "" {
 			if err := os.WriteFile(f.session, []byte(f.composer), 0o644); err != nil {
 				return "", err
@@ -356,12 +667,17 @@ func (f *primeFake) run(_ context.Context, args []string) (string, error) {
 		}
 		return `{"result":{"type":"ok"}}`, nil
 	}
-	return "", nil
+	return "", fmt.Errorf("primeFake: unexpected herdr command %q", strings.Join(args, " "))
 }
 
 func fastPrime(t *testing.T) {
 	t.Helper()
 	oldFirst, oldWait, oldPoll := PrimeFirstWait, PrimeWait, PrimePoll
+	oldReady, oldSubmitPoll, oldWorking := SubmitReadyWait, SubmitPoll, PrimeWorkingWait
 	PrimeFirstWait, PrimeWait, PrimePoll = 20*time.Millisecond, 100*time.Millisecond, 5*time.Millisecond
-	t.Cleanup(func() { PrimeFirstWait, PrimeWait, PrimePoll = oldFirst, oldWait, oldPoll })
+	SubmitReadyWait, SubmitPoll, PrimeWorkingWait = 100*time.Millisecond, 5*time.Millisecond, 500*time.Millisecond
+	t.Cleanup(func() {
+		PrimeFirstWait, PrimeWait, PrimePoll = oldFirst, oldWait, oldPoll
+		SubmitReadyWait, SubmitPoll, PrimeWorkingWait = oldReady, oldSubmitPoll, oldWorking
+	})
 }

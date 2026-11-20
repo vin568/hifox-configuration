@@ -26,6 +26,18 @@ var (
 	PrimeFirstWait = 3 * time.Second        // 先等这么久；没送达就补一次 Enter
 	PrimeWait      = 15 * time.Second       // 补 Enter 后的总等待
 	PrimePoll      = 250 * time.Millisecond // 轮询间隔（测试里调小）
+
+	// SubmitReadyWait 是等 agent 能接输入的上限。omp 冷启动（加载配置/模型）时
+	// herdr 已把 agent 列进 agent list，但 agent prompt 还会以 agent_not_found /
+	// agent_not_ready 整体拒绝；拒绝发生在写输入之前，重试不会产生重复文本。
+	SubmitReadyWait = 90 * time.Second
+	SubmitPoll      = 500 * time.Millisecond
+
+	// PrimeWorkingWait 是「agent 已在跑回合、只差会话文件落盘」时给的上限。
+	// omp 在首个 assistant 消息出现前不落盘（2026-11-20 实测 18.7s）。working 多半
+	// 意味着文本已进输入框，先给落盘留时间；它也可能是启动窗口假象，SubmitPrompt
+	// 会在长等落空后复检状态，再决定是否补 Enter。
+	PrimeWorkingWait = 90 * time.Second
 )
 
 // Expected 是幂等引导的目标拓扑（ADR 0018）：master / crew / jobs 三个 workspace
@@ -144,7 +156,7 @@ func Ensure(ctx context.Context, c *herdr.Client, exp Expected) (*Report, error)
 			args = append(append([]string{}, args...), "--session-dir", sessionDir)
 		}
 		if err := c.AgentStart(ctx, name, exp.Kind, pane, args); err != nil {
-			return fmt.Errorf("start %s: %w", name, err)
+			return StartError(name, err)
 		}
 		rep.AgentsStarted = append(rep.AgentsStarted, name)
 		if prime != "" {
@@ -165,6 +177,15 @@ func Ensure(ctx context.Context, c *herdr.Client, exp Expected) (*Report, error)
 		}
 	}
 	return rep, nil
+}
+
+// StartError 把 agent start 的失败翻译成调用方能直接处置的错误：启动期撞审批框
+// 不是「起不来」，而是「需要用户先处理」，重派只会再撞同一个框。
+func StartError(name string, err error) error {
+	if herdr.IsStartBlocked(err) {
+		return fmt.Errorf("起 %s: 启动时卡在审批/提问界面，需要用户先处理: %w", name, err)
+	}
+	return fmt.Errorf("起 %s: %w", name, err)
 }
 
 // PrimePrompt 拼装主控首条注入：操作手册全文 + 本机绝对路径。
@@ -199,19 +220,57 @@ func PrimePrompt(manual string, p Paths) string {
 
 // SubmitPrompt 提交一条 prompt，并确认它真的进了 agent 当前会话（sentinel 已出现在
 // 会话文件里）才返回。只提交成功不代表送达：omp 启动窗口里回车会被吞，大段粘贴又会
-// 折叠成 paste chip 并把紧随的 Enter 一起吃掉。补 Enter 最多三次，blocked 时绝不按
-// （那是在替用户答审批框）。主控首条注入与本地派活的首条任务共用这一条校验。
+// 折叠成 paste chip 并把紧随的 Enter 一起吃掉；omp 在首个 assistant 消息出现前也不
+// 写会话文件。策略：working 时先把落盘时间给足（不往在跑的回合里塞键）；等不到时
+// 只有确认已离开 working 才回到补 Enter（最多三次），仍在 working、blocked 或状态
+// 未知都不按，报错留给下一轮 ensure。主控首条注入与本地派活的首条任务共用这一条校验。
 func SubmitPrompt(ctx context.Context, c *herdr.Client, name, text, sentinel string) (string, error) {
 	text = strings.TrimRight(text, "\n")
-	if err := c.AgentPrompt(ctx, name, text, false, 0); err != nil {
+	if err := submitPromptText(ctx, c, name, text); err != nil {
 		return "", err
 	}
 	delivered, session := waitPrimeLanded(ctx, c, name, sentinel, PrimeFirstWait)
 	// 首条注入恰好是大文本，所以「补 Enter」不是边角情况，而是主路径。给三次机会，
 	// 每次之间留出 TUI 消化粘贴的时间。
+	waitedWorking := false
 	for attempt := 0; !delivered && attempt < 3; attempt++ {
-		if st, ok := agentStatus(ctx, c, name); ok && st == "blocked" {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		st, ok := agentStatus(ctx, c, name)
+		if ok && st == "blocked" {
 			break
+		}
+		if ok && st == "working" {
+			if waitedWorking {
+				// 长等已经消费过：仍在 working 说明补 Enter 之后回合真的跑起来了
+				// （omp 落盘晚于 PrimeWait/3），继续塞键只会干扰它，报错交给下一轮。
+				break
+			}
+			// 已在跑回合说明文本多半进了输入框，只是 omp 还没把会话落盘（首个
+			// assistant 消息之前不写文件）。先给落盘留足时间，别在回合中途塞键。
+			waitedWorking = true
+			if delivered, session = waitPrimeLanded(ctx, c, name, sentinel, PrimeWorkingWait); delivered {
+				break
+			}
+			// 落盘等空后复检：仍在 working 说明这是真回合；blocked 说明弹了审批框；
+			// list 抖动时状态未知。这三种情况都不许补 Enter（可能替用户答审批框或
+			// 干扰真回合），报错交给下一轮 ensure 重试。只有确认已不在 working 才
+			// 回到补 Enter——启动窗口的 working 可能是文本还停在输入框的假象。
+			st2, ok2 := agentStatus(ctx, c, name)
+			if !ok2 || st2 == "working" {
+				break
+			}
+			if st2 == "blocked" {
+				// 让 herdr 用真实 agent_blocked 拒绝（写输入前），dispatch 才能
+				// 把审批框交回用户。若状态抖动让它真收下了，也已进了会话，不再
+				// 补 Enter（blocked 时按回车等于替用户答框）。
+				if perr := c.AgentPrompt(ctx, name, text, false, 0); perr != nil {
+					return "", perr
+				}
+				delivered, session = waitPrimeLanded(ctx, c, name, sentinel, PrimeWait/3)
+				break
+			}
 		}
 		if err := c.AgentSendKeys(ctx, name, "enter"); err != nil {
 			return "", fmt.Errorf("补交 Enter: %w", err)
@@ -219,9 +278,50 @@ func SubmitPrompt(ctx context.Context, c *herdr.Client, name, text, sentinel str
 		delivered, session = waitPrimeLanded(ctx, c, name, sentinel, PrimeWait/3)
 	}
 	if !delivered {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 		return "", errors.New("prompt 没有进入会话（输入框可能卡住）")
 	}
 	return session, nil
+}
+
+// submitPromptText 提交 prompt，并在 agent 还没准备好接输入时等它就绪再写。
+// omp 冷启动窗口里 herdr 已把 agent 列进 agent list，但 prompt 会以
+// agent_not_found / agent_not_ready 整体拒绝；这些拒绝发生在写输入之前，重试
+// 不会造成重复注入。agent 不在列表里（名字写错/根本没起）则立刻返回，不白等；
+// 重试期间转 blocked 也不是「未就绪」，交一次真实提交让 herdr 用 agent_blocked
+// 拒绝，调用方（dispatch）才能按 IsBlocked 把审批框交回用户。
+func submitPromptText(ctx context.Context, c *herdr.Client, name, text string) error {
+	deadline := time.Now().Add(SubmitReadyWait)
+	for {
+		err := c.AgentPrompt(ctx, name, text, false, 0)
+		if err == nil || !herdr.IsNotReady(err) || time.Now().After(deadline) {
+			return err
+		}
+		agents, lerr := c.AgentList(ctx)
+		if lerr != nil {
+			// list 瞬时失败：不能当成 agent 缺席，继续重试到预算耗尽。
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(SubmitPoll):
+			}
+			continue
+		}
+		st, live := herdr.FindAgent(agents, name)
+		if !live {
+			return err
+		}
+		if st.AgentStatus == "blocked" {
+			return c.AgentPrompt(ctx, name, text, false, 0)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(SubmitPoll):
+		}
+	}
 }
 
 // primeAgent 注入首条 prompt，确认它真的进了当前会话后再落盘标记。
@@ -258,6 +358,9 @@ func waitPrimeLanded(ctx context.Context, c *herdr.Client, name, sentinel string
 	}
 	deadline := time.Now().Add(timeout)
 	for {
+		if err := ctx.Err(); err != nil {
+			return false, ""
+		}
 		if agents, err := c.AgentList(ctx); err == nil {
 			if a, ok := herdr.FindAgent(agents, name); ok {
 				session := a.AgentSession.Value

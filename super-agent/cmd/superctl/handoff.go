@@ -209,6 +209,11 @@ func handoffLocal(ctx context.Context, cfg config.Config, hc *herdr.Client, agen
 	if err := startLocal(ctx, cfg, hc, recipe, newName, newPane, old.Args); err != nil {
 		_ = hc.PaneClose(ctx, newPane)
 		restoreFailedHandoff(cfg, old, newName, "新 agent 启动失败")
+		if herdr.IsStartBlocked(err) {
+			// handoff 会回收新 pane，审批框也一起没了：不能只告诉用户「先处理」，
+			// 得说明处理位置（重新手动起一次 omp 或在 herdr 里确认后再 handoff）。
+			return nil, fmt.Errorf("起交接后的 %s: %w（审批框随 pane 一起回收了；先手动处理 omp 启动确认再 handoff）", newName, err)
+		}
 		return nil, fmt.Errorf("起交接后的 %s: %w", newName, err)
 	}
 	// 新 agent 一起来就换上在途身份：注入窗口里它可能立刻 report 或结束回合，
