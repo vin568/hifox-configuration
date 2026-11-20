@@ -256,17 +256,15 @@ func handoffBody(oldAgent, brief, progress, result string) string {
 如果 progress 的「待决问题」没有解决，先用 report 上报主控，不要猜。`, oldAgent, brief, progress, result)
 }
 
+// uniqueLocalName 给交接出来的新 agent 起名：占用源是 herdr 里在跑的 agent 名。
+// 后缀规则与 dispatch 共用 uniqueAgentName（-2、-3），一条概念一套规则。
 func uniqueLocalName(agents []herdr.Agent, key string) string {
 	used := map[string]bool{}
 	for _, a := range agents {
 		used[a.Name] = true
 	}
-	base := fmt.Sprintf("%s-%s", key, time.Now().UTC().Format("150405"))
-	name := base
-	for i := 2; used[name]; i++ {
-		name = fmt.Sprintf("%s-h%d", base, i)
-	}
-	return name
+	base := fmt.Sprintf("%s-%s", key, localNameNow().UTC().Format("150405"))
+	return uniqueAgentName(base, func(name string) bool { return used[name] })
 }
 
 // restoreFailedHandoff 在旧 agent 已停、新 agent 没起来/没落地时把旧条目放回

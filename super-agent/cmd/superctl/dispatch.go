@@ -511,7 +511,7 @@ func dispatchLocal(ctx context.Context, cfg config.Config, hc *herdr.Client, age
 	if runtimeCmd == "" {
 		return nil, errors.New("找不到稳定的 superctl 路径（先 go build -o super-agent/bin/superctl ./cmd/superctl）：回报通道没有可执行的命令")
 	}
-	name := fmt.Sprintf("%s-%s", agentKey, time.Now().UTC().Format("150405"))
+	name := localAgentName(cfg, agentKey, entries)
 	resultPath := filepath.Join(cfg.ResultsDir(), name+".md")
 	progressPath := filepath.Join(cfg.ProgressDir(), name+".md")
 	briefPath := filepath.Join(cfg.BriefsDir(), name+".md")
@@ -579,6 +579,36 @@ func startLocal(ctx context.Context, cfg config.Config, hc *herdr.Client, recipe
 		return boot.StartError(name, err)
 	}
 	return nil
+}
+
+// localAgentName 生成作业 agent 的唯一名字：<能力>-<UTC HHMMSS>；同一秒内再派同一能力
+// 自动加 -2、-3…，避免同名覆盖结果/进度/brief 与在途清单身份。并发额度允许多实例的
+// 能力（如朱贵）在同一秒连派两次就会撞名。
+func localAgentName(cfg config.Config, agentKey string, entries []inflight.Entry) string {
+	base := fmt.Sprintf("%s-%s", agentKey, localNameNow().UTC().Format("150405"))
+	active := make(map[string]bool)
+	for _, e := range inflight.Local(entries) {
+		active[e.Agent] = true
+	}
+	return uniqueAgentName(base, func(name string) bool {
+		if active[name] {
+			return true
+		}
+		_, err := os.Stat(filepath.Join(cfg.ResultsDir(), name+".md"))
+		return err == nil
+	})
+}
+
+// localNameNow 是命名用的时钟接缝：测试固定「同一秒」才能验证接线。
+var localNameNow = time.Now
+
+// uniqueAgentName 是纯拼接逻辑：taken 说某个名字已被占用就往后编号。
+func uniqueAgentName(base string, taken func(string) bool) string {
+	name := base
+	for n := 2; taken(name); n++ {
+		name = fmt.Sprintf("%s-%d", base, n)
+	}
+	return name
 }
 
 // localIdempotencyKey 是本地作业的防重复键：同一能力 + 同一正文 + 同一附件组，

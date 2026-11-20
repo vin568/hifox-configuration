@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"super-agent/internal/boot"
 	"super-agent/internal/capability"
@@ -1238,5 +1239,52 @@ func TestShellQuotePath(t *testing.T) {
 		if got := shellQuotePath(in); got != want {
 			t.Errorf("shellQuotePath(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestUniqueAgentName(t *testing.T) {
+	taken := map[string]bool{"zhugui-120000": true, "zhugui-120000-2": true}
+	got := uniqueAgentName("zhugui-120000", func(n string) bool { return taken[n] })
+	if got != "zhugui-120000-3" {
+		t.Fatalf("同秒连派应继续编号，got %q", got)
+	}
+	if got := uniqueAgentName("shixiu-090000", func(string) bool { return false }); got != "shixiu-090000" {
+		t.Fatalf("无冲突应保留基础名，got %q", got)
+	}
+}
+
+// 接线测试：同秒内再派必须避开在途条目与已落盘结果，否则两个作业共用一个结果文件。
+func TestDispatchLocalAvoidsNameCollision(t *testing.T) {
+	repo := testRepo(t)
+	// 并发放到 5：本用例要连着派两件，默认 1 会把第二件挡在额度外。
+	if err := os.WriteFile(filepath.Join(repo, "super-agent/capabilities/agents/worker/capability.yaml"),
+		[]byte("key: worker\nname: 工人\ndescription: 测试用本地能力\nrole: job\nworkspace: jobs\nkind: omp\nmaxConcurrent: 5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testCfg(t, repo)
+	fixed := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	old := localNameNow
+	localNameNow = func() time.Time { return fixed }
+	t.Cleanup(func() { localNameNow = old })
+
+	// 上一件的「结果文件已落盘、条目已收口」场景。
+	if err := os.WriteFile(filepath.Join(cfg.ResultsDir(), "worker-120000.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := &dispatchFake{}
+	got, err := dispatchLocal(context.Background(), cfg, &herdr.Client{Run: f.run}, "worker", "跑一遍", "", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["agent"] != "worker-120000-2" {
+		t.Fatalf("同秒重复必须编号，got %q", got["agent"])
+	}
+
+	// 再派一件：这次的占用源是在途清单里的 worker-120000-2。
+	if _, err := dispatchLocal(context.Background(), cfg, &herdr.Client{Run: f.run}, "worker", "再跑一件", "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if f.started[len(f.started)-1] != "worker-120000-3" {
+		t.Fatalf("在途条目也必须占用名字，started=%v", f.started)
 	}
 }

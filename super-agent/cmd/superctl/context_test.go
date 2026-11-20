@@ -125,10 +125,14 @@ func TestHandoffBodyAndUniqueName(t *testing.T) {
 			t.Fatalf("body missing %q: %s", want, body)
 		}
 	}
+	fixed := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	oldNow := localNameNow
+	localNameNow = func() time.Time { return fixed }
+	t.Cleanup(func() { localNameNow = oldNow })
+
 	agents := []herdr.Agent{{Name: "worker-120000"}}
-	name := uniqueLocalName(agents, "worker")
-	if name == "" || strings.HasPrefix(name, "worker-120000") {
-		t.Fatalf("unexpected name %q", name)
+	if name := uniqueLocalName(agents, "worker"); name != "worker-120000-2" {
+		t.Fatalf("交接命名必须与 dispatch 同一套后缀，got %q", name)
 	}
 }
 
