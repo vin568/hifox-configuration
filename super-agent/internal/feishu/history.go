@@ -10,7 +10,8 @@ import (
 )
 
 const (
-	historyTimeout       = 10 * time.Second
+	historyListTimeout   = 60 * time.Second
+	historyOneTimeout    = 10 * time.Second
 	historyLineMaxRunes  = 200
 	historyTimeLayout    = "2006-01-02 15:04:05"
 	historyEmptyWindow   = "（窗口内没有消息）"
@@ -18,11 +19,8 @@ const (
 	historyRecalledLabel = "[消息已撤回]"
 )
 
-// HistoryMaxLimit 是飞书单页上限；HistoryMaxSince 是产品收敛的时间窗（平台无此硬限制）。
-const (
-	HistoryMaxLimit = 50
-	HistoryMaxSince = 168 * time.Hour
-)
+// HistoryPageSize 是飞书单页上限：超过它的 --limit 由 historyList 自动翻页凑齐。
+const HistoryPageSize = 50
 
 // HistoryQuery 是一次历史读取的输入。Now 为零时用 time.Now()（测试注入）。
 type HistoryQuery struct {
@@ -51,7 +49,12 @@ func HistoryText(ctx context.Context, cfg Config, q HistoryQuery) (string, error
 		}
 		media = mediaStoreFor(cfg)
 	}
-	ctx, cancel := context.WithTimeout(ctx, historyTimeout)
+	timeout := historyListTimeout
+	if q.MessageID != "" {
+		// 单条/下载没有被翻页放大，维持原来的短预算。
+		timeout = historyOneTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return historyText(ctx, reader, media, q)
 }
@@ -73,11 +76,11 @@ func historyText(ctx context.Context, reader messageReader, media *mediaStore, q
 		}
 		return historyOne(ctx, reader, media, q)
 	default:
-		if q.Limit < 1 || q.Limit > HistoryMaxLimit {
-			return "", fmt.Errorf("--limit 必须在 1..%d 之间（飞书单页上限 %d）", HistoryMaxLimit, HistoryMaxLimit)
+		if q.Limit < 1 {
+			return "", errors.New("--limit 必须大于 0")
 		}
-		if q.Since <= 0 || q.Since > HistoryMaxSince {
-			return "", fmt.Errorf("--since 必须大于 0 且不超过 %s", HistoryMaxSince)
+		if q.Since <= 0 {
+			return "", errors.New("--since 必须大于 0")
 		}
 		return historyList(ctx, reader, q, now)
 	}
@@ -85,9 +88,35 @@ func historyText(ctx context.Context, reader messageReader, media *mediaStore, q
 
 func historyList(ctx context.Context, reader messageReader, q HistoryQuery, now time.Time) (string, error) {
 	start := now.Add(-q.Since)
-	msgs, hasMore, err := reader.List(ctx, q.ChatID, start, now, q.Limit)
-	if err != nil {
-		return "", historyErrHint(err)
+	// 平台单页最多 50 条：超过就按页翻，直到凑够 --limit 或没有更早的了。
+	var msgs []*messageView
+	token := ""
+	hasMore := false
+	for len(msgs) < q.Limit {
+		size := q.Limit - len(msgs)
+		if size > HistoryPageSize {
+			size = HistoryPageSize
+		}
+		page, next, more, err := reader.List(ctx, q.ChatID, start, now, size, token)
+		if err != nil {
+			return "", historyErrHint(err)
+		}
+		msgs = append(msgs, page...)
+		if len(msgs) > q.Limit {
+			// 平台若无视 page_size 多给了，也不许超过调用方给的预算。
+			msgs = msgs[:q.Limit]
+		}
+		hasMore = more
+		// 空页不再翻：token 再怎么变也不会有内容，继续请求只是白花配额。
+		if len(page) == 0 {
+			break
+		}
+		// 防脏数据/防死循环：没有下一页 token 或 token 原地踏步就停；
+		// 此时仍保留平台自报的 hasMore 文案（模型可能说还有但没给 token）。
+		if !more || next == "" || next == token {
+			break
+		}
+		token = next
 	}
 	if len(msgs) == 0 {
 		return historyEmptyWindow, nil
@@ -107,10 +136,15 @@ func historyList(ctx context.Context, reader messageReader, q HistoryQuery, now 
 		fmt.Fprintf(&b, "%s %s %s\n", historyStamp(v.CreateMS), historySender(v), historyBody(ctx, v, nil))
 	}
 	switch {
-	case hasMore && hasMedia:
-		fmt.Fprintf(&b, "（更早还有；已到 --limit %d。要看附件用 --message <消息ID> --download）\n", q.Limit)
 	case hasMore:
-		fmt.Fprintf(&b, "（更早还有；已到 --limit %d）\n", q.Limit)
+		b.WriteString("（更早还有")
+		if len(msgs) >= q.Limit {
+			fmt.Fprintf(&b, "；已到 --limit %d", q.Limit)
+		}
+		if hasMedia {
+			b.WriteString("；要看附件用 --message <消息ID> --download")
+		}
+		b.WriteString("）\n")
 	case hasMedia:
 		b.WriteString("（要看附件用 --message <消息ID> --download）\n")
 	}

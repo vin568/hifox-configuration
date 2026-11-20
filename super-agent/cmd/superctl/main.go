@@ -28,7 +28,7 @@ import (
 	"super-agent/internal/tick"
 )
 
-const usage = `superctl — 宋江 super agent 本地运行时（super-agent/，ADR 0016–0032）
+const usage = `superctl — 宋江 super agent 本地运行时（super-agent/，ADR 0016–0033）
 
 用法：superctl <命令> [参数]
 
@@ -42,7 +42,7 @@ const usage = `superctl — 宋江 super agent 本地运行时（super-agent/，
   handoff      交接本地作业：停旧 agent，用 brief + progress 重新拉起，结果写回原路径
   tick         立即注入一次作业巡检（无在途内容时不发）
   reply        追加一条回帖到 outbox（主控回用户的唯一通道；--image 可重复，最多 9 张）
-  history      只读历史：--chat <会话ID> [--limit 20] [--since 24h] 或 --message <om_...> [--download]
+  history      只读历史：--chat <会话ID> [--limit 20] [--since 24h] 或 --message <om_...> [--download]（超 50 条自动翻页，只取到 --limit，窗口不限）
   recall       撤回本应用发的消息：--id <回帖ID> | --message <om_...> | --last [--chat <会话ID>]
   answer       把用户的回答投进平台任务对话（不是任务评论）：--platform <平台> --task <任务号> --text/--text-file
   serve        常驻：飞书长连接 + outbox 投递 + 定时巡检 + 注入闸门

@@ -18,8 +18,8 @@ func cmdHistory(args []string) error {
 	fs := flag.NewFlagSet("history", flag.ContinueOnError)
 	chatID := fs.String("chat", "", "会话 ID（与 --message 二选一）")
 	messageID := fs.String("message", "", "消息 ID（与 --chat 二选一）")
-	limit := fs.Int("limit", 20, "最多返回条数（1..50）")
-	since := fs.Duration("since", 24*time.Hour, "时间窗口（>0，≤168h）")
+	limit := fs.Int("limit", 20, "最多返回条数（>0，超过单页 50 条自动翻页）")
+	since := fs.Duration("since", 24*time.Hour, "时间窗口（>0，不设上限）")
 	download := fs.Bool("download", false, "仅 --message 有效：下载该条附件并打印本地路径")
 	cfgPath := fs.String("config", "", "配置文件路径")
 	if err := fs.Parse(args); err != nil {
@@ -47,11 +47,11 @@ func cmdHistory(args []string) error {
 		if *download {
 			return errors.New("--download 只能与 --message 一起用（列表模式不下载附件）")
 		}
-		if *limit < 1 || *limit > feishu.HistoryMaxLimit {
-			return fmt.Errorf("--limit 必须在 1..%d 之间（飞书 page_size 上限 %d），当前 %d", feishu.HistoryMaxLimit, feishu.HistoryMaxLimit, *limit)
+		if *limit < 1 {
+			return fmt.Errorf("--limit 必须大于 0，当前 %d", *limit)
 		}
-		if *since <= 0 || *since > feishu.HistoryMaxSince {
-			return fmt.Errorf("--since 必须大于 0 且不超过 %s，当前 %s", feishu.HistoryMaxSince, *since)
+		if *since <= 0 {
+			return fmt.Errorf("--since 必须大于 0，当前 %s", *since)
 		}
 		q.ChatID = *chatID
 		q.Limit = *limit
@@ -66,9 +66,8 @@ func cmdHistory(args []string) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	text, err := historyTextFn(ctx, feishuConfigFrom(cfg, appID, secret), q)
+	// 超时预算由 feishu.HistoryText 统一管（多页查询 60s），这里不再套更短的壳。
+	text, err := historyTextFn(context.Background(), feishuConfigFrom(cfg, appID, secret), q)
 	if err != nil {
 		return err
 	}

@@ -68,9 +68,8 @@ func TestHistoryFlagValidation(t *testing.T) {
 	}{
 		{"都缺", nil, "必须且只能给一个"},
 		{"两个都给", []string{"--chat", "oc_x", "--message", "om_x"}, "必须且只能给一个"},
-		{"limit 0", []string{"--chat", "oc_x", "--limit", "0"}, "1..50"},
-		{"limit 51", []string{"--chat", "oc_x", "--limit", "51"}, "1..50"},
-		{"since 169h", []string{"--chat", "oc_x", "--since", "169h"}, "168h0m0s"},
+		{"limit 0", []string{"--chat", "oc_x", "--limit", "0"}, "--limit 必须大于 0"},
+		{"since 0", []string{"--chat", "oc_x", "--since", "0s"}, "--since 必须大于 0"},
 		{"message+limit", []string{"--message", "om_x", "--limit", "5"}, "不能与 --limit"},
 		{"message+since", []string{"--message", "om_x", "--since", "1h"}, "不能与 --since"},
 		{"list+download", []string{"--chat", "oc_x", "--download"}, "--download 只能"},
@@ -348,5 +347,29 @@ func TestRecallSelectors(t *testing.T) {
 	}
 	if len(api.recalls) != 2 {
 		t.Fatalf("pending 不该发请求: %v", api.recalls)
+	}
+}
+
+// 放宽之后 --limit 200 / --since 720h 必须能通过参数校验：卡在校验层之后的
+// 「读配置/建客户端」错误说明这两个 flag 没被自己拒绝，不能因为机器没配凭证而误判。
+func TestHistoryFlagsAcceptLargeValues(t *testing.T) {
+	old := historyTextFn
+	t.Cleanup(func() { historyTextFn = old })
+	var got feishu.HistoryQuery
+	historyTextFn = func(_ context.Context, _ feishu.Config, q feishu.HistoryQuery) (string, error) {
+		got = q
+		return "ok", nil
+	}
+	t.Setenv("SONGJIANG_FEISHU_APP_ID", "cli_test")
+	t.Setenv("SONGJIANG_FEISHU_APP_SECRET", "secret_test")
+	cfgPath := filepath.Join(t.TempDir(), "superctl.toml")
+	if err := os.WriteFile(cfgPath, []byte("state_dir = \""+t.TempDir()+"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmdHistory([]string{"--config", cfgPath, "--chat", "oc_x", "--limit", "200", "--since", "720h"}); err != nil {
+		t.Fatalf("大 limit / 长窗口应被接受: %v", err)
+	}
+	if got.Limit != 200 || got.Since != 720*time.Hour {
+		t.Fatalf("参数没透传到历史查询: %+v", got)
 	}
 }

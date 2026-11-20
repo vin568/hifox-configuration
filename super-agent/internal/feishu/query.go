@@ -34,8 +34,9 @@ type messageGetter interface {
 }
 
 // messageLister 是 im/v1/messages?container_id=… 的窄接口（会话历史用）。
+// pageToken 为空表示第一页；nextToken 非空时可继续翻页。单页上限由平台定（50）。
 type messageLister interface {
-	List(ctx context.Context, chatID string, start, end time.Time, limit int) (msgs []*messageView, hasMore bool, err error)
+	List(ctx context.Context, chatID string, start, end time.Time, pageSize int, pageToken string) (msgs []*messageView, nextToken string, hasMore bool, err error)
 }
 
 // messageReader 同时具备单条与列表读取（历史命令用）。
@@ -76,24 +77,42 @@ func (r sdkMessageReader) Get(ctx context.Context, messageID string) (*messageVi
 	return v, nil
 }
 
-func (r sdkMessageReader) List(ctx context.Context, chatID string, start, end time.Time, limit int) ([]*messageView, bool, error) {
-	req := larkim.NewListMessageReqBuilder().
+// normalizePageSize 把调用方的每页条数收敛到飞书契约的 1..50：
+// 上界截断（平台最多 50），下界直接报错——静默放大成 50 会违背「只取 --limit」。
+func normalizePageSize(n int) (int, error) {
+	if n < 1 {
+		return 0, fmt.Errorf("page_size 必须大于 0，当前 %d", n)
+	}
+	if n > HistoryPageSize {
+		return HistoryPageSize, nil
+	}
+	return n, nil
+}
+
+func (r sdkMessageReader) List(ctx context.Context, chatID string, start, end time.Time, pageSize int, pageToken string) ([]*messageView, string, bool, error) {
+	pageSize, err := normalizePageSize(pageSize)
+	if err != nil {
+		return nil, "", false, err
+	}
+	builder := larkim.NewListMessageReqBuilder().
 		ContainerIdType("chat").
 		ContainerId(chatID).
 		StartTime(strconv.FormatInt(start.Unix(), 10)).
 		EndTime(strconv.FormatInt(end.Unix(), 10)).
 		SortType("ByCreateTimeDesc").
-		PageSize(limit).
-		Build()
-	resp, err := r.client.Im.Message.List(ctx, req)
+		PageSize(pageSize)
+	if pageToken != "" {
+		builder = builder.PageToken(pageToken)
+	}
+	resp, err := r.client.Im.Message.List(ctx, builder.Build())
 	if err != nil {
-		return nil, false, fmt.Errorf("feishu list messages %s: %w", chatID, err)
+		return nil, "", false, fmt.Errorf("feishu list messages %s: %w", chatID, err)
 	}
 	if !resp.Success() {
-		return nil, false, &APIError{Op: "feishu list messages", Code: resp.Code, Msg: resp.Msg, RequestID: resp.RequestId()}
+		return nil, "", false, &APIError{Op: "feishu list messages", Code: resp.Code, Msg: resp.Msg, RequestID: resp.RequestId()}
 	}
 	if resp.Data == nil {
-		return nil, false, nil
+		return nil, "", false, nil
 	}
 	out := make([]*messageView, 0, len(resp.Data.Items))
 	for _, m := range resp.Data.Items {
@@ -101,7 +120,10 @@ func (r sdkMessageReader) List(ctx context.Context, chatID string, start, end ti
 			out = append(out, viewOf(m))
 		}
 	}
-	return out, resp.Data.HasMore != nil && *resp.Data.HasMore, nil
+	next := deref(resp.Data.PageToken)
+	// hasMore 如实反映平台自报；没有 token 时上层无法续翻，由调用方停并提示。
+	hasMore := resp.Data.HasMore != nil && *resp.Data.HasMore
+	return out, next, hasMore, nil
 }
 
 // viewOf 把 SDK 的消息对象摊平。mentions 的 Id 是 *string，直接 deref；
