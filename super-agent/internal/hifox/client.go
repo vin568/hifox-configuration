@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -50,6 +51,7 @@ func NewForOrg(org string) *Client { return &Client{Run: ExecRunner(org)} }
 // Task 是哨兵关心的任务真值子集（`hifox task view <id> --output json` 的形状）。
 type Task struct {
 	Identifier         string       `json:"identifier"`
+	OrganizationID     string       `json:"organizationId"`
 	Title              string       `json:"title"`
 	Status             Status       `json:"status"`
 	DelegateStatus     string       `json:"delegateStatus"`
@@ -57,6 +59,39 @@ type Task struct {
 	UpdatedAt          string       `json:"updatedAt"`
 	URL                string       `json:"url"`
 	Attachments        []Attachment `json:"attachments"`
+	// ChatSessionID 是任务的对话会话（承接人执行所在的那条），`hifox task view`
+	// 的 chatSessionId。它是「与当前执行者最老的那条」，不一定等于正在等用户回答
+	// 的那条——多会话任务里答案投错会话，提问的承接人不会被唤醒，所以回答优先用
+	// SessionStatus.Top 指向的会话（见 AnswerSessionID）。
+	ChatSessionID string            `json:"chatSessionId"`
+	SessionStatus TaskSessionStatus `json:"sessionStatus"`
+}
+
+// TaskSessionStatus 是 `task view` 里会话状态汇总的人读面（v2 起为聚合形状）。
+// Top 是当前「最需要注意」的那条会话状态：承接人提问后会写 waiting_human_reply，
+// 并带上真正等回答的 SessionID。
+type TaskSessionStatus struct {
+	Top *TaskSessionTop `json:"top"`
+}
+
+// TaskSessionTop 是聚合里排第一的会话状态事件。
+type TaskSessionTop struct {
+	State     string `json:"state"`
+	SessionID string `json:"sessionId"`
+}
+
+// AnswerSessionID 选回答该投进哪条会话：会话状态汇总里排第一的那条（Top）优先，
+// 它是当前最该被推进的会话——承接人提问时是 waiting_human_reply，正在跑时是
+// working（补一句话会作为排队回合进它正在跑的上下文）。`chatSessionId` 只是
+// 「与当前执行者最老的那条」，多会话任务里常常不是活的会话，只能在没有汇总时兜底。
+// 两者都没有时返回空串，由调用方拒绝并说明——绝不退回任务评论。
+func (t Task) AnswerSessionID() string {
+	if top := t.SessionStatus.Top; top != nil {
+		if id := strings.TrimSpace(top.SessionID); id != "" {
+			return id
+		}
+	}
+	return strings.TrimSpace(t.ChatSessionID)
 }
 
 // Attachment 是任务附件在 `task view` 里的人读面。preview.url 是任务自身的预览地址
@@ -107,6 +142,50 @@ func (c *Client) TaskView(ctx context.Context, id string) (Task, error) {
 // Signature 是变化检测用的三元组快照：状态类别/名 | 委派状态 | agent 工作状态。
 func (t Task) Signature() string {
 	return t.Status.Category + "/" + t.Status.Name + "|" + t.DelegateStatus + "|" + t.AgentWorkingStatus
+}
+
+// UserMessage 是以用户身份写进任务对话的一条消息（POST
+// /rest/v1/chat/sessions/<id>/messages 的返回）。Queued 表示承接人当前回合还在跑，
+// 这条消息排在它后面；RunID 是被这条消息唤醒的那次执行。
+type UserMessage struct {
+	MessageID string `json:"messageId"`
+	RunID     string `json:"runId"`
+	Queued    bool   `json:"queued"`
+}
+
+// PostUserMessage 把一段话以 CLI 的人工身份写进任务对话（网页里用户打字那条路）。
+//
+// 不走 `hifox chat send`：它打的是 `/agent-messages`，只接受会话绑定的 agent 执行
+// 身份，人工令牌必然 403（HF-16187 实测）。任务评论是另一条面，承接人不会被评论
+// 唤醒，所以这里只提供对话通道——没有写评论的第二个入口（ADR 0031）。
+func (c *Client) PostUserMessage(ctx context.Context, sessionID, text string) (UserMessage, error) {
+	// 边界守卫：没有任何会话就不该打出一条空路径请求。选哪条会话是调用方
+	// （Task.AnswerSessionID）的事，这里只说「没有可投的会话」。
+	if strings.TrimSpace(sessionID) == "" {
+		return UserMessage{}, errors.New("没有可投的对话会话")
+	}
+	if strings.TrimSpace(text) == "" {
+		return UserMessage{}, errors.New("回答正文为空")
+	}
+	payload, err := json.Marshal(map[string]string{"content": text})
+	if err != nil {
+		return UserMessage{}, fmt.Errorf("encode answer: %w", err)
+	}
+	out, err := c.Run(ctx, []string{
+		"api", "post", "/rest/v1/chat/sessions/" + url.PathEscape(sessionID) + "/messages",
+		"--data", string(payload), "--output", "json",
+	})
+	if err != nil {
+		return UserMessage{}, fmt.Errorf("把回答发进任务对话 %s: %w", sessionID, err)
+	}
+	var msg UserMessage
+	if strings.TrimSpace(out) == "" {
+		return msg, nil
+	}
+	if err := json.Unmarshal([]byte(out), &msg); err != nil {
+		return UserMessage{}, fmt.Errorf("decode chat message: %w", err)
+	}
+	return msg, nil
 }
 
 // TaskRef 是 `task create` 回给调用方的定位子集；字段缺失也算成功（任务已建成，

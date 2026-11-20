@@ -155,7 +155,7 @@ super-agent/bin/superctl dispatch --platform hifox --agent <承接 key> --instan
 
 ## 3. 纪律
 
-- **委派即触发，一次到位**：`--delegate-agent` 设置成功的那一刻平台就让承接人开工。**绝不追加 `task summon`、私聊、@ 或另开会话**——那会开出第二个并行会话，同一任务两份执行互相踩踏（HF-15793 实例）。补充信息只写任务评论，或让主控带在正文里。
+- **委派即触发，一次到位**：`--delegate-agent` 设置成功的那一刻平台就让承接人开工。**绝不追加 `task summon`、私聊、@ 或另开会话**——那会开出第二个并行会话，同一任务两份执行互相踩踏（HF-15793 实例）。补充信息写进任务正文（`--update`）；**承接人在等用户回答时，回答不是补充信息**：那是主控用 `superctl answer --platform hifox` 投进任务对话的一轮，不走你的 `--update`、也不写任务评论。
 - **只跑**：`super-agent/bin/superctl capabilities`、`super-agent/bin/superctl dispatch --platform hifox …`、`super-agent/bin/superctl report --agent <你的名字> --text …`、只读的 `hifox task view <任务号>`，以及写正文用的 `cat > <写死的 /tmp 路径>`（§0.5）。其余命令一律不做——尤其不跑任何改代码、部署、查询类的命令。**别用 shell 变量存路径**：每次 bash 可能是新 shell，变量不跨命令，`$BRIEF` 为空就把正文写丢了。
 - **不猜不糊**：承接人、平台、层级、space 任一项定不下来就未建单，宁可多一轮也不派错人。
 - **不越界**：只处理派给你的这一个任务，不接别的任务、不读旧任务、不替主控做业务判断。写正文是整理用户给的料，不是替用户做决策——他说的现象、期望照录，没说的写「待补充」。

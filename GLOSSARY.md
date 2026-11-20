@@ -167,6 +167,10 @@ _Avoid_: 平台运维（它只派活，不运维）、吴用（那是人对平�
 平台任务 description 的真源：由平台派活员把用户原话与附件整理成 markdown，经 `superctl dispatch --desc-file` 落进任务，建单后归档为状态目录 `briefs/<任务号>.md`。派活信封（用户原话 / 层级 / 类型 / 备注）只给派活员读路由，不是任务正文；主控不写正文。
 _Avoid_: 派活信封（那是路由输入）、需求原话（转发原文，不是写给人看的正文）
 
+**任务对话回答（Task Answer）**:
+承接人在**任务对话**（`hifox task view` 的 `sessionStatus.top.sessionId`，缺失时回落 `chatSessionId`）里提问、把会话置 `waiting_human_reply` 后，用户答复的投递位置：经 `superctl answer --platform <平台>` 以 CLI 的人工身份写成对话里的一轮用户消息（`POST /rest/v1/chat/sessions/<id>/messages`），平台据此唤醒承接人。`waiting_human_review` 是等验收，用同一条通道回话。任务评论不产生承接人的回合，不是回答通道；位置是默认规则，不靠用户每轮声明（ADR 0031）。
+_Avoid_: 任务评论回答（不唤醒承接人）、`--update` 补正文（改需求，不是回答）、`chat send`（agent-messages 只认执行身份，人工令牌 403）
+
 **能力技能（Capability Skill）**:
 本地运行时给 agent 的方法论技能，标准 `SKILL.md` 形态（frontmatter `name`/`description`），位置即归属：`capabilities/skills/<key>/` 是共享池、按各 agent 同目录 `skills.yaml` 的声明挂载（未声明不可见），`capabilities/agents/<key>/skills/<key>/` 只给该 agent。真源目录直接进底层 CLI 的技能发现面，不复制；索引只列名字、归属与 description 原文（含「何时用」）。
 _Avoid_: 文档路径（那是铺副本之前的做法，会诱导整篇读文件）、开发 agent 技能（`.agents/skills/` 是另一类消费者）
@@ -185,7 +189,7 @@ _Avoid_: 结果文件（最终产物）、心跳（不是定时信号）、聊�
 
 
 **平台哨兵（Platform Sentinel）**:
-运行时的平台侧状态监听环：按轮询周期读在途清单里的平台条目（平台 = hifox 等，目前只有 hifox 有实现）逐个查任务真值、与私有快照对比，首见记基线、状态真变化且注入成功才唤醒主控；轮询高频而 LLM 唤醒低频。巡检 tick 因此降为兜底。
+运行时的平台侧状态监听环：按轮询周期读在途清单里的平台条目（平台 = hifox 等，目前只有 hifox 有实现）逐个查任务真值、与私有快照对比，首见记基线（等用户回话的两态例外：首见即注入）、状态真变化且注入成功才唤醒主控；轮询高频而 LLM 唤醒低频。巡检 tick 因此降为兜底。
 _Avoid_: 云端（平台不止云上：sharkly、远程 ssh 主机都算）、推送（平台对外部无事件面，只能轮询）
 
 **在途清单（In-flight List）**:
@@ -193,7 +197,7 @@ _Avoid_: 云端（平台不止云上：sharkly、远程 ssh 主机都算）、�
 _Avoid_: 台账（作业台账是主控的叙事记忆，这是机器可读的在途面）、订阅列表（无订阅语义）
 
 **直连三级（Direct Tiers）**:
-直连通道的权限分级：只读命令自由跑并记账；变更动作走白名单脚本；白名单外的变更先请示用户。主控只行使第 1 级；第 2、3 级由本地副手在任务授权下执行（ADR 0027）。硬禁区（删除、装软件、动本仓外 git、读凭证、绕开 `superctl reply` 对外发送）任何级别不碰（闭集与 ADR 0019 一致）。
+直连通道的权限分级：只读命令自由跑并记账；变更动作走白名单脚本；白名单外的变更先请示用户。主控只行使第 1 级；第 2、3 级由本地副手在任务授权下执行（ADR 0027）。硬禁区（删除、装软件、动本仓外 git、读凭证、绕开 `superctl reply` / `superctl answer` 发消息）任何级别不碰（闭集与 ADR 0019、ADR 0031 一致）。
 _Avoid_: 沙箱（不是隔离执行）、放行名单（只覆盖第 2 级）
 
 **急停（Halt）**:

@@ -2,6 +2,7 @@ package hifox
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -245,5 +246,87 @@ func TestAgentListToleratesNullFields(t *testing.T) {
 	}
 	if len(refs) != 1 || refs[0].Name != "奥丁" || refs[0].ArchivedAt != "" || refs[0].SpaceIDs != nil {
 		t.Fatalf("refs=%+v", refs)
+	}
+}
+
+// 回答走人工消息接口：`hifox api post /rest/v1/chat/sessions/<id>/messages`。
+// 不是 `chat send`（agent-messages 只认执行身份，人工令牌 403），也不是任务评论。
+func TestPostUserMessageUsesHumanMessagesEndpoint(t *testing.T) {
+	c, got := stubClient(t, `{"messageId":"m-1","runId":"r-1","queued":true}`, nil)
+	msg, err := c.PostUserMessage(context.Background(), "sess-1", "跟 web 完全对齐\ndevelop 吧")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `api post /rest/v1/chat/sessions/sess-1/messages --data {"content":"跟 web 完全对齐\ndevelop 吧"} --output json`
+	if strings.Join(*got, " ") != want {
+		t.Fatalf("args=%v", *got)
+	}
+	if msg.MessageID != "m-1" || msg.RunID != "r-1" || !msg.Queued {
+		t.Fatalf("msg=%+v", msg)
+	}
+}
+
+// 没有会话或空正文是调用错误，不该发一个空 JSON 出去。
+func TestPostUserMessageRejectsEmptyInputs(t *testing.T) {
+	c, got := stubClient(t, `{}`, nil)
+	if _, err := c.PostUserMessage(context.Background(), " ", "x"); err == nil || !strings.Contains(err.Error(), "没有可投的对话会话") {
+		t.Fatalf("空会话必须拒绝: %v", err)
+	}
+	if _, err := c.PostUserMessage(context.Background(), "sess-1", "  "); err == nil {
+		t.Fatal("空正文必须拒绝")
+	}
+	if len(*got) != 0 {
+		t.Fatalf("被拒绝的调用不该触达 CLI: %v", *got)
+	}
+}
+
+// 多会话任务：chatSessionId 是「与当前执行者最老的那条」，活着的会话可能是另一条
+// （sessionStatus.top.sessionId）。投错会话，承接人不会被唤醒（等回答时）或补不进
+// 正在跑的上下文（working 时）。
+func TestAnswerSessionIDPrefersWaitingSession(t *testing.T) {
+	cases := []struct {
+		name, json, want string
+	}{
+		{
+			name: "等回答的会话优先于主会话",
+			json: `{"chatSessionId":"main","sessionStatus":{"top":{"state":"waiting_human_reply","sessionId":"asking"}}}`,
+			want: "asking",
+		},
+		{
+			name: "评审态同样算等回答",
+			json: `{"chatSessionId":"main","sessionStatus":{"top":{"state":"waiting_human_review","sessionId":"asking"}}}`,
+			want: "asking",
+		},
+		{
+			name: "执行中也投活着的会话",
+			json: `{"chatSessionId":"main","sessionStatus":{"top":{"state":"working","sessionId":"other"}}}`,
+			want: "other",
+		},
+		{
+			name: "没有聚合状态（老任务）回落到主会话",
+			json: `{"chatSessionId":"main"}`,
+			want: "main",
+		},
+		{
+			name: "top 有状态没会话 id",
+			json: `{"chatSessionId":"main","sessionStatus":{"top":{"state":"waiting_human_reply"}}}`,
+			want: "main",
+		},
+		{
+			name: "两者都没有",
+			json: `{"identifier":"HF-1"}`,
+			want: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var task Task
+			if err := json.Unmarshal([]byte(tc.json), &task); err != nil {
+				t.Fatal(err)
+			}
+			if got := task.AnswerSessionID(); got != tc.want {
+				t.Fatalf("AnswerSessionID()=%q, want %q", got, tc.want)
+			}
+		})
 	}
 }

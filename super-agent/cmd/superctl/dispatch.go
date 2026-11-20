@@ -212,15 +212,26 @@ func resolveRegularFile(path, what string) (string, os.FileInfo, error) {
 	return abs, st, nil
 }
 
+// platformClientFor 是平台名（平台 CLI 应用名）到平台客户端的唯一映射：派活与
+// 回答共用一处，加平台只改这里。第二个返回值 false 表示该平台还没有实现，
+// 由调用方按自己的动作措辞报错（派活 / 回答）。
+func platformClientFor(name string) (func(org string) *hifox.Client, bool) {
+	switch name {
+	case platform.Hifox:
+		return hifox.NewForOrg, true
+	default:
+		return nil, false
+	}
+}
+
 // dispatchPlatform 按平台分派：平台是 CLI 应用实例，每个实例的派活实现各一份。
 // 目前只有 hifox；别的平台名（将来 sharkly）如实拒绝，而不是悄悄拿 hifox 去派。
 func dispatchPlatform(ctx context.Context, cfg config.Config, req platformReq, extra []string) (map[string]string, error) {
-	switch req.Platform {
-	case platform.Hifox:
-		return dispatchHifox(ctx, cfg, hifox.NewForOrg, req, extra)
-	default:
+	clientFor, ok := platformClientFor(req.Platform)
+	if !ok {
 		return nil, fmt.Errorf("平台 %q 还没有派活实现", req.Platform)
 	}
+	return dispatchHifox(ctx, cfg, clientFor, req, extra)
 }
 
 // dispatchHifox 包 `hifox task create`（或 --update 时 `<id> task edit`）：委派即触发；

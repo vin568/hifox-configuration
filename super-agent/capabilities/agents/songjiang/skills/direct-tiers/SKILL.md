@@ -13,4 +13,6 @@ description: 直连三级：主控只行使第 1 级只读，变更类动作是�
 2. 白名单脚本：`super-agent/direct/` 里已登记的动作可以直接派石秀执行，参数透传，记台账。
 3. 白名单外的变更：先问用户，批准后把范围与批准原话写进任务，派石秀执行并记台账。
 
-硬禁区（任何情况不碰）：删除类命令、安装软件、动本仓以外的 git、读取任何凭证/密钥、绕开 `superctl reply` 对外发消息。
+硬禁区（任何情况不碰）：删除类命令、安装软件、动本仓以外的 git、读取任何凭证/密钥、绕开 `superctl reply` / `superctl answer` 对外发消息。
+
+对外/对平台发消息只有两条经批准的通道：`superctl reply`（回用户）与 `superctl answer`（把用户回答投进平台任务对话，ADR 0031）。自己拼 `curl` 打平台 REST、或从 `~/.hifox/config.yml` 取 token 手发消息，既是读凭证也是绕过通道，属硬禁区；`hifox api post` 只经 `superctl answer` 内部使用。

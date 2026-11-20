@@ -1,12 +1,12 @@
 # super-agent — 宋江本地运行时
 
-宋江（主控）super agent 的 Go 单二进制运行时：飞书注入器、`superctl` CLI、作业巡检 tick、重启引导。术语见根 `GLOSSARY.md`「主控编排」节；架构与边界见 `docs/adr/0016`–`0030`。跑在本机 herdr 上，不经 x-deploy 部署。
+宋江（主控）super agent 的 Go 单二进制运行时：飞书注入器、`superctl` CLI、作业巡检 tick、重启引导。术语见根 `GLOSSARY.md`「主控编排」节；架构与边界见 `docs/adr/0016`–`0031`。跑在本机 herdr 上，不经 x-deploy 部署。
 
 ## 结构
 
 ```
 super-agent/
-├── cmd/superctl/        # 单二进制入口（serve/ensure/status/inject/report/tell/tick/reply/halt/resume/new/dispatch/cancel/capabilities）
+├── cmd/superctl/        # 单二进制入口（serve/ensure/status/inject/report/tell/tick/reply/answer/halt/resume/new/dispatch/cancel/capabilities）
 ├── capabilities/        # 能力声明（目录即注册表，ADR 0021）：agents/ skills/ scripts/ platforms/<平台>/；技能是标准 SKILL.md，位置即归属（ADR 0025）；共享技能按 agent 的 skills.yaml 声明挂载
 ├── internal/config/     # superctl.toml 加载与路径约定
 ├── internal/capability/ # 能力注册表：目录即声明 + 索引生成 + 漂移检查（ADR 0021）
@@ -57,7 +57,7 @@ go build ./... && go vet ./... && go test -race ./...
    ./bin/superctl serve      # 飞书长连接 + outbox 投递 + 定时巡检
    ```
 
-常驻方式任选：launchd/tmux/nohup。serve 内置两路加速：**本地通道**按 pane 订阅 herdr 状态变化事件（只有**在途本地作业**的 done/blocked 才唤醒主控；working/idle 与常驻 agent 不叫醒。订阅面 = 除主控外所有带 agent 的 pane，60s 重建收敛动态增删）；**平台通道**由哨兵每 `platform_poll_interval` 轮询在途清单里的平台条目，状态真变化才注入（首见只记基线）。巡检 tick（默认 10m）仅作兜底。
+常驻方式任选：launchd/tmux/nohup。serve 内置两路加速：**本地通道**按 pane 订阅 herdr 状态变化事件（只有**在途本地作业**的 done/blocked 才唤醒主控；working/idle 与常驻 agent 不叫醒。订阅面 = 除主控外所有带 agent 的 pane，60s 重建收敛动态增删）；**平台通道**由哨兵每 `platform_poll_interval` 轮询在途清单里的平台条目，状态真变化才注入（首见只记基线；等用户回话的两态首见即注入）。巡检 tick（默认 10m）仅作兜底。
 
 注入卫生与轮换（ADR 0022/0030）：巡检注入只在三源任一非空时发（活跃区台账文件数、在途清单条数、jobs workspace 活动 agent 数），全空只记日志；每条注入只带增量，样板只在首条 prime。上下文治理用统一公式（最近一次 provider prompt token + output + 未测量增量，除以模型窗口；小窗口保留一半，避免 ceiling 算成 0）；master/retro 达保留区且 idle/done 时自动换脑，job 达阈值只告警，由主控 checkpoint + handoff。会话字节数只在测量不可用时兜底。急停期间按来源分流静默自动注入，白名单私聊照常通行（ADR 0020）。
 
@@ -85,7 +85,8 @@ go build ./... && go vet ./... && go test -race ./...
 | `new` | 人工清空：立刻换脑，不等上下文阈值（飞书私聊 `/new` 等价入口） |
 | `capabilities` | 能力注册表：生成主控索引 / `--check` 查漂移（key 与目录名、master 唯一性、文档、脚本可执行、`direct/` 未登记脚本、平台指针 ↔ `config/` 双向同步与部署记录）/ `--check --live` 再按 `environments/*/state.yaml` 对平台核一遍（ADR 0023） |
 | `reply` | 追加回帖到 outbox（**主控回用户的唯一通道**） |
-| `platformwatch` | 平台哨兵一轮：读在途清单的 platform 条目轮询平台，有状态变化才注入 |
+| `answer` | 把用户的回答投进平台任务对话（`--platform <平台>` + `--task` + `--text`/`--text-file`；目前只有 hifox）：承接人 `waiting_human_reply`（等回答）或 `waiting_human_review`（等验收）时用；任务评论不是回答通道，命令面不提供评论路径（ADR 0031） |
+| `platformwatch` | 平台哨兵一轮：读在途清单的 platform 条目轮询平台，有状态变化才注入（等用户回话的两态首见也注入） |
 | `serve` | 常驻：飞书长连接 + outbox 投递 + 定时巡检 |
 | `probe` | 只打印事件 ID 的引导工具（bot_open_id / open_id / chat_id） |
 

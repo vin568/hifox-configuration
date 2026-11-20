@@ -27,6 +27,7 @@ func fixture(t *testing.T, watch string, snap string) (string, string) {
 
 const sigDone = "completed/已发布|assigned|none"
 const sigActive = "active/进行中|working|running"
+const sigWaiting = "active/进行中|assigned|waiting_human_reply"
 
 // poll 是测试用的短形态：不带旧快照兼容路径（那条分支另有专门用例）。
 func poll(ctx context.Context, client *hifox.Client, inflightPath, snapPath string, inject func(string) error) (*Result, error) {
@@ -40,10 +41,14 @@ func fakeClient(sigs map[string]string) *hifox.Client {
 }
 
 func taskJSONFor(sig string) string {
-	if sig == sigDone {
+	switch sig {
+	case sigDone:
 		return `{"identifier":"HF-1","title":"验收","status":{"name":"已发布","category":"completed"},"delegateStatus":"assigned","agentWorkingStatus":"none"}`
+	case sigWaiting:
+		return `{"identifier":"HF-1","title":"验收","status":{"name":"进行中","category":"active"},"delegateStatus":"assigned","agentWorkingStatus":"waiting_human_reply"}`
+	default:
+		return `{"identifier":"HF-1","title":"验收","status":{"name":"进行中","category":"active"},"delegateStatus":"working","agentWorkingStatus":"running"}`
 	}
-	return `{"identifier":"HF-1","title":"验收","status":{"name":"进行中","category":"active"},"delegateStatus":"working","agentWorkingStatus":"running"}`
 }
 
 func TestPollEmptyWatchlistNoop(t *testing.T) {
@@ -228,5 +233,82 @@ func TestPollFallsBackToLegacySnapshot(t *testing.T) {
 	}
 	if _, serr := os.Stat(legacy); serr != nil {
 		t.Fatalf("旧快照不该被删: %v", serr)
+	}
+}
+
+// waiting_human_reply 的变化必须在注入文本里点名回答通道：承接人在任务对话里
+// 提问，回答只投对话（superctl answer），评论与正文都不是回答通道（ADR 0031）。
+func TestChangesPromptNamesAnswerChannelOnlyWhenWaiting(t *testing.T) {
+	waiting := ChangesPrompt([]Change{{TaskID: "HF-1", Platform: "hifox", Title: "t", From: "a/b|assigned|working", To: "a/b|assigned|waiting_human_reply"}})
+	if !strings.Contains(waiting, "- HF-1（平台 hifox，等你回答）") || !strings.Contains(waiting, "superctl answer --platform hifox --task HF-1") {
+		t.Fatalf("等回答的变化应点名任务、平台与通道:\n%s", waiting)
+	}
+	if !strings.Contains(waiting, "不是任务评论") {
+		t.Fatalf("必须点破评论不是回答通道:\n%s", waiting)
+	}
+	other := ChangesPrompt([]Change{{TaskID: "HF-1", Title: "t", From: "a/b|assigned|working", To: "c/d|completed|none"}})
+	if strings.Contains(other, "superctl answer") {
+		t.Fatalf("非等回答的变化不该带通道提示:\n%s", other)
+	}
+}
+
+// 混合变化：只点名在等回答的两态（reply / review），已完成任务不得被写成
+// 「在等用户回答」（否则主控会把一条已收口的单当成还在等人）。
+func TestChangesPromptWaitingTasksFiltersMixedStates(t *testing.T) {
+	prompt := ChangesPrompt([]Change{
+		{TaskID: "HF-1", Platform: "hifox", Title: "回复态", From: "a/b|assigned|working", To: "a/b|assigned|waiting_human_reply"},
+		{TaskID: "HF-2", Platform: "hifox", Title: "已完成", From: "a/b|assigned|working", To: "c/d|completed|none"},
+		{TaskID: "HF-3", Platform: "hifox", Title: "评审态", From: "a/b|assigned|working", To: "a/b|assigned|waiting_human_review"},
+	})
+	if !strings.Contains(prompt, "- HF-1（平台 hifox，等你回答）") || !strings.Contains(prompt, "- HF-3（平台 hifox，等你验收）") {
+		t.Fatalf("只应点名两态任务:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "- HF-2（平台 hifox") {
+		t.Fatalf("已完成任务不得写成等回答:\n%s", prompt)
+	}
+}
+
+// 平台通用路径不得写死 hifox：条目带什么平台，注入的命令就带什么平台。
+func TestChangesPromptUsesEntryPlatform(t *testing.T) {
+	prompt := ChangesPrompt([]Change{{TaskID: "T-1", Platform: "sharkly", From: "a/b|x|working", To: "a/b|x|waiting_human_reply"}})
+	if !strings.Contains(prompt, "--platform sharkly --task T-1") {
+		t.Fatalf("应使用条目自己的平台:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "--platform hifox") {
+		t.Fatalf("不该把 hifox 写死:\n%s", prompt)
+	}
+	// 缺平台不猜：宁可露出空值让人补，也不替条目编一个平台名。
+	blank := ChangesPrompt([]Change{{TaskID: "T-2", From: "a/b|x|working", To: "a/b|x|waiting_human_reply"}})
+	if strings.Contains(blank, "hifox") {
+		t.Fatalf("缺平台时不该补 hifox:\n%s", blank)
+	}
+}
+
+// 首见只记基线是为了防启动噪声，但「在等用户回话」不能静默：部署前就在等、或
+// 派活时就已在等的任务，首见必须立刻注入通道提示，否则主控不知道裸回答属于哪张单。
+func TestPollFirstSightWaitingIsNotSilent(t *testing.T) {
+	w, s := fixture(t, `[{"task_id":"HF-1","platform":"hifox","note":"在等回答"}]`, "")
+	var got string
+	res, err := poll(context.Background(), fakeClient(map[string]string{"HF-1": sigWaiting}), w, s, func(text string) error {
+		got = text
+		return nil
+	})
+	if err != nil || !res.Injected || len(res.Changed) != 1 {
+		t.Fatalf("首见等回答必须注入: res=%+v err=%v", res, err)
+	}
+	if !strings.Contains(got, "HF-1（平台 hifox，等你回答）") {
+		t.Fatalf("注入应点名等回答的任务:\n%s", got)
+	}
+}
+
+// 首见不是等回答的任务仍然只记基线：启动噪声不能把在途任务全打一遍。
+func TestPollFirstSightActiveStaysBaseline(t *testing.T) {
+	w, s := fixture(t, `[{"task_id":"HF-1","platform":"hifox"}]`, "")
+	res, err := poll(context.Background(), fakeClient(map[string]string{"HF-1": sigActive}), w, s, func(string) error {
+		t.Fatal("首见 working 不该注入")
+		return nil
+	})
+	if err != nil || res.Injected {
+		t.Fatalf("res=%+v err=%v", res, err)
 	}
 }

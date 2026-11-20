@@ -2,7 +2,7 @@
 
 ## 仓库定位与分工
 
-本仓库是 xwing 家族 CLI 应用（部署实例）的声明式配置仓库（配置集合与环境绑定清单见根 `README.md`），同时是部署 CLI 的开发配置仓库：`vendor/x-deploy` 是 git 子模块，部署行为改动只在子模块内开发，本仓库跟踪指针与配置。2026-11 起本仓兼载宋江 super agent 的本地运行时（`super-agent/`，见「Super Agent 本地运行时」与 ADR 0016–0030）。
+本仓库是 xwing 家族 CLI 应用（部署实例）的声明式配置仓库（配置集合与环境绑定清单见根 `README.md`），同时是部署 CLI 的开发配置仓库：`vendor/x-deploy` 是 git 子模块，部署行为改动只在子模块内开发，本仓库跟踪指针与配置。2026-11 起本仓兼载宋江 super agent 的本地运行时（`super-agent/`，见「Super Agent 本地运行时」与 ADR 0016–0031）。
 
 ## 文档职责判定
 
@@ -31,7 +31,7 @@
 
 ## Super Agent 本地运行时（super-agent/）
 
-`super-agent/` 是宋江（主控）super agent 的本地运行时：一个 Go 单二进制，承载飞书注入器、`superctl`、巡检 tick 与换脑。它跑在本机 herdr 上，不经 x-deploy 部署、不进远端环境与 `state.yaml`；术语见 `GLOSSARY.md`「主控编排」节，架构与边界决策见 `docs/adr/0016`–`0030`。平台能力口径 = `config/` 已声明的 agent（未声明即不存在；平台 = hifox / 将来的 sharkly）；主控提示词与能力注册表属运行时物料，不进 `config/`。测试在目录内 `go test` 自管；根 `npm test` 仍只管技能脚本。上下文测量与 handoff 见 ADR 0030：受控面是 master/retro 与 `inflight.kind=local` 的 job agent；平台任务与非在途 herdr agent 不测、不交接；所有受控 agent 共用 `internal/ctxmeter` 的 Snapshot 公式，harness 差异只在 adapter/`context_probes`。
+`super-agent/` 是宋江（主控）super agent 的本地运行时：一个 Go 单二进制，承载飞书注入器、`superctl`、巡检 tick 与换脑。它跑在本机 herdr 上，不经 x-deploy 部署、不进远端环境与 `state.yaml`；术语见 `GLOSSARY.md`「主控编排」节，架构与边界决策见 `docs/adr/0016`–`0031`。平台能力口径 = `config/` 已声明的 agent（未声明即不存在；平台 = hifox / 将来的 sharkly）；主控提示词与能力注册表属运行时物料，不进 `config/`。测试在目录内 `go test` 自管；根 `npm test` 仍只管技能脚本。上下文测量与 handoff 见 ADR 0030：受控面是 master/retro 与 `inflight.kind=local` 的 job agent；平台任务与非在途 herdr agent 不测、不交接；所有受控 agent 共用 `internal/ctxmeter` 的 Snapshot 公式，harness 差异只在 adapter/`context_probes`。
 
 **同步规矩（ADR 0023）**：`config/<集合>/agents/<key>` 与 `super-agent/capabilities/platforms/<平台>/<key>.yaml` 双向一一对应（平台↔集合的映射读 `environments/*/environment.yaml` 的 `cli.app` + `configSet`）——config 里加 / 删 / 改 agent 必须同步平台目录（name 指同一身份、任一 `environments/*/state.yaml` 有部署记录）；**新加配置集合而没在任何 `environment.yaml` 里写明 `cli.app` + `configSet` 时，`--check` 会直接报红**（平台归属推不出就没法对账）。由 `superctl capabilities --check` 强制、`--check --live` 再对平台核一遍。平台派活只经平台派活员朱贵（`zhugui`，本机 job agent），主控不挑人、不解析平台 ref。
 

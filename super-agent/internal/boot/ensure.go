@@ -185,6 +185,7 @@ func PrimePrompt(manual string, p Paths) string {
 	}
 	fmt.Fprintf(&b, "- 在途清单：%s（派活经 superctl dispatch 自动登记，收口自动移除；系统会替你盯平台状态变化）\n", p.InflightPath)
 	b.WriteString("- 回复用户：superctl reply --chat <会话ID> --text <内容>（可多次调用分段发）\n")
+	b.WriteString("- 回答承接人：superctl answer --platform <平台> --task <任务号> --text <用户原话>（平台任务的平台；投进任务对话，不是任务评论）\n")
 	if p.RuntimeCmd != "" {
 		fmt.Fprintf(&b, "- 运行时命令：%s（手册里的 superctl 指它；PATH 上没有时用绝对路径）\n", p.RuntimeCmd)
 	}

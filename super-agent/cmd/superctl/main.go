@@ -27,7 +27,7 @@ import (
 	"super-agent/internal/tick"
 )
 
-const usage = `superctl — 宋江 super agent 本地运行时（super-agent/，ADR 0016–0030）
+const usage = `superctl — 宋江 super agent 本地运行时（super-agent/，ADR 0016–0031）
 
 用法：superctl <命令> [参数]
 
@@ -41,6 +41,7 @@ const usage = `superctl — 宋江 super agent 本地运行时（super-agent/，
   handoff      交接本地作业：停旧 agent，用 brief + progress 重新拉起，结果写回原路径
   tick         立即注入一次作业巡检（无在途内容时不发）
   reply        追加一条回帖到 outbox（主控回用户的唯一通道）
+  answer       把用户的回答投进平台任务对话（不是任务评论）：--platform <平台> --task <任务号> --text/--text-file
   serve        常驻：飞书长连接 + outbox 投递 + 定时巡检 + 注入闸门
   platformwatch  平台哨兵一轮：读在途清单的平台条目轮询 hifox，有状态变化才注入
   halt         急停：落闸 + 秒级回执 + 换脑（解除=用户下一句私聊；离线兜底 resume）
@@ -68,6 +69,7 @@ var commands = map[string]func(args []string) error{
 	"tick":          cmdTick,
 	"platformwatch": cmdPlatformwatch,
 	"reply":         cmdReply,
+	"answer":        cmdAnswer,
 	"serve":         cmdServe,
 	"probe":         cmdProbe,
 	"halt":          cmdHalt,

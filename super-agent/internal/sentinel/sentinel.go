@@ -19,9 +19,12 @@ import (
 // Change 是一次探测到的状态变化。
 type Change struct {
 	TaskID string `json:"task_id"`
-	Title  string `json:"title"`
-	From   string `json:"from"`
-	To     string `json:"to"`
+	// Platform 是条目所属平台（平台 CLI 应用名）：注入主控的回答命令要带它，
+	// 平台通用路径不写死 hifox（ADR 0023）。
+	Platform string `json:"platform,omitempty"`
+	Title    string `json:"title"`
+	From     string `json:"from"`
+	To       string `json:"to"`
 }
 
 type Result struct {
@@ -33,8 +36,9 @@ type Result struct {
 	Injected bool `json:"injected"`
 }
 
-// Poll 读在途清单的平台条目，逐个 `hifox task view` 对照快照：首见只记基线（防启动噪声），
-// 之后签名变化才汇总成一条事件注入主控，**注入成功才落盘新快照**。
+// Poll 读在途清单的平台条目，逐个 `hifox task view` 对照快照：首见只记基线（防启动噪声，
+// 等用户回话的两态除外——首见即注入，见 ADR 0031），之后签名变化才汇总成一条事件注入主控，
+// **注入成功才落盘新快照**。
 // 快照只保留清单在册任务（移出的随下一轮清掉，避免同任务重派撞旧签名）。
 // legacySnapPath 是改名前的快照路径（空 = 无兼容）：新快照还不存在而旧文件在时，
 // 拿旧文件当基线，升级后首轮才不会把在途任务全当首见重打、丢掉窗口内的变化。
@@ -65,8 +69,15 @@ func Poll(ctx context.Context, client *hifox.Client, inflightPath, snapPath, leg
 		}
 		sig := task.Signature()
 		res.Watched++
-		if prev, seen := snap[e.TaskID]; seen && prev != sig {
-			res.Changed = append(res.Changed, Change{TaskID: e.TaskID, Title: task.Title, From: prev, To: sig})
+		prev, seen := snap[e.TaskID]
+		switch {
+		case seen && prev != sig:
+			res.Changed = append(res.Changed, Change{TaskID: e.TaskID, Platform: e.Platform, Title: task.Title, From: prev, To: sig})
+		case !seen && waitingSignature(sig):
+			// 首见只记基线是为了防启动噪声；但「等用户回答」是当下就要用户行动的
+			// 状态，静默记基线会让部署前就在等、或派活时已在等的任务永远拿不到
+			// 回答通道提示（ADR 0031）。只对这一种签名破例。
+			res.Changed = append(res.Changed, Change{TaskID: e.TaskID, Platform: e.Platform, Title: task.Title, From: "首次跟踪", To: sig})
 		}
 		next[e.TaskID] = sig
 	}
@@ -92,8 +103,61 @@ func ChangesPrompt(changes []Change) string {
 		fmt.Fprintf(&b, "- %s「%s」：%s → %s\n", c.TaskID, c.Title, c.From, c.To)
 	}
 	b.WriteString("对照作业台账处置：该收口收口、该转告用户转告；无事不回复用户。")
+	// waiting_human_reply 是「承接人在任务对话里提问、这一轮结束在等用户」的状态；
+	// waiting_human_review 是交付完等验收。回答都只能投进那条对话（评论不产生
+	// 承接人的回合）；把通道写在这里，主控不必依赖用户每句话再强调一次（ADR 0031）。
+	if waiting := waitingChanges(changes); len(waiting) > 0 {
+		b.WriteString("\n在等用户回话：\n")
+		for _, c := range waiting {
+			label, lead := "等你回答", "把承接人的问题转给用户"
+			if changeState(c) == "waiting_human_review" {
+				label, lead = "等你验收", "把承接人交的东西与待确认点转给用户"
+			}
+			fmt.Fprintf(&b, "- %s（平台 %s，%s）：%s；用户回话后用 `superctl answer --platform %s --task %s --text \"<用户原话>\"` 投进任务对话——不是任务评论，也不要改任务正文。\n",
+				c.TaskID, changePlatform(c), label, lead, changePlatform(c), c.TaskID)
+		}
+	}
 	return b.String()
 }
+
+// waitingChanges 列出本轮变化里「在等用户回话」的任务。只看变化后的
+// agentWorkingStatus（签名的第三段）：waiting_human_reply 与 waiting_human_review
+// 都是承接人结束回合、等用户回话的状态，但前者是提问、后者是等验收。
+func waitingChanges(changes []Change) []Change {
+	var tasks []Change
+	for _, c := range changes {
+		switch changeState(c) {
+		case "waiting_human_reply", "waiting_human_review":
+			tasks = append(tasks, c)
+		}
+	}
+	return tasks
+}
+
+// stateOf 取任务签名里的 agent 工作状态（第三段）；签名形状是
+// `状态类别/名|委派状态|agent工作状态`。
+func stateOf(sig string) string {
+	parts := strings.Split(sig, "|")
+	if len(parts) < 3 {
+		return ""
+	}
+	return parts[2]
+}
+
+// waitingState 判定 agent 工作状态是否在等用户回话（回答或验收）。
+func waitingState(state string) bool {
+	return state == "waiting_human_reply" || state == "waiting_human_review"
+}
+
+// waitingSignature 判定一条任务签名是否正处于等用户回话的状态（首见提示用）。
+func waitingSignature(sig string) bool { return waitingState(stateOf(sig)) }
+
+// changeState 取变化后的 agent 工作状态。
+func changeState(c Change) string { return stateOf(c.To) }
+
+// changePlatform 取条目平台，空值时如实留空：哨兵的读取面目前只有 hifox 条目
+// （readPlatformEntries 只取 hifox），但提示文本不该替一个没写平台的条目不猜。
+func changePlatform(c Change) string { return c.Platform }
 
 // readPlatformEntries 读在途清单里的平台条目；旧 watchlist.json 只在 inflight.json
 // 尚未生成时作迁移源（sentinel 与主控共用同一份清单，平台与本地同列一处）。

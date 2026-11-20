@@ -79,4 +79,21 @@ superctl dispatch --local --agent zhugui \
 
 层级语义：`prod` = 远端名不带后缀的那一份，`staging` = 带实例后缀的那一份；层级写进信封，朱贵负责落到 `--instance`，结果文件里的 `层级` 是他**实际建到**的那一层。
 
+## 六、承接人在等用户回答
+
+承接人把问题问在任务对话里，会话置 `waiting_human_reply`（等你回答）或 `waiting_human_review`（等你验收）后结束回合——哨兵会点名这两态（变化时与首见都在内），并给出带平台的 `answer` 命令。
+
+- **回答位置固定是任务对话，不是任务评论**，也不需要用户每次强调。用户回话后：
+
+  ```bash
+  superctl answer --platform hifox --task HF-xxxxx --text "<用户原话>"          # 多行用 --text-file
+  ```
+
+  它选活着的会话（`sessionStatus.top.sessionId`，没有就回落任务主会话 `chatSessionId`），以 CLI 的人工身份把消息写进那条对话（`POST /rest/v1/chat/sessions/<id>/messages`），平台记成用户的一轮并唤醒承接人。返回 `message_id` / `run_id` / `queued`（`queued=true` 表示排在承接人当前回合之后）。
+- **不是派活**：不走 `dispatch`（不建单、不走 `--update` 改正文——改正文是改需求不是回答）。
+- **不许写评论**：`hifox task comment` 不产生承接人的回合，写在那里等于没答；减少信息量时也不要「评论 + 对话」双写。
+- **不许自己拼 curl、不许读 `~/.hifox/config.yml` 的 token**：`answer` 用 CLI 自带登录身份；手工拼 REST 等于让主控读凭证（硬禁区）。
+- 用户的回答里带「在对话中回复」这类前缀时剥掉再投——那是给编排者的位置说明，不是回答内容；他中途更正（先「开工」后「执行」）只投最后一条。
+- 投完把 `message_id` 与投递前状态记进台账，回用户一句；承接人被唤醒后状态会变 `working`，哨兵再报一次时按常规跟踪。
+
 **派活员自己也是本地的活**：他起来、跑完、写结果——你读文件，别让他常驻（干完 `superctl cancel --agent zhugui-<时刻>`，或让他自己退出）。
