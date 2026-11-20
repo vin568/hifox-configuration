@@ -86,15 +86,24 @@ func (s *mediaStore) Save(ctx context.Context, messageID string, m mediaRef) (st
 		return "", err
 	}
 	path := filepath.Join(dir, safeName(m.Key)+"."+extFor(contentType, m.Name))
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	// 先写临时文件再 rename：两个事件（如两条消息回复同一条父消息）可能并发保存
+	// 同一个路径，直接 O_TRUNC 写最终路径会让先完成的一方被截成半截文件。
+	f, err := os.CreateTemp(dir, ".dl-*")
 	if err != nil {
 		return "", err
 	}
+	tmp := f.Name()
+	cleanup := func() { f.Close(); os.Remove(tmp) }
 	if _, err := io.Copy(f, r); err != nil {
-		f.Close()
+		cleanup()
 		return "", err
 	}
 	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return "", err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
 		return "", err
 	}
 	return path, nil

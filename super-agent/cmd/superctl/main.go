@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -27,7 +28,7 @@ import (
 	"super-agent/internal/tick"
 )
 
-const usage = `superctl — 宋江 super agent 本地运行时（super-agent/，ADR 0016–0031）
+const usage = `superctl — 宋江 super agent 本地运行时（super-agent/，ADR 0016–0032）
 
 用法：superctl <命令> [参数]
 
@@ -40,7 +41,9 @@ const usage = `superctl — 宋江 super agent 本地运行时（super-agent/，
   checkpoint   让 idle/done 的本地作业把进度写进 progress 文件（交接前置）
   handoff      交接本地作业：停旧 agent，用 brief + progress 重新拉起，结果写回原路径
   tick         立即注入一次作业巡检（无在途内容时不发）
-  reply        追加一条回帖到 outbox（主控回用户的唯一通道）
+  reply        追加一条回帖到 outbox（主控回用户的唯一通道；--image 可重复，最多 9 张）
+  history      只读历史：--chat <会话ID> [--limit 20] [--since 24h] 或 --message <om_...> [--download]
+  recall       撤回本应用发的消息：--id <回帖ID> | --message <om_...> | --last [--chat <会话ID>]
   answer       把用户的回答投进平台任务对话（不是任务评论）：--platform <平台> --task <任务号> --text/--text-file
   serve        常驻：飞书长连接 + outbox 投递 + 定时巡检 + 注入闸门
   platformwatch  平台哨兵一轮：读在途清单的平台条目轮询 hifox，有状态变化才注入
@@ -69,6 +72,8 @@ var commands = map[string]func(args []string) error{
 	"tick":          cmdTick,
 	"platformwatch": cmdPlatformwatch,
 	"reply":         cmdReply,
+	"history":       cmdHistory,
+	"recall":        cmdRecall,
 	"answer":        cmdAnswer,
 	"serve":         cmdServe,
 	"probe":         cmdProbe,
@@ -397,12 +402,22 @@ func cmdReply(args []string) error {
 	fs := flag.NewFlagSet("reply", flag.ContinueOnError)
 	chatID := fs.String("chat", "", "目标会话 ID")
 	text := fs.String("text", "", "回帖内容")
+	var images stringList
+	fs.Var(&images, "image", "本地图片路径（可重复，最多 9 张）")
 	cfgPath := fs.String("config", "", "配置文件路径")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *chatID == "" || *text == "" {
-		return errors.New("--chat and --text required")
+	if *chatID == "" || (strings.TrimSpace(*text) == "" && len(images) == 0) {
+		return errors.New("reply 需要 --chat，以及 --text 或至少一个 --image")
+	}
+	// 文件问题在 reply 阶段就报错：不排队等 8 次重试。
+	paths, err := validateReplyImages(images)
+	if err != nil {
+		return err
+	}
+	if len(paths) > 0 && len(*text) > replyMaxPostBytes {
+		return fmt.Errorf("带图回帖正文超过 %dKiB，请分条发", replyMaxPostBytes/1024)
 	}
 	cfg, _, err := loadConfig([]string{"--config", *cfgPath})
 	if err != nil {
@@ -412,12 +427,51 @@ func cmdReply(args []string) error {
 	if err != nil {
 		return err
 	}
-	e, err := ob.Append(*chatID, *text)
+	e, err := ob.Append(*chatID, *text, paths)
 	if err != nil {
 		return err
 	}
 	fmt.Println(e.ID)
 	return nil
+}
+
+const (
+	replyMaxImages    = 9
+	replyMaxImageSize = 10 << 20 // 飞书图片上传上限 10MB
+	replyMaxPostBytes = 30 << 10 // 富文本消息体上限 30KB
+)
+
+// replyImageExts 是飞书图片上传支持的格式（TIFF/HEIC 由平台转 JPG）。
+var replyImageExts = map[string]bool{
+	"jpg": true, "jpeg": true, "png": true, "webp": true,
+	"gif": true, "bmp": true, "ico": true, "tiff": true, "heic": true,
+}
+
+// validateReplyImages 校验图片并返回绝对路径：文件不存在、是目录、空文件、
+// 超 10MB、格式不在白名单，都在 reply 阶段报错，不进入 outbox。
+func validateReplyImages(paths []string) ([]string, error) {
+	if len(paths) > replyMaxImages {
+		return nil, fmt.Errorf("一次最多 %d 张图片，请分条 reply", replyMaxImages)
+	}
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		abs, st, err := resolveRegularFile(p, "图片")
+		if err != nil {
+			return nil, err
+		}
+		if st.Size() == 0 {
+			return nil, fmt.Errorf("图片 %s 是空文件", abs)
+		}
+		if st.Size() > replyMaxImageSize {
+			return nil, fmt.Errorf("图片超过飞书 10MB 上限：%s", abs)
+		}
+		ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(abs), "."))
+		if !replyImageExts[ext] {
+			return nil, fmt.Errorf("图片格式不支持：%s（支持 jpg/jpeg/png/webp/gif/bmp/ico/tiff/heic）", abs)
+		}
+		out = append(out, abs)
+	}
+	return out, nil
 }
 
 // blockedNote 是主控卡在确认界面时发给用户的私聊提醒（一体人设：第一人称、
@@ -444,7 +498,7 @@ func (n *blockedNotifier) Notify() {
 	if time.Since(n.last) < n.window {
 		return
 	}
-	if _, err := n.ob.Append(n.chatID, blockedNote); err != nil {
+	if _, err := n.ob.Append(n.chatID, blockedNote, nil); err != nil {
 		slog.Warn("superctl: append blocked note failed", "error", err)
 		return
 	}
@@ -587,7 +641,9 @@ func cmdServe(args []string) error {
 				errCh <- nil
 				return
 			case <-tk.C:
-				_, _, _ = ob.Drain(ctx, sender.Send, outbox.DefaultMaxAttempts)
+				_, _, _ = ob.Drain(ctx, func(c context.Context, e outbox.Entry) (string, error) {
+					return sender.Deliver(c, e.ChatID, e.Text, e.Images)
+				}, outbox.DefaultMaxAttempts)
 			}
 		}
 	}()

@@ -13,6 +13,13 @@ import (
 // ErrBlocked：主控停在审批/提问 UI，prompt 被整体拒绝——调用方应通知用户，不要原样重试。
 var ErrBlocked = errors.New("master blocked at approval prompt")
 
+// Quote 是被回复消息的引用块（空 = 本条不是回复，输出与旧版逐字节一致）。
+type Quote struct {
+	MessageID string
+	SenderID  string
+	Text      string // 已提取的正文；附件占位已改写成本地路径
+}
+
 // Payload 是一次消息/事件注入的载荷。ProxyReply=true 表示代答场景（群内 @ 用户本人）。
 type Payload struct {
 	ChatID     string
@@ -20,6 +27,9 @@ type Payload struct {
 	Text       string
 	Kind       string // dm | group
 	ProxyReply bool
+	// Quote 是用户「回复」的那条消息（nil = 普通消息）。渲染在 <current_message> 之前：
+	// 主控必须知道这条是回复，否则会把「这个再改一下」当成没有指代的新需求。
+	Quote *Quote
 	// ReceivedAt 是事件被接纳的时间（去重 claim 时刻）。重试队列原样携带它，
 	// 于是急停可以丢弃「落闸之前就排队」的旧指令（ADR 0020）。
 	ReceivedAt time.Time
@@ -40,8 +50,26 @@ func BuildFeishu(p Payload) string {
 	if p.SenderID != "" {
 		fmt.Fprintf(&b, "发送者 %s\n", p.SenderID)
 	}
+	if p.Quote != nil {
+		writeQuote(&b, p.Quote)
+	}
 	fmt.Fprintf(&b, "<current_message>\n%s\n</current_message>", p.Text)
 	return b.String()
+}
+
+// writeQuote 渲染被回复消息的引用块：message_id 恒输出，from 有值才输出。
+// 块内正文为空时给占位，主控不会把空块当成「父消息就是空的」。
+func writeQuote(b *strings.Builder, q *Quote) {
+	if q.SenderID != "" {
+		fmt.Fprintf(b, "<quoted_message message_id=%q from=%q>\n", q.MessageID, q.SenderID)
+	} else {
+		fmt.Fprintf(b, "<quoted_message message_id=%q>\n", q.MessageID)
+	}
+	text := q.Text
+	if strings.TrimSpace(text) == "" {
+		text = "（引用消息正文为空）"
+	}
+	fmt.Fprintf(b, "%s\n</quoted_message>\n", text)
 }
 
 // BuildEvent 拼装本地能力 agent 状态变化事件信封（serve 的事件订阅用）。

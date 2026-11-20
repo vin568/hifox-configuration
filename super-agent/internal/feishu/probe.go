@@ -28,7 +28,7 @@ func BotOpenID(ctx context.Context, cfg Config) (string, error) {
 		return "", fmt.Errorf("feishu bot info: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("feishu bot info: http %d: %s", resp.StatusCode, truncateStr(string(resp.RawBody), 200))
+		return "", fmt.Errorf("feishu bot info: http %d: %s", resp.StatusCode, truncateRunes(string(resp.RawBody), 200))
 	}
 	var payload struct {
 		Code int `json:"code"`
@@ -40,7 +40,7 @@ func BotOpenID(ctx context.Context, cfg Config) (string, error) {
 		return "", fmt.Errorf("feishu bot info: decode: %w", err)
 	}
 	if payload.Code != 0 {
-		return "", fmt.Errorf("feishu bot info: code=%d: %s", payload.Code, truncateStr(string(resp.RawBody), 200))
+		return "", fmt.Errorf("feishu bot info: code=%d: %s", payload.Code, truncateRunes(string(resp.RawBody), 200))
 	}
 	if payload.Bot.OpenID == "" {
 		return "", fmt.Errorf("feishu bot info: empty open_id")
@@ -86,15 +86,7 @@ func printProbeEvent(event *larkim.P2MessageReceiveV1) {
 	for _, m := range ev.mentions {
 		mentions = append(mentions, m.Name+"="+m.ID)
 	}
-	fmt.Printf("chat_id=%s chat_type=%s sender=%s message_id=%s mentions=[%s] text=%q\n",
-		ev.chatID, ev.chatType, ev.senderID, ev.messageID,
-		strings.Join(mentions, ","), truncateStr(ev.text, 60))
-}
-
-func truncateStr(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n]) + "…"
+	fmt.Printf("chat_id=%s chat_type=%s sender=%s message_id=%s parent_id=%s mentions=[%s] text=%q\n",
+		ev.chatID, ev.chatType, ev.senderID, ev.messageID, ev.parentID,
+		strings.Join(mentions, ","), truncateRunes(ev.text, 60))
 }

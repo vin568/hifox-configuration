@@ -52,7 +52,7 @@ func (c commandIndices) absorb(ctx context.Context, chatID, text string) bool {
 }
 
 func (c commandIndices) notice(chatID, text string) {
-	if _, err := c.ob.Append(chatID, text); err != nil {
+	if _, err := c.ob.Append(chatID, text, nil); err != nil {
 		slog.Warn("superctl: notice append failed", "error", err)
 	}
 }

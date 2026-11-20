@@ -82,6 +82,9 @@ var serverFactory = newServer
 func newServer(cfg Config, dedup *dedupStore, queue *retryQueue) *server {
 	srv := &server{cfg: cfg, dedup: dedup, queue: queue}
 	srv.media = mediaStoreFor(cfg)
+	// 与 mediaStoreFor 同形：没有凭证就不建客户端（probe/单测），
+	// 这条装配线断了线上所有回帖会静默退回「只看当前消息」。
+	srv.quote = readerFor(cfg)
 	return srv
 }
 
@@ -130,6 +133,8 @@ type server struct {
 	queue *retryQueue
 	// media 把消息附件落到本地（nil = 不下载）；注入文本里由它把 key 占位改写成路径。
 	media *mediaStore
+	// quote 读取被回复的那条消息（nil = 不解析引用，probe/单测路径）。
+	quote messageGetter
 }
 
 // eventInfo is the flattened view of one inbound message event, shared by the
@@ -140,6 +145,8 @@ type eventInfo struct {
 	chatType     string
 	msgType      string
 	content      string
+	parentID     string
+	rootID       string
 	senderID     string
 	text         string
 	media        []mediaRef
@@ -160,6 +167,8 @@ func parseEvent(event *larkim.P2MessageReceiveV1) *eventInfo {
 		chatType:  deref(msg.ChatType),
 		msgType:   deref(msg.MessageType),
 		content:   deref(msg.Content),
+		parentID:  deref(msg.ParentId),
+		rootID:    deref(msg.RootId),
 	}
 	if event.Event.Sender != nil && event.Event.Sender.SenderId != nil {
 		info.senderID = deref(event.Event.Sender.SenderId.OpenId)
@@ -217,9 +226,15 @@ func (s *server) handle(event *larkim.P2MessageReceiveV1) {
 	// （图片塞不进纯文本注入，也塞不进平台任务正文）。
 	s.resolveMedia(ev)
 
+	// 引用解析排在附件落盘之后：父消息的附件也要落到 media/<父id>/，
+	// 与当前消息共用同一条落盘管线。超时只降级成带原因的引用块，绝不阻断本条注入。
+	qctx, cancel := context.WithTimeout(context.Background(), quoteTimeout)
+	quote := s.resolveQuote(qctx, ev)
+	cancel()
+
 	task := injectTask{
 		src:      SourceFeishu,
-		p:        inject.Payload{ChatID: ev.chatID, SenderID: ev.senderID, Text: ev.text, Kind: kindOf(ev.chatType), ProxyReply: proxyReply, ReceivedAt: time.Now()},
+		p:        inject.Payload{ChatID: ev.chatID, SenderID: ev.senderID, Text: ev.text, Kind: kindOf(ev.chatType), ProxyReply: proxyReply, Quote: quote, ReceivedAt: time.Now()},
 		attempts: 1,
 		done:     func() { s.dedup.markDone(ev.messageID) },
 	}

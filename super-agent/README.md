@@ -1,12 +1,12 @@
 # super-agent — 宋江本地运行时
 
-宋江（主控）super agent 的 Go 单二进制运行时：飞书注入器、`superctl` CLI、作业巡检 tick、重启引导。术语见根 `GLOSSARY.md`「主控编排」节；架构与边界见 `docs/adr/0016`–`0031`。跑在本机 herdr 上，不经 x-deploy 部署。
+宋江（主控）super agent 的 Go 单二进制运行时：飞书注入器、`superctl` CLI、作业巡检 tick、重启引导。术语见根 `GLOSSARY.md`「主控编排」节；架构与边界见 `docs/adr/0016`–`0032`。跑在本机 herdr 上，不经 x-deploy 部署。
 
 ## 结构
 
 ```
 super-agent/
-├── cmd/superctl/        # 单二进制入口（serve/ensure/status/inject/report/tell/tick/reply/answer/halt/resume/new/dispatch/cancel/capabilities）
+├── cmd/superctl/        # 单二进制入口（serve/ensure/status/inject/report/tell/tick/reply/history/recall/answer/halt/resume/new/dispatch/cancel/capabilities）
 ├── capabilities/        # 能力声明（目录即注册表，ADR 0021）：agents/ skills/ scripts/ platforms/<平台>/；技能是标准 SKILL.md，位置即归属（ADR 0025）；共享技能按 agent 的 skills.yaml 声明挂载
 ├── internal/config/     # superctl.toml 加载与路径约定
 ├── internal/capability/ # 能力注册表：目录即声明 + 索引生成 + 漂移检查（ADR 0021）
@@ -84,7 +84,9 @@ go build ./... && go vet ./... && go test -race ./...
 | `resume` | 解除急停闸门（离线兜底；在线时用户下一句私聊即自动恢复） |
 | `new` | 人工清空：立刻换脑，不等上下文阈值（飞书私聊 `/new` 等价入口） |
 | `capabilities` | 能力注册表：生成主控索引 / `--check` 查漂移（key 与目录名、master 唯一性、文档、脚本可执行、`direct/` 未登记脚本、平台指针 ↔ `config/` 双向同步与部署记录）/ `--check --live` 再按 `environments/*/state.yaml` 对平台核一遍（ADR 0023） |
-| `reply` | 追加回帖到 outbox（**主控回用户的唯一通道**） |
+| `reply` | 追加回帖到 outbox（**主控回用户的唯一通道**；`--image` 可重复，最多 9 张，纯文字路径逐字节不变） |
+| `history` | 只读历史：`--chat <会话ID> [--limit 20] [--since 24h]` 或 `--message <om_...> [--download]`；输出纯文本，不注入、不写状态 |
+| `recall` | 撤回本应用发的消息：`--id <回帖ID>` / `--message <om_...>` / `--last [--chat <会话ID>]`；`230110` 按成功处理 |
 | `answer` | 把用户的回答投进平台任务对话（`--platform <平台>` + `--task` + `--text`/`--text-file`；目前只有 hifox）：承接人 `waiting_human_reply`（等回答）或 `waiting_human_review`（等验收）时用；任务评论不是回答通道，命令面不提供评论路径（ADR 0031） |
 | `platformwatch` | 平台哨兵一轮：读在途清单的 platform 条目轮询平台，有状态变化才注入（等用户回话的两态首见也注入） |
 | `serve` | 常驻：飞书长连接 + outbox 投递 + 定时巡检 |

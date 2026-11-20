@@ -95,3 +95,36 @@ func TestBuildAgentReport(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
+
+// 引用块：在 <current_message> 之前，且有/无 from 两种形态。
+func TestBuildFeishuQuoteBlock(t *testing.T) {
+	p := Payload{ChatID: "oc_1", SenderID: "ou_alice", Kind: "dm", Text: "图里这里错了",
+		Quote: &Quote{MessageID: "om_q1", SenderID: "ou_bob", Text: "复现步骤：\n[图片 /tmp/media/om_q1/img_v3_abc.jpg]"}}
+	got := BuildFeishu(p)
+	qi := strings.Index(got, "<quoted_message")
+	ci := strings.Index(got, "<current_message>")
+	if qi < 0 || ci < 0 || qi > ci {
+		t.Fatalf("引用块必须在 <current_message> 之前:\n%s", got)
+	}
+	for _, want := range []string{`message_id="om_q1"`, `from="ou_bob"`, "复现步骤", "/tmp/media/om_q1/img_v3_abc.jpg"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("引用块缺少 %q:\n%s", want, got)
+		}
+	}
+	noFrom := BuildFeishu(Payload{ChatID: "oc_1", Kind: "dm", Text: "x", Quote: &Quote{MessageID: "om_q2"}})
+	if strings.Contains(noFrom, "from=") {
+		t.Fatalf("空 from 不该输出属性:\n%s", noFrom)
+	}
+	if !strings.Contains(noFrom, "（引用消息正文为空）") {
+		t.Fatalf("空正文需要占位:\n%s", noFrom)
+	}
+}
+
+// 回归线：Quote 为 nil 时输出必须与不带 Quote 的历史形态逐字节一致。
+func TestBuildFeishuNoQuoteUnchanged(t *testing.T) {
+	p := Payload{ChatID: "oc_1", SenderID: "ou_alice", Kind: "dm", Text: "让戴宗跑一次 staging 验收"}
+	want := "[触发器: feishu] 来源会话 oc_1（私聊）\n发送者 ou_alice\n<current_message>\n让戴宗跑一次 staging 验收\n</current_message>"
+	if got := BuildFeishu(p); got != want {
+		t.Fatalf("普通消息输出被改动了:\n got=%q\nwant=%q", got, want)
+	}
+}

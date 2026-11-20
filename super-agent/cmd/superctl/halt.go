@@ -74,7 +74,7 @@ func doHalt(ctx context.Context, cfg config.Config, hc *herdr.Client, ob *outbox
 	}
 
 	if chatID != "" {
-		if _, err := ob.Append(chatID, haltReceipt(tr.forUser())); err != nil {
+		if _, err := ob.Append(chatID, haltReceipt(tr.forUser()), nil); err != nil {
 			slog.Warn("superctl: halt receipt append failed", "error", err)
 		}
 	}
