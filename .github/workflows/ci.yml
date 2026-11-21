@@ -8,9 +8,11 @@ on:
 permissions:
   contents: read
 
+# macOS runner：框架的 serve 归属判定读 `ps -wwE`（BSD 形状），Linux 的 ps
+# 语义不同，那里测的不是生产路径。
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -23,9 +25,7 @@ jobs:
           go-version-file: vendor/super-agent/go.mod
           cache-dependency-path: vendor/super-agent/go.sum
       - name: install yq
-        run: |
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
+        run: brew install yq
       - name: build stable entry
         run: ./super-agent/build
       - run: npm test
