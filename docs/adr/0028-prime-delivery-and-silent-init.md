@@ -36,4 +36,4 @@
 - `ensure` 最坏会在一个卡住的 pane 上多等 `PrimeFirstWait + PrimeWait`（默认 3s + 15s）；若是 `working` 等落盘，最坏 `PrimeFirstWait + PrimeWorkingWait + 3 × PrimeWait/3`（默认 3s + 90s + 15s）；若是冷启动，`agent start` 最多 120s、prompt 最多再等 `SubmitReadyWait`（90s）。换来的是「没送达就不写标记、下一轮必重试」，不会再把主控放进无手册状态，也不会把「起得慢」或「落盘慢」误报成「输入框卡住」。
 - 校验依赖 herdr 报出的 `agent_session.value`（omp 的会话文件）。非 path 形态或拿不到路径时按已送达放行，退化为旧行为——这是能力边界，不是静默容忍。
 - 历史会话会被补一次手册：banner 让它读完即止，不会额外执行工作。
-- 已经跑着的 `superctl serve` 是旧二进制，必须重启后才用上新的 prime 路径；重启由用户执行。
+- 已经跑着的 `superctl serve` 是旧二进制，必须重启后才用上新的 prime 路径；重启由用户或主控经 `direct/server` 执行（ADR 0036）。

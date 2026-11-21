@@ -1,6 +1,8 @@
 # 主控控制面 CLI-first：无中间守护进程，注入前幂等引导恢复
 
 > **修订（2026-11-20）**：动态作业的并发不再固定为全局 3，而是按能力声明 `maxConcurrent`（缺省 3，可在 `capability.yaml` 覆盖）；当前石秀、朱贵各 5。同名冲突由作业名自动编号（`-2`、`-3`）兜住。
+>
+> **修订（2026-11-21）**：serve 生命周期的启停/重启不再禁止——主控可经 `direct/server` 执行，范围与条件见 ADR 0036；「不建 supervisor 守护进程、不另做 watchdog」仍然有效，自动拉起不在范围。下文「主控不得改动/重编/重启 super-agent 运行时自身」的禁令按此收窄为：不得改源码、构建、改配置/凭证、重启 herdr/主控/其他服务。
 
 宋江的操控对象是 herdr 能力 agent（本地通道）与 hifox 平台任务（云端通道）。两边命令面都已齐备：herdr 的 agent-automation 就是「外部程序注入 prompt、查询进度」的官方设计用例（具名寻址、`agent prompt` 异步提交、状态机 `agent wait`、终端读取、事件订阅）；hifox CLI 的 `task create --delegate-agent` 委派即触发、`task view` 是状态真值、`task cancel-run` 取消。
 

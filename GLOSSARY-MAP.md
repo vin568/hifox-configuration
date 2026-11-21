@@ -6,7 +6,7 @@
 
 - [本仓上下文](./GLOSSARY.md)：`config/<集合>/` 的部署实例、发布流水线的判定与门禁、统筹入口的调度与工作记忆（调度台账、事项、台账状态等），以及**宋江运行时实例**的运营词（宋江、蒋敬、朱贵、石秀、安道全、作业、作业台账…）。
 - [x-deploy 工具契约](./vendor/x-deploy/GLOSSARY.md)：声明式配置与部署工具自身的词汇——CLI App、Organization、Space、Environment、Crew / Agent / Skill / Workflow / Automation、编写型 / 捕获型等。
-- [super-agent 框架](./vendor/super-agent/GLOSSARY.md)：本地编排运行时的机制词——框架、运行时实例、主控（角色）、能力注册表、能力技能、平台指针、直连脚本、触发器、在途清单、急停、换脑、上下文快照、受控 agent。
+- [super-agent 框架](./vendor/super-agent/GLOSSARY.md)：本地编排运行时的机制词——框架、运行时实例、主控（角色）、能力注册表、能力技能、平台指针、直连脚本、触发器、在途清单、急停、换脑、上下文快照、受控 agent、常驻服务、服务生命周期、服务模式、服务状态、服务入口。
 - v-skills：随子模块分发的工作流/技能词汇（见其 README 与 glossary，若存在）。
 
 ## Relationships

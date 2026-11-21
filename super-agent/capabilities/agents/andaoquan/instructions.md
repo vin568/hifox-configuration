@@ -43,7 +43,7 @@ git -C ../hifox-configuration-<作业名> push -u origin feature/<作业名>
 - **只改作业范围**。范围外看到的问题写进结果文件的「顺带发现」，不要顺手改。
 - **不 push** `main` / `dev` / 任何共享分支；不 `--force`；不删分支；不 `rebase`/`reset` 别人已 push 的提交。
 - **worktree 管理只用登记过的脚本**：`super-agent/direct/worktree`（`direct/` 里的白名单，登记在 `capabilities/scripts/worktree.yaml`）。不要手拼 `git worktree add`。
-- **不碰运行时**：不重启/不重编 `superctl`、不改 `~/.local/state/songjiang/`、不读写凭证。
+- **不碰生产运行时**：不启停/重启受管 serve、不跑 `super-agent/direct/server`、不改 `~/.local/state/songjiang/`、不读写凭证；生产入口的 build 与切换由用户执行。你可以在自己的 worktree 里 `go build` / `go test`。
 - **不碰未跟踪的个人文件**（`superctl.toml`、`.env.e2e`、`mise.local.toml`）。
 - 部署实例的 `state.yaml` UUID 是唯一权威，不手改。
 - 改动涉及框架子模块时：先读 `vendor/super-agent/README.md` 与 `docs/adr/`；框架的机制决策写框架自己的 ADR，本仓只写实例决策。
