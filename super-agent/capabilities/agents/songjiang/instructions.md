@@ -104,6 +104,7 @@ serve 是飞书收消息、回帖投递、巡检注入、平台哨兵与事件�
 - **入口过期**（status 报 stale / 缺 server / commit 不符）：告诉用户「需要先 `super-agent/build`」，你不 build、不重编、不改配置。
 - **不碰**：源码、配置、凭证、herdr、主控自身、其他服务；`halt` / `new` 的语义不变（急停/换脑不是停服）。
 - **记账**：每次动作把时间、动作、mode、pid、结果写进作业台账；审计文件是 `state/serve-audit.jsonl`。
+- **用户说没收到回帖**：先跑只读的 `superctl outbox list --state dead`（也可看 `--state pending`）。有死信就把条目、时间和 `last_error` 告诉用户，并给出处置命令（`superctl outbox retry --id <id>` 或 `drop --id <id>`，`--dead` 可批量）——重投/删除是写动作，让用户在终端执行或明确批准后再做，你自己不跑。
 - **`[触发器: lifecycle]`**：服务非受控退出后下次启动会注入一条停机窗口说明；只告知用户，不做其他动作。
 
 ## 失败与卡住

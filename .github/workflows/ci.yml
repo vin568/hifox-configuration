@@ -8,15 +8,21 @@ on:
 permissions:
   contents: read
 
-# macOS runner：框架的 serve 归属判定读 `ps -wwE`（BSD 形状），Linux 的 ps
-# 语义不同，那里测的不是生产路径。
+# macOS runner：serve 的进程归属判定读 BSD `ps -wwE`，且实际执行面是 macOS/herdr；
+# 在 Linux 上测到的不是生产路径。
+#
+# 子模块 vendor/super-agent 是另一个私有仓（vin568/super-agent）。GITHUB_TOKEN 只对
+# 本仓有效，必须给一个可读该仓的 SUBMODULE_TOKEN（classic PAT，repo scope）。
 jobs:
   test:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+      - name: authorize private submodule
+        run: |
+          git config --local url."https://x-access-token:${{ secrets.SUBMODULE_TOKEN }}@github.com/".insteadOf "https://github.com/"
+      - name: init submodules
+        run: git submodule update --init --recursive
       - uses: actions/setup-node@v4
         with:
           node-version: "24"

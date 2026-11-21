@@ -34,6 +34,9 @@ sessions_keep              = 5
 # 飞书消息附件（图片/文件）落盘保留期；空 = 30 天。
 media_retention = "720h"
 
+# 已发送回帖在发件箱里的保留期（撤回依据）；0 = 永久保留。
+outbox_retention = "168h"
+
 # 飞书放行面：open_id 白名单，私聊只放行白名单成员（其他人不注入）。
 allowed_users = ["ou_replace_me"]
 

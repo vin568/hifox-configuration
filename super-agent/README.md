@@ -55,6 +55,29 @@ agent（回退到配置的 `runtime_cmd`），也无法被 `server start/restart
 
 本机已部署的实例用 `~/.config/super-agent/superctl.toml`。旧配置路径与旧键已按一版期限移除（框架 ADR 0005）。
 
+## 第二实例验收（ADR 0034）
+
+新建实例与本地闭环（无需飞书凭证；会话与状态目录必须与生产不同）：
+
+```bash
+tmp=$(mktemp -d)
+./super-agent/bin/superctl init --no-input --dir "$tmp" --master-name 张三 \
+  --master-key zhangsan --session smoke-second
+./super-agent/bin/superctl capabilities --check --root "$tmp"
+herdr session attach smoke-second          # 另开终端；等 socket 起来
+SUPERAGENT_CONFIG="$tmp/superctl.toml" ./super-agent/bin/superctl ensure
+SUPERAGENT_CONFIG="$tmp/superctl.toml" ./super-agent/bin/superctl dispatch \
+  --local --agent worker --body "把 ok 写进结果文件"
+# 结果文件路径在 dispatch 输出里；确认内容后：
+SUPERAGENT_CONFIG="$tmp/superctl.toml" ./super-agent/bin/superctl cancel --agent worker-<时刻>
+SUPERAGENT_CONFIG="$tmp/superctl.toml" ./super-agent/bin/superctl reply --chat oc_smoke --text ok
+SUPERAGENT_CONFIG="$tmp/superctl.toml" ./super-agent/bin/superctl outbox list --state pending
+```
+
+完整「飞书私聊 → 主控 → 本地 job → 回帖」还需要第二个自建应用的凭证（`<prefix>_FEISHU_APP_ID/_SECRET`）；
+不能与生产实例共用同一个 bot，否则两个长连接会抢消息。这个沙箱用完即删：`herdr session delete smoke-second`，
+再删 `$tmp` 与 `~/.local/state/smoke-second`。
+
 ## 构建与测试
 
 - 框架：`go -C vendor/super-agent build ./... && go -C vendor/super-agent test -race ./...`
