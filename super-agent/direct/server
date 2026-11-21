@@ -17,7 +17,7 @@ verb=$1
 case "$verb" in
   status|start|stop|restart) ;;
   *)
-    echo "server: 只允许 status|start|stop|restart（收到 $verb）；构建/改配置不在本入口范围" >&2
+    echo "server: 只允许 status|start|stop|restart（收到 ${verb}）；构建/改配置不在本入口范围" >&2
     exit 2
     ;;
 esac
@@ -27,7 +27,7 @@ root=$(CDPATH= cd -- "$here/.." && pwd)
 
 bin="$root/bin/superctl"
 if [ ! -x "$bin" ]; then
-  echo "server: 稳定入口不存在或不可执行：$bin（请执行 super-agent/build）" >&2
+  echo "server: 稳定入口不存在或不可执行：${bin}（请执行 super-agent/build）" >&2
   exit 2
 fi
 

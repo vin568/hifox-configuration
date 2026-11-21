@@ -14,7 +14,7 @@ out="$here/bin/superctl"
 tmp="$out.tmp.$$"
 
 if [ ! -d "$src" ]; then
-  echo "build: 找不到框架源码 $src（子模块未初始化？先 git submodule update --init vendor/super-agent）" >&2
+  echo "build: 找不到框架源码 ${src}（子模块未初始化？先 git submodule update --init vendor/super-agent）" >&2
   exit 1
 fi
 
