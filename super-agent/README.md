@@ -51,7 +51,7 @@ agent（回退到配置的 `runtime_cmd`），也无法被 `server start/restart
 - **日志**：`server logs --lines 200`（或 `--follow`）；审计在 `state_dir/serve-audit.jsonl`。
 - **主控权限**：只经 `super-agent/direct/server status|start|stop|restart`（actor=master）；
   构建、改配置、重启 herdr/主控都不在白名单内（ADR 0036）。
-- 运行中的 `dev` 入口（wrapper / go run）可查可停，**不能** restart：先停掉它，再用稳定入口启动。
+- 运行中的 `dev` 入口（wrapper / go run）与未受管实例可查可停，**不能** restart：先停掉它，再用稳定入口启动。
 
 本机已部署的实例用 `~/.config/super-agent/superctl.toml`；旧的 `~/.config/songjiang/superctl.toml` 与 `SONGJIANG_*` 凭证前缀仍被接受（一版，带告警）。
 
