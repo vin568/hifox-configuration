@@ -1,14 +1,16 @@
 #!/bin/sh
-# 本实例的 superctl 入口：从 vendor/super-agent 子模块跑框架。
+# 本实例的开发期 superctl 入口：从 vendor/super-agent 子模块 go run 框架。
 #
-# 为什么需要它：serve 可以直接 go run，但派活时注给作业 agent 的 superctl 路径必须是
-# 稳定的（go run 的临时产物进程一换就消失，agent 第一次 report 就扑空）。把
-# superctl.toml 的 runtime_cmd 指向本脚本的绝对路径。
+# 不要把它写进 superctl.toml 的 runtime_cmd：go run 每次触发编译，且入口没有
+# build 戳，受管 serve 会把它判成 dev。生产入口是 super-agent/bin/superctl
+# （super-agent/build 产物）；本脚本只用于开发与临时排查。
 #
 # 用法：
 #   SUPERAGENT_CONFIG=<ABS>/super-agent/superctl.toml ./super-agent/superctl serve
-# 或先导出 SONGJIANG_CONFIG（存量兼容，一版后移除）。
 set -e
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 root=$(CDPATH= cd -- "$here/.." && pwd)
+if command -v mise >/dev/null 2>&1; then
+  exec mise exec go -- go -C "$root/vendor/super-agent" run ./cmd/superctl "$@"
+fi
 exec go -C "$root/vendor/super-agent" run ./cmd/superctl "$@"

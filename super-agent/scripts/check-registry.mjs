@@ -343,13 +343,17 @@ export function checkLive(data) {
 // ---------- CLI ----------
 
 function runFrameworkCheck(root) {
+  // 优先用构建好的稳定入口：实例自检不该依赖 Go 工具链，也不该受 PATH 里
+  // 旧 go 的影响（bin 缺失时才回退到 go run 包装脚本）。
+  const stable = join(root, "super-agent", "bin", "superctl");
   const wrapper = join(root, "super-agent", "superctl");
-  if (!existsSync(wrapper)) {
-    throw new Error(`找不到本实例的 superctl 入口 ${wrapper}（--root 指仓根，不是实例根）`);
+  if (!existsSync(stable) && !existsSync(wrapper)) {
+    throw new Error(`找不到本实例的 superctl 入口 ${stable} 或 ${wrapper}（--root 指仓根，不是实例根）`);
   }
+  const bin = existsSync(stable) ? stable : wrapper;
   // --root 固定检查这个检出：否则框架会按本机配置去查另一个实例的目录，
   // worktree/CI 里就会「测的是主检出」。
-  const out = execFileSync(wrapper, ["capabilities", "--check", "--root", join(root, "super-agent")], {
+  const out = execFileSync(bin, ["capabilities", "--check", "--root", join(root, "super-agent")], {
     encoding: "utf8",
     maxBuffer: 8 * 1024 * 1024,
   });

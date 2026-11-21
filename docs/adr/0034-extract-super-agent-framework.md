@@ -8,7 +8,7 @@ ADR 0016 把运行时落进本仓 `super-agent/`，理由是「运行时与能�
 - **框架只提供机制**：拓扑引导、注入、在途清单、平台哨兵、上下文治理、派活与回帖通道。身份、人设、能力内容、台账格式全归实例。`master/retro/job` 与 workspace 标签是机制词，保留。
 - **本仓退化为运行时实例（宋江）**：`super-agent/` 只留 `capabilities/`、`direct/`、`scripts/`、`config.example.toml` 与一个 `superctl` 入口脚本；Go 代码、框架文档、框架 ADR 全部随框架仓走。
 - **跨仓对账移回实例**：`config/` ↔ `platforms/` ↔ `environments/*` 的双向同步、部署记录、线上真值由本仓的 `super-agent/scripts/check-registry.mjs`（`npm run check`）负责。框架的 `capabilities --check` 只管框架不变量。
-- **零迁移承诺收窄为「状态不搬家」**：`~/.local/state/songjiang/`、`SONGJIANG_*` 凭证前缀、`~/.config/songjiang/superctl.toml` 继续可用（后两者带告警，一版期限）；新配置在 `~/.config/super-agent/superctl.toml`，实例根显式写出。
+- **零迁移承诺收窄为「状态不搬家」**：`~/.local/state/songjiang/` 与 `SONGJIANG_*` 凭证前缀继续可用（状态目录不搬家；前缀是实例配置值）；旧配置路径 `~/.config/songjiang/superctl.toml` 与 `$SONGJIANG_CONFIG` 按一版期限移除（框架 ADR 0005）。新配置在 `~/.config/super-agent/superctl.toml`，实例根显式写出。
 - **ADR 0016 的归属决定被取代**，其余部分（Go 单二进制、不经 x-deploy、测试自管）继续成立。框架自身的机制决策在框架仓 `docs/adr/0001`–`0003`。
 
 **Considered Options：**

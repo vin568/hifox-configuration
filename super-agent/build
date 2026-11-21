@@ -33,8 +33,17 @@ build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 mkdir -p "$here/bin"
 trap 'rm -f "$tmp"' 0 2 15
+# 本机 PATH 可能先命中旧 go（如 /usr/local/go 1.18，不支持 go -C）；有 mise 就用
+# 仓库钉住的工具链。没有 mise 时按 PATH 的 go（CI 由 setup-go 保证版本）。
+go_cmd() {
+  if command -v mise >/dev/null 2>&1; then
+    mise exec go -- go "$@"
+  else
+    go "$@"
+  fi
+}
 # 先构建到临时文件，自校验通过后才替换旧入口：校验失败不能留下一个半成品 bin。
-go -C "$src" build \
+go_cmd -C "$src" build \
   -ldflags "-X main.version=$version -X main.commit=$commit -X main.dirty=$dirty -X main.buildTime=$build_time" \
   -o "$tmp" ./cmd/superctl
 # touch 让入口比所有源码新：框架的 find -newer 新鲜度判据依赖它。

@@ -8,9 +8,9 @@
 
 ```
 super-agent/
-├── superctl             # 开发期入口（go run；配置的 runtime_cmd 指向它）
+├── superctl             # 开发期入口（go run；不要作为 runtime_cmd）
 ├── build                # 稳定入口构建：注入 build 戳，产出 bin/superctl
-├── bin/superctl         # 稳定入口（构建产物，gitignore；受管 serve 只从这里起）
+├── bin/superctl         # 稳定入口（构建产物，gitignore；runtime_cmd 与受管 serve 都用它）
 ├── capabilities/        # 能力声明（目录即注册表）：agents/ skills/ scripts/ platforms/<平台>/
 ├── direct/              # 直连白名单脚本（ADR 0019 第 2 级；当前 worktree + server）
 ├── scripts/             # 本实例自检（框架不认识 config/ 与 environments/，跨仓对账在这里）
@@ -27,13 +27,13 @@ super-agent/
 git submodule update --init vendor/super-agent
 
 # 2. 配置：cp super-agent/config.example.toml ~/.config/super-agent/superctl.toml 并填值
-#    必须显式给 runtime_cmd（指向本目录的 superctl），否则派活注入的回报命令会扑空。
+#    runtime_cmd 指向构建产物 super-agent/bin/superctl（先构建；包装脚本只用于调试）。
 
-# 3. 自检 + 构建稳定入口 + 起拓扑 + 常驻
-./super-agent/superctl capabilities --check     # 框架不变量
-npm run check                                   # 框架 + 本实例的跨仓对账
+# 3. 构建稳定入口 + 自检 + 起拓扑 + 常驻
 ./super-agent/build                             # 产出 super-agent/bin/superctl（带 version/commit/dirty/buildTime）
-./super-agent/superctl ensure
+./super-agent/bin/superctl capabilities --check # 框架不变量
+npm run check                                   # 框架 + 本实例的跨仓对账
+./super-agent/bin/superctl ensure
 ./super-agent/bin/superctl server start         # 受管 daemon；主控经 direct/server 查/启/停/重启
 ```
 
@@ -53,7 +53,7 @@ agent（回退到配置的 `runtime_cmd`），也无法被 `server start/restart
   构建、改配置、重启 herdr/主控都不在白名单内（ADR 0036）。
 - 运行中的 `dev` 入口（wrapper / go run）与未受管实例可查可停，**不能** restart：先停掉它，再用稳定入口启动。
 
-本机已部署的实例用 `~/.config/super-agent/superctl.toml`；旧的 `~/.config/songjiang/superctl.toml` 与 `SONGJIANG_*` 凭证前缀仍被接受（一版，带告警）。
+本机已部署的实例用 `~/.config/super-agent/superctl.toml`。旧配置路径与旧键已按一版期限移除（框架 ADR 0005）。
 
 ## 构建与测试
 
