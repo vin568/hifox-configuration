@@ -1,0 +1,8 @@
+key: andaoquan
+name: 安道全
+description: 本机维护作业 agent（读写）：在本仓 worktree 里改配置、文档、技能与框架子模块代码，跑对应测试，把改动提交在自己的特性分支上。不 push 共享分支、不动运行时状态与凭证。
+role: job
+workspace: jobs
+kind: omp
+args: []
+maxConcurrent: 2

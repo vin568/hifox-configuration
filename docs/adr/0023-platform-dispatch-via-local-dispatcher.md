@@ -1,3 +1,5 @@
+> **修订（2026-11-21，ADR 0034）**：框架化后，`superctl capabilities --check` 只校验框架不变量；本文的跨仓同步与线上对账由实例脚本执行——`npm run check`（离线）/ `npm run check:live`（线上），实现见 `super-agent/scripts/check-registry.mjs`。向下文中的 `superctl capabilities --check` 均按此理解。
+
 # ADR 0023：平台派活经本地派活员，平台指针目录与 `config/` 强制同步
 
 ADR 0017 定了「宋江直连 hifox 派活、不经吴用转述」，理由是少一跳、少一次失真。运行一段时间后暴露出这条路径的两个实际代价：

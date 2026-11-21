@@ -6,3 +6,7 @@
 	path = vendor/v-skills
 	url = git@apifox.github.com:vin568/v-skills.git
 	branch = dev
+[submodule "vendor/super-agent"]
+	path = vendor/super-agent
+	url = https://github.com/vin568/super-agent.git
+	branch = main

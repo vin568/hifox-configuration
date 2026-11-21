@@ -11,7 +11,7 @@ description: 平台（hifox / sharkly / 远程 ssh）任务的派发、查询、
 
 **平台 ≠ hifox**：platform 指一个远端执行面——今天是 hifox（将来 sharkly、远程 ssh 主机上的 agent）。命令与目录都按 `--platform <名>` / `capabilities/platforms/<平台>/` 命名，别把 hifox 当同义词。
 
-口径：本仓 `config/` 已声明的 agent 即全部平台能力，未声明即不存在（ADR 0017）。要新平台能力 → 提案 → 用户批准 → 加 config 声明；**声明了必须同步到 `super-agent/capabilities/platforms/<平台>/`**（ADR 0023，`superctl capabilities --check` 强制，`--check --live` 再对平台核一遍）。能力索引是你的「知道有谁」，不是派活路径——挑人是朱贵的职责。
+口径：本仓 `config/` 已声明的 agent 即全部平台能力，未声明即不存在（ADR 0017）。要新平台能力 → 提案 → 用户批准 → 加 config 声明；**声明了必须同步到 `super-agent/capabilities/platforms/<平台>/`**（ADR 0023，`npm run check` 强制，`npm run check:live` 再对平台核一遍）。能力索引是你的「知道有谁」，不是派活路径——挑人是朱贵的职责。
 
 ## 一、转发原话（别整理）
 

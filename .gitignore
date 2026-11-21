@@ -11,5 +11,6 @@ mise.local.toml
 mise.toml.local
 .DS_Store
 
-# super-agent build artifacts
+# super-agent instance: local config and dev build artifacts are not committed
+super-agent/superctl.toml
 super-agent/bin/

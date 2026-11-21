@@ -1,49 +1,55 @@
-# superctl 配置样例。复制为 superctl.toml（查找顺序见 README）。
-# 密钥不进此文件：飞书凭证读环境变量 SONGJIANG_FEISHU_APP_ID / SONGJIANG_FEISHU_APP_SECRET。
+# superctl 配置样例（本仓是宋江实例：框架在 vendor/super-agent，能力声明在本目录）。
+#
+# 密钥不进此文件：飞书凭证读环境变量 <env_prefix>_FEISHU_APP_ID / <env_prefix>_FEISHU_APP_SECRET。
+# 框架化的实例根 = 本文件所在目录：capabilities/、direct/、bin/ 都相对它解析。
 
-session   = "super-agent"   # herdr 命名 session
-state_dir = "~/.local/state/songjiang"
-repo_dir  = "~/code/apifox/hifox-configuration-super-agent"  # agent pane 的 cwd
+schema_version = 1
 
-# 主控与复盘 agent 不在此声明：由能力注册表 role=master / role=retro 派生
-# （super-agent/capabilities/agents/<key>/capability.yaml，ADR 0021）。
+session    = "super-agent"                  # herdr 命名 session
+state_dir  = "~/.local/state/songjiang"     # 存量状态目录：不搬家
+# 实例根：本配置放在 ~/.config/super-agent/ 时，必须显式指向仓内的 super-agent/，
+# 否则 capabilities/、direct/ 会相对配置目录解析（落在家目录下）。
+instance_dir = "~/code/apifox/hifox-configuration/super-agent"
+env_prefix = "SONGJIANG"                    # 存量凭证前缀：一版后改名
+runtime_cmd = "/ABS/PATH/hifox-configuration/super-agent/superctl"  # 包装脚本；go run 不能注给 agent
+work_dir   = "~/code/apifox/hifox-configuration"  # agent pane 的 cwd（主检出）
 
-tick_interval       = "10m"  # 作业巡检兜底周期（三源皆空不发，见 ADR 0022）
+# 主控与复盘 agent 不在此声明：由能力注册表 role=master / role=retro 派生。
+
+tick_interval          = "10m"  # 作业巡检兜底周期（三源皆空不发）
 platform_poll_interval = "60s"  # 平台哨兵轮询周期（纯 CLI 轮询零 LLM 成本，有变化才唤醒主控）
 
-# 上下文轮换（ADR 0030）：主判定 = provider 回报的 token / 模型 contextWindow；
+# 上下文轮换：主判定 = provider 回报的 token / 模型 contextWindow；
 # context_reserve_* 决定 handoff 触发点（window - max(15%, 16k)）。session_max_bytes
 # 只在测量不可用（旧会话/未知模型）时作字节兜底；0 = 关闭字节兜底。
-context_warn_ratio = 0.70
-context_reserve_ratio = 0.15
+context_warn_ratio         = 0.70
+context_reserve_ratio      = 0.15
 context_reserve_min_tokens = 16000
 context_warn_margin_tokens = 8000
-context_model_db = "~/.omp/agent/models.db"
-local_stall_after = "45m"  # working 但会话文件这么久没写入 → 巡检告警（0 = 关）
-session_max_bytes = 8388608
-# 会话留档保留轮数（每轮一个 state_dir/sessions/<时间>-<原因> 目录）
-sessions_keep = 5
+context_model_db           = "~/.omp/agent/models.db"
+local_stall_after          = "45m"  # working 但会话文件这么久没写入 → 巡检告警（0 = 关）
+session_max_bytes          = 8388608
+sessions_keep              = 5
 
-# 飞书消息附件（图片/文件）落盘保留期；空 = 30 天。用户原图不是长期资产：
-# 够复现、够转派即可（ADR 0024）。
+# 飞书消息附件（图片/文件）落盘保留期；空 = 30 天。
 media_retention = "720h"
 
-# 飞书放行面：open_id 白名单，私聊只放行白名单成员（其他人不注入）
+# 飞书放行面：open_id 白名单，私聊只放行白名单成员（其他人不注入）。
 allowed_users = ["ou_replace_me"]
 
-# 代答群：群内 @ 白名单成员（而非 @bot）也放行，按代答处理
+# 代答群：群内 @ 白名单成员（而非 @bot）也放行，按代答处理。
 proxy_reply_groups = []
 
-# 全收群：所有消息放行（慎用）
+# 全收群：所有消息放行（慎用）。
 any_message_groups = []
 
-# bot 自己的 open_id（识别 @bot 用；建好自建应用后从开发者后台取，留空则只靠白名单/全收群）
+# bot 自己的 open_id（识别 @bot 用；建好自建应用后从开发者后台取，留空则只靠白名单/全收群）。
 bot_open_id = ""
 
-# 私聊通知兜底会话：急停回执与 blocked 提醒的落点；填你与 bot 的 chat_id
+# 私聊通知兜底会话：急停回执与 blocked 提醒的落点；填你与 bot 的 chat_id。
 admin_chat_id = ""
 
-# agent start 透传给主控底层 CLI（omp）的参数，如指定快模型；留空用默认
+# agent start 透传给主控底层 CLI（omp）的参数，如指定快模型；留空用默认。
 master_agent_args = []
 
 # 模型窗口覆盖：provider/model 或 model -> contextWindow。harness 自报优先；
@@ -51,7 +57,6 @@ master_agent_args = []
 [context_windows]
 # "hifox/deepseek-flash" = 1000000
 
-# 通用上下文探针：kind -> 命令。命令输出统一 JSON（见 super-agent/README.md）。
-# opencode 等 non-omp harness 用它接入，不需要改运行时。
+# 通用上下文探针：kind -> 命令。命令输出统一 JSON（见框架 README）。
 [context_probes]
 # opencode = "/path/to/probe-opencode-context"

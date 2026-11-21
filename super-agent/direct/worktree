@@ -1,0 +1,12 @@
+#!/bin/sh
+# 用途：本仓 git worktree 的增删查（根仓 + 三个子模块），供主控按批准派发、
+#       供维护员安道全在自己的作业里调用。
+# 参数：与 .agents/skills/worktree-dev/scripts/worktree.sh 完全一致——
+#       add <name> [-b <branch>] | list | remove <name> [--force] | prune
+# 示例：super-agent/direct/worktree add doc-fix
+#       super-agent/direct/worktree remove doc-fix
+# 副作用：add 会创建 ../hifox-configuration-<name> 目录并从远端初始化子模块；
+#         remove 会删除该 worktree（分支保留）。脚本自身不 push、不合并、不切主检出。
+set -e
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+exec bash "$root/.agents/skills/worktree-dev/scripts/worktree.sh" "$@"

@@ -1,3 +1,5 @@
+> **归属决定已被取代（2026-11-21，ADR 0034）**：运行时提炼为独立框架仓（`vendor/super-agent` 子模块），本仓退化为运行时实例。本文其余部分（Go 单二进制、不经 x-deploy 部署、测试自管）继续成立。
+
 # 宋江 super agent 本地运行时落本仓，Go 单二进制
 
 用户以 `feature/super-agent` worktree 开启 super agent 工作：主控（宋江）+ 能力 agent 的编排体系跑在本机 herdr 上，信号来自飞书消息与定时巡检（术语见 `GLOSSARY.md`「主控编排」节）。运行时物料——飞书注入器、`superctl` CLI、巡检 tick 调度、重启引导——需要一个归属。

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# hifox-configuration 的 git worktree 助手（根仓 + 双子模块）。
+# hifox-configuration 的 git worktree 助手（根仓 + 子模块）。
 # 用法: worktree.sh add <name> [-b <branch>] | list | remove <name> [--force] | prune
 # 契约与机制说明见同目录 SKILL.md；仅在主检出运行。
 set -euo pipefail
@@ -72,7 +72,7 @@ cmd_add() {
 
   dir=$(cd "$dir" && pwd)
   echo "就绪清单：cd $dir && mise install; (cd vendor/x-deploy && npm install); ./x-deploy doctor"
-  echo "并回 dev（特性完成时）：cd vendor/x-deploy && npm test && git fetch origin dev && git merge origin/dev && git push origin HEAD:dev"
+  echo "完成时：先 push 同名特性分支（根仓与各子模块），合并与 worktree 清理由用户做（见 SKILL.md）"
 }
 
 cmd_list() {
