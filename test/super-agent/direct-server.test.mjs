@@ -1,5 +1,5 @@
-// 直连 server 脚本的边界（ADR 0019 第 2 级 + ADR 0036）：只放行
-// status|start|stop|restart，固定本实例配置与绝对稳定入口，非法动词绝不触达二进制。
+// 直连 server 脚本的边界（ADR 0019 第 2 级 + ADR 0036）：只有一个动词参数、
+// 固定本实例配置与绝对稳定入口，非法动词/额外参数绝不触达二进制。
 //
 // 用「把真实脚本复制进 fixture 实例根」的方式测：路径由脚本自身位置推导，复制后
 // 测到的仍是仓里那份脚本的行为，不依赖本机是否真的构建过 bin。
@@ -51,15 +51,20 @@ function run(fx, args, env = {}) {
   }
 }
 
-test("whitelisted verbs reach the stable bin with fixed config and actor", () => {
+function recorded(fx) {
+  return readFileSync(fx.record, "utf8").trimEnd().split("\n");
+}
+
+test("whitelisted verbs reach the stable bin with the fixed instance config", () => {
   for (const verb of ["status", "start", "stop", "restart"]) {
     const fx = fixture();
-    const cfg = join(fx.root, "custom", "superctl.toml");
-    const res = run(fx, [verb], { SUPERAGENT_CONFIG: cfg });
+    // 调用者的环境变量不得改变实例指向：白名单入口只服务本实例配置。
+    const res = run(fx, [verb], { SUPERAGENT_CONFIG: join(fx.root, "elsewhere", "superctl.toml") });
     assert.equal(res.status, 0, `${verb}: ${res.stderr}`);
-    const lines = readFileSync(fx.record, "utf8").trimEnd().split("\n");
-    assert.deepEqual(lines.slice(0, -1), ["server", verb, "--config", cfg, "--actor", "master"]);
-    assert.equal(lines.at(-1), cfg, "SUPERAGENT_CONFIG 必须原样传给框架");
+    const lines = recorded(fx);
+    const home = join(fx.root, ".config", "super-agent", "superctl.toml");
+    assert.deepEqual(lines.slice(0, -1), ["server", verb, "--config", home, "--actor", "master"]);
+    assert.equal(lines.at(-1), home, "SUPERAGENT_CONFIG 必须是固定实例路径，不能跟随调用者");
     rmSync(fx.root, { recursive: true, force: true });
   }
 });
@@ -68,18 +73,21 @@ test("default config path is the documented home file", () => {
   const fx = fixture();
   const res = run(fx, ["status"]);
   assert.equal(res.status, 0, res.stderr);
-  const lines = readFileSync(fx.record, "utf8").trimEnd().split("\n");
-  assert.equal(lines.at(-1), join(fx.root, ".config", "super-agent", "superctl.toml"));
+  assert.equal(recorded(fx).at(-1), join(fx.root, ".config", "super-agent", "superctl.toml"));
   rmSync(fx.root, { recursive: true, force: true });
 });
 
-test("non-whitelisted verbs are rejected before the binary runs", () => {
-  for (const verb of ["logs", "build", "install", "", "status extra"]) {
+test("non-whitelisted verbs and extra args are rejected before the binary runs", () => {
+  const cases = [
+    ["logs"], ["build"], ["install"], [], ["status extra"],
+    ["status", "extra"], ["--json"], ["stop", "--force"],
+  ];
+  for (const args of cases) {
     const fx = fixture();
-    const res = run(fx, verb ? [verb] : []);
-    assert.equal(res.status, 2, `${verb}: 应拒绝`);
-    assert.match(res.stderr, /只允许 status\|start\|stop\|restart/);
-    assert.equal(existsSync(fx.record), false, `${verb}: 非法动词绝不能触达二进制`);
+    const res = run(fx, args);
+    assert.equal(res.status, 2, `${JSON.stringify(args)}: 应拒绝（stderr=${res.stderr}）`);
+    assert.match(res.stderr, /只允许 status\|start\|stop\|restart|只接受一个动词参数/);
+    assert.equal(existsSync(fx.record), false, `${JSON.stringify(args)}: 非法调用绝不能触达二进制`);
     rmSync(fx.root, { recursive: true, force: true });
   }
 });
