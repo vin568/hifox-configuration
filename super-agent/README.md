@@ -8,9 +8,11 @@
 
 ```
 super-agent/
-├── superctl             # 本实例的 superctl 入口（从 vendor/super-agent 跑；配置的 runtime_cmd 指向它）
+├── superctl             # 开发期入口（go run；配置的 runtime_cmd 指向它）
+├── build                # 稳定入口构建：注入 build 戳，产出 bin/superctl
+├── bin/superctl         # 稳定入口（构建产物，gitignore；受管 serve 只从这里起）
 ├── capabilities/        # 能力声明（目录即注册表）：agents/ skills/ scripts/ platforms/<平台>/
-├── direct/              # 直连白名单脚本（ADR 0019 第 2 级）
+├── direct/              # 直连白名单脚本（ADR 0019 第 2 级；当前 worktree + server）
 ├── scripts/             # 本实例自检（框架不认识 config/ 与 environments/，跨仓对账在这里）
 ├── config.example.toml  # 实例配置样例；实际配置在 ~/.config/super-agent/superctl.toml
 └── README.md
@@ -27,14 +29,29 @@ git submodule update --init vendor/super-agent
 # 2. 配置：cp super-agent/config.example.toml ~/.config/super-agent/superctl.toml 并填值
 #    必须显式给 runtime_cmd（指向本目录的 superctl），否则派活注入的回报命令会扑空。
 
-# 3. 自检 + 起拓扑 + 常驻
+# 3. 自检 + 构建稳定入口 + 起拓扑 + 常驻
 ./super-agent/superctl capabilities --check     # 框架不变量
 npm run check                                   # 框架 + 本实例的跨仓对账
+./super-agent/build                             # 产出 super-agent/bin/superctl（带 version/commit/dirty/buildTime）
 ./super-agent/superctl ensure
-./super-agent/superctl serve
+./super-agent/bin/superctl server start         # 受管 daemon；主控经 direct/server 查/启/停/重启
 ```
 
-`go run` 只用于开发和临时排查：它生成的可执行文件是临时产物，框架会拒绝把它注给 agent（回退到配置的 `runtime_cmd`）。
+`go run` 只用于开发和临时排查：它生成的可执行文件是临时产物，框架会拒绝把它注给
+agent（回退到配置的 `runtime_cmd`），也无法被 `server start/restart` 管理。
+
+## 常驻 serve 的日常操作
+
+- **改完代码**：先 `super-agent/build`，再 `server restart`（或由主控经 `direct/server restart`）。
+  入口过期（源码比 bin 新、commit 不符、无 build 戳）时 `start/restart` 会拒绝并提示重编。
+- **查看状态**：`./super-agent/bin/superctl server status`（默认中文文本，`--json` 给机器）；
+  六态与字段见框架 README「常驻服务」。
+- **停止/启动**：`server stop` / `server start`；停止前先让用户知道「停后飞书联系不上」，
+  终局 drain 负责把已排队的回帖发出去（≤10s）。
+- **日志**：`server logs --lines 200`（或 `--follow`）；审计在 `state_dir/serve-audit.jsonl`。
+- **主控权限**：只经 `super-agent/direct/server status|start|stop|restart`（actor=master）；
+  构建、改配置、重启 herdr/主控都不在白名单内（ADR 0036）。
+- 运行中的 `dev` 入口（wrapper / go run）可查可停，**不能** restart：先停掉它，再用稳定入口启动。
 
 本机已部署的实例用 `~/.config/super-agent/superctl.toml`；旧的 `~/.config/songjiang/superctl.toml` 与 `SONGJIANG_*` 凭证前缀仍被接受（一版，带告警）。
 

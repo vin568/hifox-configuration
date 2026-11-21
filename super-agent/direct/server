@@ -1,0 +1,33 @@
+#!/bin/sh
+# 用途：主控管理本实例常驻 serve 的唯一白名单入口（ADR 0019 第 2 级 + ADR 0036）。
+# 参数：status | start | stop | restart（其他动词一律拒绝；不接受额外参数）。
+# 示例：super-agent/direct/server status
+#       super-agent/direct/server restart
+# 副作用：start/stop/restart 真实改变本机常驻 serve（审计落 state/serve-audit.jsonl，
+#         actor=master）；status 只读。永不 build、不改配置/凭证、不碰主控会话。
+#         入口过期时框架会拒绝并提示执行 super-agent/build。
+set -eu
+
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+root=$(CDPATH= cd -- "$here/.." && pwd)
+verb=${1:-}
+
+case "$verb" in
+  status|start|stop|restart) ;;
+  *)
+    echo "server: 只允许 status|start|stop|restart（收到 ${verb:-空}）；构建/改配置不在本入口范围" >&2
+    exit 2
+    ;;
+esac
+
+bin="$root/bin/superctl"
+if [ ! -x "$bin" ]; then
+  echo "server: 稳定入口不存在或不可执行：$bin（请执行 super-agent/build）" >&2
+  exit 2
+fi
+
+# 固定本实例配置：不随调用者的 cwd / 环境漂移。
+: "${SUPERAGENT_CONFIG:=$HOME/.config/super-agent/superctl.toml}"
+export SUPERAGENT_CONFIG
+
+exec "$bin" server "$verb" --config "$SUPERAGENT_CONFIG" --actor master

@@ -1,0 +1,4 @@
+key: server
+name: 常驻 serve 生命周期
+description: 查/启/停/重启本实例常驻 serve（status|start|stop|restart，actor=master，不构建）。
+path: direct/server

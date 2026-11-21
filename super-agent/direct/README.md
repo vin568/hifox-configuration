@@ -10,4 +10,13 @@
 - 新增能力 = 本目录加脚本 + 用例 + 走 git 提交；不进 git 的脚本视为不存在。
 - 禁止放置：删除类、安装类、读凭证类脚本（直连硬禁区，写了也不会被执行）。
 
-当前清单：空。首个白名单脚本按真实需求添加，不预制占位。
+当前清单：
+
+| 脚本 | 能力 | 边界 |
+|---|---|---|
+| `worktree` | 本仓 git worktree 的增删查（根仓 + 子模块同名特性分支） | 只建/删 worktree；不 push、不合并、不切主检出 |
+| `server` | 常驻 serve 生命周期：`status` / `start` / `stop` / `restart` | 只动 serve 进程；actor=master；永不 build、不改配置/凭证、不碰主控会话 |
+
+`server` 的其余动词（包括 `logs`、`build`）不在白名单内：日志排查是只读动作，走
+`super-agent/bin/superctl server logs` 由人执行；构建只由用户或维护员跑
+`super-agent/build`（ADR 0036）。
