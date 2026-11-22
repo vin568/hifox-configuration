@@ -4,7 +4,7 @@
 
 **决策：**
 
-- **唯一白名单动作**：新增 `super-agent/direct/server`（`status|start|stop|restart`），登记 `capabilities/scripts/server.yaml`；只有宋江可执行，石秀/安道全的运行时禁令不变。`direct/server` 用绝对路径调用，不依赖主控 pane 的 cwd。
+- **唯一白名单动作**：新增 `super-agent/direct/server`（`status|start|stop|restart`），登记 `capabilities/scripts/server.yaml`；只有宋江可执行，石秀/安道全的运行时禁令不变。`direct/server` 用绝对路径调用，不依赖主控 pane 的 cwd；该绝对路径由首条注入的「直连脚本目录」给出（框架解析 `direct_dir`），实例手册不写死机器路径。
 - **动作边界**：
   - `status`：随时可查，只读。
   - `start` / `stop`：只在用户明确指示时执行。

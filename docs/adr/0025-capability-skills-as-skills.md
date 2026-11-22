@@ -1,3 +1,5 @@
+> **修订（2026-11-22，框架 ADR 0007 / 本仓 ADR 0037）**：`agent-report` 已删除，作业 agent 的回报纪律改由框架角色契约注入；共享池当前有 `dispatch-envelope`（主控与朱贵共同挂载的协议技能）与 `direct-tiers`（主控与复盘者共同挂载的审计判据）。
+
 # ADR 0025：能力技能用标准 SKILL.md，位置即归属
 
 `super-agent/capabilities/skills/` 下原先有三份能力文档（`direct-tiers`、`local-agents`、`platform-dispatch`），是宋江做「亲自跑命令 / 派人 / 派平台活」时的纪律来源。它们一直是**私有形态**：`capability.yaml`（key/name/description/whenToUse）+ `doc.md`，注册表索引里给一条绝对路径，主控要自己判断什么时候去 `read` 那一篇。

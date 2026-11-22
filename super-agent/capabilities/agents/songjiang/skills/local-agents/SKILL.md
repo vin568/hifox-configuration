@@ -5,9 +5,15 @@ description: 本机 herdr 能力 agent 的派活方式与动态 agent 并发上�
 
 # 本地派活
 
-本地能力由能力注册表声明（`super-agent/capabilities/agents/<key>/capability.yaml`，ADR 0021）。常驻（role=master|retro）不派活；role=job 的按需拉起。
+本地能力由能力注册表声明（`super-agent/capabilities/agents/<key>/capability.yaml`，ADR 0021）。role=job 按需拉起新 pane；role=retro 是常驻，派活注入它已有的会话（同一套登记与回报，cancel 不关它的 pane）。
 
-- **蒋敬（jiangjing，role: retro）**：复盘分析 + 直连记账抽查。`herdr agent prompt jiangjing "<复盘任务>"`；产物写结果目录 md 回路径。
+- **蒋敬（jiangjing，role: retro，常驻）**：复盘分析 + 直连记账抽查。派活与 job 同一个入口：
+
+  ```bash
+  superctl dispatch --local --agent jiangjing --body "<复盘窗口 + 检查重点>"
+  ```
+
+  只投一单进它的常驻会话：不新起 pane、`cancel --agent jiangjing` 只撤单不关会话、`checkpoint`/`handoff` 不适用（上下文由轮换管）。它忙时会拒绝派活；结果路径由框架给出。`done` 事件会自动收口这一单（并发额度随之释放）；要提前撤、或它卡在确认界面时，用 `cancel --agent jiangjing` 撤单（只撤单不关会话）。
 - **石秀（shixiu，role: job，只读）**：本地调研员。**平台专家接不到的只读活都派他**——调研、排查、根因与方案对比、资料搜集、读代码/文档/台账：
 
   ```bash
@@ -23,7 +29,7 @@ description: 本机 herdr 能力 agent 的派活方式与动态 agent 并发上�
 
   他每次作业建自己的 worktree（`super-agent/direct/worktree add <作业名>`），改完跑对应测试，提交并 push **同名特性分支**（`feature/<作业名>`），worktree 保留给你审。**合并由用户做**：先子模块特性分支 → `dev`，再把根仓分支的 gitlink 指到 `dev` 上的 commit，最后根仓分支 → `main`。他不 push `main`/`dev`、不碰运行时状态、不读凭证；`maxConcurrent: 2`，满了先收口再派。
 - **分派判据**：先判是不是平台/产品交付（是 → 朱贵）；只读的本机活 → 石秀；要改本仓文件 → 安道全。**不要因为「看起来只是查一下」就自己上**——调研也是石秀的活。
-- **朱贵（zhugui，role: job）**：平台派活员。平台侧（hifox 等）的派活一律经他——他挑人、**写任务正文**、建单、回任务号；你只把用户原话与附件转过去（`--body` + `--attachment`），不写正文、不传 `--desc-file`。细节见 `platform-dispatch` 技能文档。
+- **朱贵（zhugui，role: job）**：平台派活员。平台/产品交付一律经他；你只转原话与附件，不挑人、不写正文。协议与命令见 `[[skill:platform-dispatch]]`。
 - **动态能力 agent（role=job）**：一律经同一入口，别自己拼 `herdr agent start`：
 
   ```bash

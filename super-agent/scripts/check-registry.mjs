@@ -219,6 +219,158 @@ export function checkOffline({ platforms, configSets, configAgents, environments
   return problems;
 }
 
+// ---------- 能力技能与手册的文本不变量 ----------
+
+// SKILL_REF 是手册/技能里引用另一个技能的唯一允许写法（ADR 0037）：裸技能名会
+// 在改名后静默腐烂，锚定格式才能被检查器验。
+const SKILL_REF = /\[\[skill:([a-z0-9-]+)\]\]/g;
+
+// MACHINE_PATH 抓写死的本机绝对路径（/Users/<人>/…、/home/<人>/…）。路径是机制
+// 事实，由框架首条注入给出（ADR 0007）；手册里写死会换机/换用户即失效——主控的
+// pane cwd 也可能是旧工作树，绝对路径必须来自注入而不是抄一份。`/Users/...` 这种
+// 省略写法是反例说明，不在此列（要求路径段后还有 `/`）。
+const MACHINE_PATH = /\/(?:Users|home)\/[^/\s`'"）)]+\//;
+
+// checkCapabilityDocs 检查本地运行时的能力集：
+//  1. `[[skill:<name>]]` 必须命中实例内存在的技能；文档所属 agent 还必须已挂载它
+//     （专属目录自动挂载，共享技能看 skills.yaml）。
+//  2. 同一规范化正文行（≥24 字）不得在两处重复：SKILL.md 之间、手册之间、手册与
+//     技能之间都算——「一个事实只许有一份」跨形态成立。标题、frontmatter、代码块
+//     不参与比较（模板内容天然会重复）。
+//  3. 手册/技能里不得出现机器绝对路径（`/Users/…`、`/home/…`）：那条路径只该在
+//     首条注入里出现一次，写进文档等于抄了一份会腐烂的真值。
+//
+//  3. 同一字段的闭集声明（`字段：A | B | C` 形态）只许出现一次。逐字比较拦不住
+//     改写过的漂移：实测主控手册写「Bug / 需求 / 未指定」、协议技能写四值，逐字
+//     门禁放行了一整轮。闭集只有一个宿主，其余地方引用。
+//
+// 手册也纳入，是因为只查技能时实测漏过一次：主控手册的类型闭集写三值、协议技能
+// 写四值，两边都没报错，漂移活了整整一轮。
+//
+// 只看本地能力目录；平台侧技能由 x-deploy 管理，不在这里（ADR 0037 的范围）。
+export function checkCapabilityDocs(root) {
+  const capRoot = join(root, "super-agent", "capabilities");
+  const problems = [];
+
+  const shared = new Map(); // key -> SKILL.md 路径
+  for (const key of listDirs(join(capRoot, "skills"))) {
+    const p = join(capRoot, "skills", key, "SKILL.md");
+    if (existsSync(p)) shared.set(key, p);
+  }
+
+  const agents = new Map(); // key -> { dir, own: Map, declared: Set }
+  for (const key of listDirs(join(capRoot, "agents"))) {
+    const dir = join(capRoot, "agents", key);
+    const own = new Map();
+    for (const s of listDirs(join(dir, "skills"))) {
+      const p = join(dir, "skills", s, "SKILL.md");
+      if (existsSync(p)) own.set(s, p);
+    }
+    const declared = new Set();
+    const skillsYaml = join(dir, "skills.yaml");
+    if (existsSync(skillsYaml)) {
+      const body = readYaml(skillsYaml);
+      if (Array.isArray(body)) for (const k of body) declared.add(String(k));
+    }
+    agents.set(key, { dir, own, declared });
+  }
+
+  const allOwnKeys = new Set();
+  for (const a of agents.values()) for (const k of a.own.keys()) allOwnKeys.add(k);
+
+  const label = (p) => relative(root, p);
+  const checkRefs = (path, scope) => {
+    if (!existsSync(path)) return;
+    const text = readFileSync(path, "utf8");
+    if (MACHINE_PATH.test(text)) {
+      problems.push(`${label(path)}：写死了本机绝对路径「${text.match(MACHINE_PATH)[0]}…」——路径由首条注入给出，文档里只引用注入项（ADR 0007）`);
+    }
+    for (const m of text.matchAll(SKILL_REF)) {
+      const name = m[1];
+      if (!shared.has(name) && !allOwnKeys.has(name)) {
+        problems.push(`${label(path)}：引用的技能 "${name}" 不存在（应放在 capabilities/skills/${name}/ 或某 agent 的 skills/${name}/）`);
+        continue;
+      }
+      if (!scope) continue;
+      const a = agents.get(scope);
+      if (!a.own.has(name) && !a.declared.has(name)) {
+        problems.push(`${label(path)}：引用的技能 "${name}" 没有挂载给 ${scope}（加到 ${scope} 的 skills.yaml，或改引用）`);
+      }
+    }
+  };
+
+  for (const [key, a] of agents) {
+    checkRefs(join(a.dir, "instructions.md"), key);
+    for (const p of a.own.values()) checkRefs(p, key);
+  }
+  for (const p of shared.values()) checkRefs(p, null);
+
+  // 重复正文行：规范化（去空白）后按长度过滤，避开短句与列表符号造成的噪声。
+  const seen = new Map(); // norm -> { label, text }
+  const scanDoc = (path) => {
+    const text = readFileSync(path, "utf8")
+      .replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "")
+      .replace(/```[\s\S]*?```/g, "");
+    for (const raw of text.split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line || line.startsWith("#")) continue;
+      const norm = line.replace(/\s+/g, "");
+      if (norm.length < 24) continue;
+      const here = label(path);
+      const prev = seen.get(norm);
+      if (!prev) {
+        seen.set(norm, { label: here, text: line });
+        continue;
+      }
+      if (prev.label === here) continue;
+      const key = `${prev.label}\u0000${here}\u0000${norm}`;
+      if (reported.has(key)) continue;
+      reported.add(key);
+      problems.push(`${prev.label} 与 ${here}：正文重复（一个事实只许有一份）：「${line.slice(0, 48)}」`);
+    }
+  };
+  const reported = new Set();
+
+  // 闭集声明的单一宿主：`字段：甲 | 乙 | 丙`。相同字段第二次以这种形态出现即漂移，
+  // 不管取值是否一致——改写版（`甲 / 乙`）与扩充版（多一个取值）都会被拦下。
+  const closedSets = new Map(); // 字段名 -> { label, line }
+  const scanEnums = (path) => {
+    if (!existsSync(path)) return;
+    const here = label(path);
+    for (const raw of readFileSync(path, "utf8").split(/\r?\n/)) {
+      const m = raw.trim().match(/^[-*\s]*([^：:（(`]{1,12})[：:]\s*([^|]+\|.+)$/);
+      if (!m) continue;
+      const field = m[1].replace(/\s+/g, "");
+      const line = raw.trim();
+      const prev = closedSets.get(field);
+      if (!prev) {
+        closedSets.set(field, { label: here, line });
+        continue;
+      }
+      if (prev.label === here) continue;
+      problems.push(
+        `${prev.label} 与 ${here}：字段「${field}」的闭集声明出现两次（一个事实只许有一份）：` +
+          `「${prev.line.slice(0, 40)}」/「${line.slice(0, 40)}」`,
+      );
+    }
+  };
+
+  for (const p of shared.values()) {
+    scanDoc(p);
+    scanEnums(p);
+  }
+  for (const a of agents.values()) {
+    scanDoc(join(a.dir, "instructions.md"));
+    scanEnums(join(a.dir, "instructions.md"));
+    for (const p of a.own.values()) {
+      scanDoc(p);
+      scanEnums(p);
+    }
+  }
+
+  return problems;
+}
+
 // ---------- 线上真值 ----------
 
 function hifoxJson(args, org = "") {
@@ -370,6 +522,7 @@ function main(argv) {
   const root = rootIndex >= 0 ? resolve(argv[rootIndex + 1] || ".") : DEFAULT_ROOT;
   const data = collect(root);
   const problems = checkOffline(data);
+  problems.push(...checkCapabilityDocs(root));
   if (args.has("--live")) problems.push(...checkLive(data));
 
   if (!args.has("--no-framework")) {

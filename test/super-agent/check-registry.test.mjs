@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import {
+  checkCapabilityDocs,
   checkLiveWith,
   checkOffline,
   collect,
@@ -237,4 +238,125 @@ test("recordChecks reports an organization mismatch", () => {
   };
   const live = { id: "a1", name: "戴宗", spaceIds: ["space-1"], allowTaskAssignment: true };
   assert.match(recordChecks(env, [live], pointers).join("\n"), /org 是/);
+});
+
+// ---------- 能力集文本不变量（ADR 0037） ----------
+
+// docsFixture 造一棵本地能力目录：一个主控、一个作业 agent、一个共享协议技能。
+function docsFixture() {
+  const root = mkdtempSync(join(tmpdir(), "cap-docs-"));
+  write(root, "super-agent/capabilities/agents/master/capability.yaml",
+    "key: master\nname: 主控\nrole: master\nworkspace: master\nkind: omp\n");
+  write(root, "super-agent/capabilities/agents/master/instructions.md",
+    "# 主控\n\n按 [[skill:proto]] 执行。\n");
+  write(root, "super-agent/capabilities/agents/master/skills.yaml", "- proto\n");
+  write(root, "super-agent/capabilities/agents/worker/capability.yaml",
+    "key: worker\nname: 工人\nrole: job\nworkspace: jobs\nkind: omp\n");
+  write(root, "super-agent/capabilities/agents/worker/instructions.md", "# 工人\n");
+  write(root, "super-agent/capabilities/skills/proto/SKILL.md",
+    "---\nname: proto\ndescription: 协议\n---\n\n# 协议\n\n只放接口字段与取值。\n");
+  return root;
+}
+
+test("capability docs: declared shared skill reference passes", () => {
+  const root = docsFixture();
+  t_cleanup(root);
+  assert.deepEqual(checkCapabilityDocs(root), []);
+});
+
+test("capability docs: reference to an unmounted skill is drift", () => {
+  const root = docsFixture();
+  t_cleanup(root);
+  write(root, "super-agent/capabilities/agents/worker/instructions.md", "# 工人\n\n按 [[skill:proto]] 执行。\n");
+  assert.match(checkCapabilityDocs(root).join("\n"), /没有挂载给 worker/);
+  // 声明后即通过：挂载清单是 skills.yaml 的唯一职责。
+  write(root, "super-agent/capabilities/agents/worker/skills.yaml", "- proto\n");
+  assert.deepEqual(checkCapabilityDocs(root), []);
+});
+
+test("capability docs: reference to a missing skill is drift", () => {
+  const root = docsFixture();
+  t_cleanup(root);
+  write(root, "super-agent/capabilities/agents/master/instructions.md", "# 主控\n\n按 [[skill:no-such]] 执行。\n");
+  assert.match(checkCapabilityDocs(root).join("\n"), /引用的技能 "no-such" 不存在/);
+});
+
+test("capability docs: own skill can be referenced without declaration", () => {
+  const root = docsFixture();
+  t_cleanup(root);
+  write(root, "super-agent/capabilities/agents/worker/skills/research/SKILL.md",
+    "---\nname: research\ndescription: 调研\n---\n\n# 调研\n\n只读方法。\n");
+  write(root, "super-agent/capabilities/agents/worker/instructions.md", "# 工人\n\n按 [[skill:research]] 执行。\n");
+  assert.deepEqual(checkCapabilityDocs(root), []);
+});
+
+test("capability docs: duplicate body lines across skills are drift", () => {
+  const root = docsFixture();
+  t_cleanup(root);
+  const line = "同一段纪律不应该在两个技能里各写一份，这会让改名和维护都漂移。";
+  write(root, "super-agent/capabilities/agents/worker/skills/alpha/SKILL.md",
+    `---\nname: alpha\ndescription: a\n---\n\n# alpha\n\n${line}\n`);
+  write(root, "super-agent/capabilities/agents/worker/skills/beta/SKILL.md",
+    `---\nname: beta\ndescription: b\n---\n\n# beta\n\n${line}\n`);
+  assert.match(checkCapabilityDocs(root).join("\n"), /正文重复/);
+});
+
+// 机器路径不是实例知识：写死在手册/技能里，换机、换检出即失效；正确形态是从首条
+// 注入的「直连脚本目录」拼绝对路径。省略写法（`/Users/...`）是反例说明，不该误报。
+test("capability docs: hardcoded machine path is drift", () => {
+  const root = docsFixture();
+  t_cleanup(root);
+  write(root, "super-agent/capabilities/agents/master/instructions.md",
+    "# 主控\n\n```bash\n/Users/vin/code/repo/super-agent/direct/server status\n```\n");
+  assert.match(checkCapabilityDocs(root).join("\n"), /写死了本机绝对路径/);
+
+  write(root, "super-agent/capabilities/agents/master/instructions.md",
+    "# 主控\n\n任务正文里不贴 `/Users/...` 这类机器路径。\n");
+  assert.deepEqual(checkCapabilityDocs(root), []);
+});
+
+test("capability docs: headings and code fences are not duplicate candidates", () => {
+  const root = docsFixture();
+  t_cleanup(root);
+  const body = "这是一行放在代码块里的长命令模板，重复出现是正常的，不该被当成纪律复制。";
+  write(root, "super-agent/capabilities/agents/worker/skills/alpha/SKILL.md",
+    `---\nname: alpha\ndescription: a\n---\n\n# 同样的标题\n\n\`\`\`bash\n${body}\n\`\`\`\n`);
+  write(root, "super-agent/capabilities/agents/worker/skills/beta/SKILL.md",
+    `---\nname: beta\ndescription: b\n---\n\n# 同样的标题\n\n\`\`\`bash\n${body}\n\`\`\`\n`);
+  assert.deepEqual(checkCapabilityDocs(root), []);
+});
+
+// 手册也必须参与重复检查：只查技能时实测漏过一次——主控手册写类型三值、协议技能写
+// 四值，两边都没报错，漂移活了一整轮。这条钉住「手册与技能之间同样不得复制」。
+test("capability docs: manual restating a skill line is drift", () => {
+  const root = docsFixture();
+  t_cleanup(root);
+  const line = "类型闭集是 Bug、需求、任务、未指定四个值，不要自己按标题猜。";
+  write(root, "super-agent/capabilities/skills/proto/SKILL.md",
+    `---\nname: proto\ndescription: 协议\n---\n\n# 协议\n\n${line}\n`);
+  assert.deepEqual(checkCapabilityDocs(root), [], "技能里的那一行本身不该报");
+  write(root, "super-agent/capabilities/agents/worker/instructions.md", `# 工人\n\n${line}\n`);
+  assert.match(checkCapabilityDocs(root).join("\n"), /正文重复/);
+});
+
+// 两份手册之间复制同一段纪律，同样是漂移：这是重构前 checkpoint 段在石秀/朱贵
+// 手册里逐字重复的那个形态。
+test("capability docs: duplicate lines across two manuals are drift", () => {
+  const root = docsFixture();
+  t_cleanup(root);
+  const line = "收到 checkpoint 指令时先把进度写进进度文件，再结束回合，不要继续任务。";
+  write(root, "super-agent/capabilities/agents/master/instructions.md", `# 主控\n\n${line}\n`);
+  write(root, "super-agent/capabilities/agents/worker/instructions.md", `# 工人\n\n${line}\n`);
+  assert.match(checkCapabilityDocs(root).join("\n"), /正文重复/);
+});
+
+// 闭集声明只许有一个宿主。逐字重复门禁拦不住改写过的漂移：实测主控手册写
+// 「Bug / 需求 / 未指定」、协议技能写四值，两边都没报错。
+test("capability docs: same closed set declared twice is drift", () => {
+  const root = docsFixture();
+  t_cleanup(root);
+  write(root, "super-agent/capabilities/skills/proto/SKILL.md",
+    "---\nname: proto\ndescription: 协议\n---\n\n# 协议\n\n类型：Bug | 需求 | 任务 | 未指定\n");
+  write(root, "super-agent/capabilities/agents/worker/instructions.md", "# 工人\n\n类型：Bug | 需求 | 未指定\n");
+  assert.match(checkCapabilityDocs(root).join("\n"), /字段「类型」的闭集声明出现两次/);
 });
