@@ -1,0 +1,4 @@
+# 平台默认派活参数：没有点名承接 agent 的建单（只指派负责人）从这里取组织与 Space。
+# org 必须写完整 UUID（slug 会被平台判 404）；space 用 Space 标识符。
+org: 86555f76-3f5b-4f7a-93c6-406074110a59
+space: HF

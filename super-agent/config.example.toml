@@ -43,10 +43,11 @@ allowed_users = ["ou_replace_me"]
 # 代答群：群内 @ 白名单成员（而非 @bot）也放行，按代答处理。
 proxy_reply_groups = []
 
-# 全收群：所有消息放行（慎用）。
-any_message_groups = []
+# 实例主人在平台侧的身份（hifox 成员邮箱或 member:<id>）：平台任务默认负责人。
+# 不写死人名；留空时只能靠 --assignee 点名负责人。
+owner_member = ""
 
-# bot 自己的 open_id（识别 @bot 用；建好自建应用后从开发者后台取，留空则只靠白名单/全收群）。
+# bot 自己的 open_id（识别 @bot 用；建好自建应用后从开发者后台取，留空则群里收不到 @bot）。
 bot_open_id = ""
 
 # 私聊通知兜底会话：急停回执与 blocked 提醒的落点；填你与 bot 的 chat_id。

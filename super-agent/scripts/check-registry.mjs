@@ -81,8 +81,14 @@ export function platformNameMatches(declared, platformName) {
 export function collect(root) {
   const capRoot = join(root, "super-agent", "capabilities");
   const platforms = [];
+  const platformDefaults = [];
   for (const platform of listDirs(join(capRoot, "platforms"))) {
     for (const file of listFiles(join(capRoot, "platforms", platform))) {
+      if (file === "defaults.yaml") { // 平台默认派活参数，不是能力指针
+        const body = readYaml(join(capRoot, "platforms", platform, file));
+        if (body) platformDefaults.push({ platform, ...body });
+        continue;
+      }
       const key = file.replace(/\.ya?ml$/, "");
       if (key === file) continue; // 不是 yaml
       const body = readYaml(join(capRoot, "platforms", platform, file));
@@ -116,15 +122,27 @@ export function collect(root) {
     });
   }
 
-  return { platforms, configSets, configAgents, environments };
+  return { platforms, platformDefaults, configSets, configAgents, environments };
 }
 
 // ---------- 离线对账 ----------
 
 // checkOffline 返回给人读的问题列表。规则都来自本仓 ADR 0023（指针 ↔ config 双向同步）
 // 与 ADR 0033（environment 的字段名）。
-export function checkOffline({ platforms, configSets, configAgents, environments }) {
+export function checkOffline({ platforms, platformDefaults = [], configSets, configAgents, environments }) {
   const problems = [];
+  // defaults.yaml 是「点名负责人、不派 agent」建单的默认 org/space；它必须与同平台
+  // 能力指针的 org 一致，否则显式负责人建单会落到另一个组织。
+  for (const d of platformDefaults) {
+    if (d.org && !isOrgUUID(d.org)) {
+      problems.push(`platforms/${d.platform}/defaults.yaml：org 不是完整 UUID（${d.org}）`);
+    }
+    for (const p of platforms.filter((x) => x.platform === d.platform && x.org)) {
+      if (d.org && p.org !== d.org) {
+        problems.push(`platforms/${d.platform}/defaults.yaml：org 与 ${p.key}.yaml 不一致（${d.org} != ${p.org}）`);
+      }
+    }
+  }
 
   // 平台归属：environment.yaml 的 cli.app + configSet 共同决定「哪个平台覆盖哪个集合」。
   // 推不出平台就没有可对账的对象——如实报一条，别静默跳过。

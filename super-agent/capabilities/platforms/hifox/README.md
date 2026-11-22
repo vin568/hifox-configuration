@@ -17,4 +17,5 @@ note: 发布验收（按被测 commit 跑黑盒验收套件）
 - 一项一条，**与 `config/` 双向一一对应**：该平台覆盖的每个配置集合里加 / 删 / 改 agent，必须同步本目录（`name` 指同一身份、任一 `environments/*/state.yaml` 有部署记录）——`npm run check` 强制，`npm run check:live` 再对平台核一遍（ADR 0023；框架的 `capabilities --check` 只管框架不变量，ADR 0002 / 0034）。
 - `space` 用 Space **标识符**（`HF` / `AF`），不要写展示名——`HiFox` 同时匹配「HiFox 产研」「HiFox 运营」，CLI 会判歧义。
 - `org` 只在跨组织派活时需要；`hifox agent list` 只列当前组织，所以解析平台 ref 前要切到该组织（`HIFOX_ORGANIZATION_ID`）。**写完整 UUID**：`HIFOX_ORGANIZATION_ID=rayfox` 这类 slug 会被平台判 404 `ORGANIZATION_NOT_FOUND`（2026-11 实测），slug 只用于人读——别写进这里。
+- `defaults.yaml` 是本平台的**默认派活参数**（`org` + `space`），给「点名了负责人、没派 agent」的建单用；它不是能力指针，`npm run check` 不对它做 agent 对应校验，`capabilities --check` 也不会把它当条目。
 - 本目录只放「人读索引 + 派活参数」，不复制平台的声明。

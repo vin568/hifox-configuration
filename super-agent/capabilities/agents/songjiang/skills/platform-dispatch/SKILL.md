@@ -9,6 +9,10 @@ description: 平台（hifox / sharkly / 远程 ssh）任务的派发、查询、
 
 你的活只有三件：**转发原话、带上附件、读结果**（再加上盯进度、按用户裁决撤销）。**你不写任务正文、不拟模板**——那一步在朱贵那边，他离建单最近，也不会让用户等你的长篇整理。
 
+信封还要带**来源**：注入里的 `来源会话 <chat_id>` 与 `话题 <thread_id>` 原样抄进 `来源：` 字段。运行时会用来源日志补发起人订阅，并把任务来源写进在途清单；成员问本群进度时只列来源匹配的任务。**不要自己解析 open_id 或发送者名字。**
+
+**负责人**：默认就是主人，信封不写负责人；用户明确点名其他人时，在信封写 `负责人：<姓名/邮箱>`——朱贵只建单、不派 agent，由对方自己指派。
+
 **平台 ≠ hifox**：platform 指一个远端执行面——今天是 hifox（将来 sharkly、远程 ssh 主机上的 agent）。命令与目录都按 `--platform <名>` / `capabilities/platforms/<平台>/` 命名，别把 hifox 当同义词。
 
 口径：本仓 `config/` 已声明的 agent 即全部平台能力，未声明即不存在（ADR 0017）。要新平台能力 → 提案 → 用户批准 → 加 config 声明；**声明了必须同步到 `super-agent/capabilities/platforms/<平台>/`**（ADR 0023，`npm run check` 强制，`npm run check:live` 再对平台核一遍）。能力索引是你的「知道有谁」，不是派活路径——挑人是朱贵的职责。
@@ -34,7 +38,17 @@ description: 平台（hifox / sharkly / 远程 ssh）任务的派发、查询、
 
 类型是你唯一要做的判断，闭集与判据见 `[[skill:dispatch-envelope]]`。**别按标题猜**：HF-16095 标题写了 `[bug]`、类型却是需求，承接人打开就看到一个标错的单。拿不准就别填。
 
-## 四、派活命令
+## 四、回帖锚点（群/话题）
+
+群里回帖要挂在触发消息下，否则读者看不出在答哪条，话题群里还会开新话题：
+
+```bash
+superctl reply --chat <chat_id> --reply-to <注入里的「消息」id> --text "<一句话>"
+```
+
+话题消息会自动落进话题；普通群是平铺引用。私聊不用 `--reply-to`。需要背着群私聊用户拍板时用 `superctl reply --admin --text …`。
+
+## 五、派活命令
 
 ```bash
 # 派（唯一入口：起本地派活员 → 他写正文、建单、登记在途清单）
@@ -56,7 +70,7 @@ superctl dispatch --local --agent zhugui \
 
 **回用户一句话带链接**（结果文件的 `- 链接：` 行，朱贵从 `dispatch` 的 JSON `url` 抄来的，如 `https://app.hifox.com/rayfox/task/HF-16095`）：「已建好 <类型>，跟着看：<链接>」——用户点得进去才叫交付；`build_notes` 里有失败项时补一句「图还在补」，别只说「已创建」。
 
-## 五、复查与跟踪
+## 六、复查与跟踪
 
 - 正文归档在 `briefs/<任务号>.md`（运行时建的稳定副本，与平台一致）：要核对「这单到底写了什么」读它，不用开网页。
 - 真值三件套：`hifox task view <任务号> --output json`（status / delegateStatus / agentWorkingStatus）、`hifox run list --task <任务号>`。
@@ -65,7 +79,7 @@ superctl dispatch --local --agent zhugui \
 
 层级语义：`prod` = 远端名不带后缀的那一份，`staging` = 带实例后缀的那一份；层级写进信封，朱贵负责落到 `--instance`，结果文件里的 `层级` 是他**实际建到**的那一层。
 
-## 六、承接人在等用户回答
+## 七、承接人在等用户回答
 
 承接人把问题问在任务对话里，会话置 `waiting_human_reply`（等你回答）或 `waiting_human_review`（等你验收）后结束回合——哨兵会点名这两态（变化时与首见都在内），并给出带平台的 `answer` 命令。
 

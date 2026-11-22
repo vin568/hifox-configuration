@@ -31,6 +31,8 @@ function fixture() {
   const root = mkdtempSync(join(tmpdir(), "registry-check-"));
   write(root, "super-agent/capabilities/platforms/hifox/daizong.yaml",
     "key: daizong\nname: 戴宗\nspace: HF\norg: 86555f76-3f5b-4f7a-93c6-406074110a59\n");
+  write(root, "super-agent/capabilities/platforms/hifox/defaults.yaml",
+    "org: 86555f76-3f5b-4f7a-93c6-406074110a59\nspace: HF\n");
   write(root, "config/hifox/agents/daizong/agent.yaml", "key: daizong\nname: 戴宗\n");
   write(root, "environments/prod/environment.yaml",
     "organization: rayfox\nspace: HF\nconfigSet: hifox\ncli:\n  app: hifox\n");
@@ -44,6 +46,15 @@ test("healthy fixture has no problems", () => {
   t_cleanup(root);
   const problems = checkOffline(collect(root));
   assert.deepEqual(problems, []);
+});
+
+test("defaults org must match every pointer org", () => {
+  const root = fixture();
+  t_cleanup(root);
+  write(root, "super-agent/capabilities/platforms/hifox/defaults.yaml",
+    "org: e6bd5e4c-f6eb-4772-ba43-24702e4c8563\nspace: HF\n");
+  const problems = checkOffline(collect(root));
+  assert.match(problems.join("\n"), /defaults\.yaml：org 与 daizong\.yaml 不一致/);
 });
 
 test("missing pointer for a declared config agent is drift", () => {
