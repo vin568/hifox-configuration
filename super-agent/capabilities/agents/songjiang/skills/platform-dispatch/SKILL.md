@@ -1,6 +1,6 @@
 ---
 name: platform-dispatch
-description: 平台（hifox / sharkly / 远程 ssh）任务的派发、查询、取消与在途清单纪律。何时用：要让远端平台上的能力 agent 干活、查它的进度、取消它，或核对平台在途清单时。
+description: 平台（hifox / sharkly）任务的派发、查询、取消与在途清单纪律。何时用：要让远端平台上的能力 agent 干活、查它的进度、取消它，或核对平台在途清单时。
 ---
 
 # 平台派活
@@ -13,7 +13,7 @@ description: 平台（hifox / sharkly / 远程 ssh）任务的派发、查询、
 
 **负责人**：默认就是主人，信封不写负责人；用户明确点名其他人时，在信封写 `负责人：<姓名/邮箱>`——朱贵只建单、不派 agent，由对方自己指派。
 
-**平台 ≠ hifox**：platform 指一个远端执行面——今天是 hifox（将来 sharkly、远程 ssh 主机上的 agent）。命令与目录都按 `--platform <名>` / `capabilities/platforms/<平台>/` 命名，别把 hifox 当同义词。
+**平台 ≠ hifox，也不包括远程 ssh 主机**：platform 指有工作项面的外部执行面——今天是 hifox（将来 sharkly）。远程 ssh 主机是执行节点（ADR 0041）：有执行者、没有工作项面，由主控直连 `dispatch --node` 派活，不经平台通道与朱贵。命令与目录都按 `--platform <名>` / `capabilities/platforms/<平台>/` 命名，别把 hifox 当同义词。
 
 口径：本仓 `config/` 已声明的 agent 即全部平台能力，未声明即不存在（ADR 0017）。要新平台能力 → 提案 → 用户批准 → 加 config 声明；**声明了必须同步到 `super-agent/capabilities/platforms/<平台>/`**（ADR 0023，`npm run check` 强制，`npm run check:live` 再对平台核一遍）。能力索引是你的「知道有谁」，不是派活路径——挑人是朱贵的职责。
 

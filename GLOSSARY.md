@@ -161,11 +161,15 @@ _Avoid_: 分类器（不是独立模型）、置信度（不是概率阈值判�
 _Avoid_: 主控（那是框架里的角色词）、super agent（那是机制/框架）
 
 **平台（Platform）**:
-本机派活的一个远端执行面，取值就是平台 CLI 应用名——今天是 `hifox`，将来会有 `sharkly`，再往后还有远程 ssh 主机上的 agent（另一形态）。能力指针按平台分目录（`super-agent/capabilities/platforms/<平台>/`），派活按 `superctl dispatch --platform <名>` 走；层级（prod / staging）是平台内实例的选择，与平台无关。平台能力口径 = 本仓 `config/` 已声明的 agent，未声明即不存在。
-_Avoid_: 云端（平台不止云上，且这个词会把 hifox 当同义词）、hifox（那只是一个平台）
+有执行者的外部工作项面：工作项（任务号、状态、订阅）与承接 agent 住在同一个外部产品里，取值就是平台 CLI 应用名——今天是 `hifox`，将来会有 `sharkly`。能力指针按平台分目录（`super-agent/capabilities/platforms/<平台>/`），派活按 `superctl dispatch --platform <名>` 走；层级（prod / staging）是平台内实例的选择，与平台无关。平台能力口径 = 本仓 `config/` 已声明的 agent，未声明即不存在。只有工作项、没有执行者的面（如单独接 Linear）是跟踪面，不是平台。
+_Avoid_: 云端（平台不止云上，且这个词会把 hifox 当同义词）、hifox（那只是一个平台）、执行节点（节点有执行者、没有工作项面）
+
+**执行节点（Node）**:
+远端 herdr server 作为执行面：有执行者、没有工作项面；与本地 herdr 同属 agent 通道，节点只是位置维度。节点不跑运行时、不是第二主控；agent 配方仍以本机能力注册表为唯一真源，节点声明只放位置与路径根，可去该节点的 agent 由 agent 自己的 `targets` 声明（无通配），派活由主控直连 `superctl dispatch --node`。
+_Avoid_: 远程平台（平台有工作项面）、云端、第二主控、远程实例
 
 **平台派活员（Dispatcher / 朱贵 zhugui）**:
-本机 herdr 里的 job agent：承接主控的派活请求，读平台能力索引挑承接 agent、把层级转成 `--instance prod|staging`、经 `superctl dispatch --platform` 建单，把任务号写进结果文件。平台（hifox / 将来的 sharkly、远程 ssh 主机）的细节归它，主控不挑人、不解析平台 ref（ADR 0023）。用户点名其他负责人时，它只建单、不派 agent（ADR 0040）。
+本机 herdr 里的 job agent：承接主控的派活请求，读平台能力索引挑承接 agent、把层级转成 `--instance prod|staging`、经 `superctl dispatch --platform` 建单，把任务号写进结果文件。平台（hifox / 将来的 sharkly）的细节归它，主控不挑人、不解析平台 ref（ADR 0023）；执行节点的派活不经它。用户点名其他负责人时，它只建单、不派 agent（ADR 0040）。
 _Avoid_: 平台运维（它只派活，不运维）、吴用（那是人对平台的飞书对话入口）
 
 **负责人（Assignee）**:

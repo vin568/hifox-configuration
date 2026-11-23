@@ -1,0 +1,11 @@
+key: dev-macbook-pro
+name: 工作机
+ssh: developers-macbook-pro
+machine: dev-macbook-pro
+session: agents
+# instance_root 可选：声明了技能的 agent 才需要节点上的同一份布局。
+# 该机尚未检出本仓；若将来检出到下面路径，再取消注释：
+# instance_root: /Users/developer/code/apifox/hifox-configuration/super-agent
+state_root: /Users/developer/.local/state/songjiang
+work_dir: /Users/developer
+note: herdr 0.9.5 已就绪；仓库未检出（另有 /Users/developer/code/sharkly）

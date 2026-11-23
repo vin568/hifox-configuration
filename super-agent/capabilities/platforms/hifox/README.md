@@ -2,7 +2,7 @@
 
 一项一文件：`<key>.yaml` 指向本仓 `config/` 里已声明的、部署在 **hifox 平台**上的 agent。**真源仍是 `config/`**，这里只放主控需要的「人读索引 + 派活参数」。
 
-平台目录名 = 平台 CLI 应用名（`environments/*/environment.yaml` 的 `cli.app`）。当前仓只有 `hifox` 一个平台：`config/hifox` 与 `config/apifox` 两个配置集合都部署在它上面，靠 Space 区分（`HF` = HiFox 产研、`AF` = Apifox 产研）。将来会有 `platforms/sharkly/`，将来远程 ssh 主机上的 agent 另立形态——**别把 hifox 说成「云端」**。
+平台目录名 = 平台 CLI 应用名（`environments/*/environment.yaml` 的 `cli.app`）。当前仓只有 `hifox` 一个平台：`config/hifox` 与 `config/apifox` 两个配置集合都部署在它上面，靠 Space 区分（`HF` = HiFox 产研、`AF` = Apifox 产研）。将来会有 `platforms/sharkly/`；远程 ssh 主机不属于平台，是执行节点（ADR 0041）——**别把 hifox 说成「云端」，也别把远程主机说成平台**。
 
 ```yaml
 key: daizong                                 # 必须等于文件名主干

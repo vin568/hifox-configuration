@@ -4,13 +4,15 @@
 // rule (not the live repo) is what's under test.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import {
   checkCapabilityDocs,
   checkLiveWith,
+  checkNodes,
+  checkNodesLive,
   checkOffline,
   collect,
   isOrgUUID,
@@ -46,6 +48,58 @@ test("healthy fixture has no problems", () => {
   t_cleanup(root);
   const problems = checkOffline(collect(root));
   assert.deepEqual(problems, []);
+});
+
+test("node requires a saved herdr machine profile", () => {
+  const root = fixture();
+  t_cleanup(root);
+  write(root, "super-agent/capabilities/nodes/workbox.yaml",
+    "key: workbox\nssh: workbox\nmachine: workbox\nsession: super-agent\ninstance_root: /srv/inst\nstate_root: /srv/state\nwork_dir: /srv/repo\n");
+  const data = collect(root);
+  assert.equal(data.nodes.length, 1);
+  const profile = { id: "0123456789abcdef0123456789abcdef", label: "workbox", target: "workbox", session: "super-agent" };
+  assert.deepEqual(checkNodes(data.nodes, [profile]), []);
+  assert.deepEqual(checkNodes(data.nodes, { machines: [profile] }), []);
+  const problems = checkNodes(data.nodes, []);
+  assert.match(problems.join("\n"), /machine list 里没有 profile/);
+});
+
+test("a label match from another profile is not a saved machine", () => {
+  const root = fixture();
+  t_cleanup(root);
+  write(root, "super-agent/capabilities/nodes/work.yaml",
+    "key: work\nssh: work\nmachine: work\nsession: super-agent\ninstance_root: /srv/inst\nstate_root: /srv/state\nwork_dir: /srv/repo\n");
+  const data = collect(root);
+  // 子串命中（work ⊂ workbox）不能当成 profile 存在。
+  const problems = checkNodes(data.nodes, [{ label: "workbox", target: "workbox", session: "super-agent" }]);
+  assert.match(problems.join("\n"), /没有 profile "work"/);
+});
+
+test("node profile target and session must match the declaration", () => {
+  const root = fixture();
+  t_cleanup(root);
+  write(root, "super-agent/capabilities/nodes/workbox.yaml",
+    "key: workbox\nssh: workbox\nmachine: workbox\nsession: super-agent\ninstance_root: /srv/inst\nstate_root: /srv/state\nwork_dir: /srv/repo\n");
+  const data = collect(root);
+  const problems = checkNodes(data.nodes, [
+    { id: "workbox", target: "other-host", session: "other-session" },
+  ]).join("\n");
+  assert.match(problems, /SSH target 是 "other-host"/);
+  assert.match(problems, /session 是 "other-session"/);
+});
+
+test("checkNodesLive fails closed on unreachable profiles", () => {
+  const nodes = [{ key: "workbox", machine: "workbox" }];
+  assert.deepEqual(checkNodesLive(nodes, () => JSON.stringify([{ reachable: true }])), []);
+  assert.match(checkNodesLive(nodes, () => JSON.stringify([{ reachable: false }])).join("\n"), /不可达/);
+  assert.deepEqual(checkNodesLive(nodes, () => JSON.stringify([
+    { label: "other", reachable: false }, { label: "workbox", reachable: true },
+  ])), []);
+  assert.match(checkNodesLive(nodes, () => JSON.stringify([
+    { label: "other", reachable: true }, { label: "workbox", reachable: false },
+  ])).join("\n"), /不可达/);
+  assert.match(checkNodesLive(nodes, () => "[]").join("\n"), /没有返回该 profile/);
+  assert.match(checkNodesLive(nodes, () => "not-json").join("\n"), /失败/);
 });
 
 test("defaults org must match every pointer org", () => {
@@ -234,6 +288,27 @@ test("CLI exits 2 when yq is unavailable", () => {
   rmSync(emptyPath, { recursive: true, force: true });
   assert.equal(out.status, 2, out.stderr);
   assert.match(out.stderr, /yq/);
+});
+
+// 有节点声明但机器没装 herdr（CI/新检出）：声明照查，profile 对账跳过并提示；
+// 不能让「没装探测工具」变成一条假的漂移。
+test("CLI skips node profile check when herdr is absent", () => {
+  const root = fixture();
+  t_cleanup(root);
+  write(root, "super-agent/capabilities/nodes/workbox.yaml",
+    "key: workbox\nssh: workbox\nmachine: workbox\nsession: super-agent\ninstance_root: /srv/inst\nstate_root: /srv/state\nwork_dir: /srv/repo\n");
+  const yq = spawnSync("which", ["yq"], { encoding: "utf8" }).stdout.trim();
+  assert.ok(yq, "需要 yq 才能跑实例自检用例");
+  const bin = mkdtempSync(join(tmpdir(), "only-yq-"));
+  symlinkSync(yq, join(bin, "yq"));
+  const script = new URL("../../super-agent/scripts/check-registry.mjs", import.meta.url).pathname;
+  const out = spawnSync(process.execPath, [script, "--root", root, "--no-framework"], {
+    encoding: "utf8",
+    env: { ...process.env, PATH: bin },
+  });
+  rmSync(bin, { recursive: true, force: true });
+  assert.equal(out.status, 0, out.stderr);
+  assert.match(out.stderr, /未安装 herdr/);
 });
 
 

@@ -106,6 +106,15 @@ export function collect(root) {
     }
   }
 
+  // 执行节点（ADR 0041）：只收声明，profile 与在线状态在 checkNodes/check:live 里核。
+  const nodes = [];
+  for (const file of listFiles(join(capRoot, "nodes"))) {
+    const key = file.replace(/\.ya?ml$/, "");
+    if (key === file) continue; // README 等非声明文件
+    const body = readYaml(join(capRoot, "nodes", file));
+    if (body) nodes.push({ key, ...body });
+  }
+
   const environments = [];
   for (const name of listDirs(join(root, "environments"))) {
     const dir = join(root, "environments", name);
@@ -122,7 +131,7 @@ export function collect(root) {
     });
   }
 
-  return { platforms, platformDefaults, configSets, configAgents, environments };
+  return { platforms, platformDefaults, configSets, configAgents, environments, nodes };
 }
 
 // ---------- 离线对账 ----------
@@ -530,6 +539,97 @@ function runFrameworkCheck(root) {
   return out.trim();
 }
 
+// machineRows 把 `herdr machine list --json` 的两种返回形态（数组 / 单对象）归一。
+// 直接 JSON.stringify + includes 会把别的 profile 的 label 当成命中，也会漏掉
+// target/session 不一致——ADR 0041 要求逐字段核对。
+function machineRows(machines) {
+  if (Array.isArray(machines)) return machines;
+  if (Array.isArray(machines?.machines)) return machines.machines;
+  if (Array.isArray(machines?.result?.machines)) return machines.result.machines;
+  if (machines && typeof machines === "object") return [machines];
+  return [];
+}
+
+function rowProfileIds(row) {
+  return [row.id, row.profile_id].filter((v) => typeof v === "string" && v);
+}
+
+function rowMatchesMachine(row, machine) {
+  return rowProfileIds(row).includes(machine) || row.label === machine;
+}
+
+function rowSSHTarget(row) {
+  return typeof row.target === "string" ? row.target
+    : typeof row.ssh === "string" ? row.ssh : "";
+}
+
+// checkNodes 校验节点声明与本地 herdr saved machine 的对齐（ADR 0041）。离线：
+// profile 必须存在，且 target 与 ssh、session 与 profile 一致；在线：checkNodesLive
+// 再探可达性。在线状态永不写进声明。
+export function checkNodes(nodes, machines) {
+  const problems = [];
+  const rows = machineRows(machines);
+  for (const n of nodes || []) {
+    if (!n.machine) continue; // 框架 Check 已报缺字段，这里不重复
+    const row = rows.find((r) => r && rowMatchesMachine(r, n.machine));
+    if (!row) {
+      problems.push(`nodes/${n.key}.yaml：herdr machine list 里没有 profile ${JSON.stringify(n.machine)}（先 herdr machine add）`);
+      continue;
+    }
+    if (n.ssh) {
+      const target = rowSSHTarget(row);
+      if (!target) {
+        problems.push(`nodes/${n.key}.yaml：profile ${JSON.stringify(n.machine)} 没有 SSH target，无法核对 ssh ${JSON.stringify(n.ssh)}`);
+      } else if (target !== n.ssh) {
+        problems.push(`nodes/${n.key}.yaml：profile ${JSON.stringify(n.machine)} 的 SSH target 是 ${JSON.stringify(target)}，与 ssh ${JSON.stringify(n.ssh)} 不一致`);
+      }
+    }
+    if (n.session) {
+      if (typeof row.session !== "string" || !row.session) {
+        problems.push(`nodes/${n.key}.yaml：profile ${JSON.stringify(n.machine)} 没有 session，无法核对 ${JSON.stringify(n.session)}`);
+      } else if (row.session !== n.session) {
+        problems.push(`nodes/${n.key}.yaml：profile ${JSON.stringify(n.machine)} 的 session 是 ${JSON.stringify(row.session)}，与声明的 ${JSON.stringify(n.session)} 不一致`);
+      }
+    }
+  }
+  return problems;
+}
+
+// checkNodesLive 是 --live 的在线探测：转发面从不启动/安装/重启远端 server，
+// 不可达就是失败，由人处理。status 是测试缝（默认调 herdr machine status）。
+export function checkNodesLive(nodes, status) {
+  const problems = [];
+  const probe = status || ((machine) => execFileSync(
+    "herdr", ["machine", "status", machine, "--json"],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+  ));
+  for (const n of nodes || []) {
+    if (!n.machine) continue;
+    let rows;
+    try {
+      rows = machineRows(JSON.parse(probe(n.machine)));
+    } catch (err) {
+      const detail = String(err.stderr || err.message || "").trim().split("\n")[0];
+      problems.push(`nodes/${n.key}.yaml：herdr machine status ${JSON.stringify(n.machine)} 失败（${detail}）`);
+      continue;
+    }
+    if (rows.length === 0) {
+      problems.push(`nodes/${n.key}.yaml：herdr machine status ${JSON.stringify(n.machine)} 没有返回该 profile`);
+      continue;
+    }
+    const matches = rows.filter((r) => r && rowMatchesMachine(r, n.machine));
+    const selected = matches.length > 0 ? matches : rows.length === 1 ? rows : [];
+    if (selected.length === 0) {
+      problems.push(`nodes/${n.key}.yaml：herdr machine status ${JSON.stringify(n.machine)} 没有返回该 profile`);
+      continue;
+    }
+    if (selected.some((r) => r && r.reachable === false)) {
+      problems.push(`nodes/${n.key}.yaml：profile ${JSON.stringify(n.machine)} 不可达（machine status reachable=false）`);
+    }
+  }
+  return problems;
+}
+
 function main(argv) {
   const args = new Set(argv);
   if (args.has("-h") || args.has("--help")) {
@@ -541,6 +641,25 @@ function main(argv) {
   const data = collect(root);
   const problems = checkOffline(data);
   problems.push(...checkCapabilityDocs(root));
+  if ((data.nodes || []).length > 0) {
+    let machines = [];
+    let herdrAvailable = true;
+    try {
+      machines = JSON.parse(execFileSync("herdr", ["machine", "list", "--json"], { encoding: "utf8" }));
+    } catch (err) {
+      if (err.code === "ENOENT") {
+        herdrAvailable = false;
+        console.error("提示：未安装 herdr，跳过节点 profile 对账（只校验声明）");
+      } else {
+        problems.push(`nodes：无法读取 herdr machine list（${err.message}）`);
+      }
+    }
+    if (herdrAvailable) problems.push(...checkNodes(data.nodes, machines));
+    if (args.has("--live")) {
+      if (!herdrAvailable) problems.push("nodes：--live 需要 herdr（machine status）");
+      else problems.push(...checkNodesLive(data.nodes));
+    }
+  }
   if (args.has("--live")) problems.push(...checkLive(data));
 
   if (!args.has("--no-framework")) {
