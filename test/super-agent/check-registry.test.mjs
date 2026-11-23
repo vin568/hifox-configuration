@@ -64,6 +64,18 @@ test("node requires a saved herdr machine profile", () => {
   assert.match(problems.join("\n"), /machine list 里没有 profile/);
 });
 
+test("self node skips the saved-machine profile check", () => {
+  const root = fixture();
+  t_cleanup(root);
+  write(root, "super-agent/capabilities/nodes/self.yaml",
+    "key: self\nssh: self\nmachine: self\nsession: super-agent\nidentity: LOCAL-ID\ninstance_root: /srv/inst\nstate_root: /srv/state\nwork_dir: /srv/repo\n");
+  const data = collect(root);
+  // 本机节点用本地执行面，不需要 herdr machine add 自己（ADR 0042）。
+  assert.deepEqual(checkNodes(data.nodes, [], "LOCAL-ID"), []);
+  assert.deepEqual(checkNodesLive(data.nodes, () => "not-json", "LOCAL-ID"), []);
+  assert.match(checkNodes(data.nodes, [], "OTHER-ID").join("\n"), /没有 profile/);
+});
+
 test("a label match from another profile is not a saved machine", () => {
   const root = fixture();
   t_cleanup(root);

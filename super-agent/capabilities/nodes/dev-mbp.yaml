@@ -1,11 +1,18 @@
-key: dev-macbook-pro
+key: dev-mbp
 name: 工作机
 ssh: developers-macbook-pro
 machine: dev-macbook-pro
 session: agents
+identity: D8CAF52B-FF87-5E08-B1CC-5ACD0E5C53DC
 # instance_root 可选：声明了技能的 agent 才需要节点上的同一份布局。
 # 该机尚未检出本仓；若将来检出到下面路径，再取消注释：
 # instance_root: /Users/developer/code/apifox/hifox-configuration/super-agent
 state_root: /Users/developer/.local/state/songjiang
 work_dir: /Users/developer
+limits:
+  # 32GB/8 核；阈值按相对值，换机器时不用改绝对值。
+  mem_available_pct: 10
+  load_per_cpu: 2
+  agents: 8
+  disk_available_pct: 5
 note: herdr 0.9.5 已就绪；仓库未检出（另有 /Users/developer/code/sharkly）

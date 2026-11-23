@@ -563,13 +563,40 @@ function rowSSHTarget(row) {
     : typeof row.ssh === "string" ? row.ssh : "";
 }
 
+// localIdentity 读当前机器的稳定标识（ADR 0042）。判断「这条声明是不是本机节点」：
+// 本机节点不走 herdr machine profile（自己连自己），profile 检查必须跳过它。
+export function localIdentity() {
+  try {
+    if (existsSync("/etc/machine-id")) {
+      return readFileSync("/etc/machine-id", "utf8").trim();
+    }
+  } catch {
+    // 继续按 macOS 读
+  }
+  try {
+    const out = execFileSync("ioreg", ["-rd1", "-c", "IOPlatformExpertDevice"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    const m = out.match(/"IOPlatformUUID"\s*=\s*"([^"]+)"/);
+    return m ? m[1] : "";
+  } catch {
+    return "";
+  }
+}
+
+// isSelfNode 判定声明是否属于当前机器：identity 非空且相等。
+export function isSelfNode(node, identity) {
+  return Boolean(node && node.identity && identity && node.identity === identity);
+}
+
 // checkNodes 校验节点声明与本地 herdr saved machine 的对齐（ADR 0041）。离线：
 // profile 必须存在，且 target 与 ssh、session 与 profile 一致；在线：checkNodesLive
 // 再探可达性。在线状态永不写进声明。
-export function checkNodes(nodes, machines) {
+export function checkNodes(nodes, machines, identity) {
   const problems = [];
   const rows = machineRows(machines);
+  const selfId = identity === undefined ? localIdentity() : identity;
   for (const n of nodes || []) {
+    if (isSelfNode(n, selfId)) continue; // 本机节点不走 --machine（ADR 0042）
     if (!n.machine) continue; // 框架 Check 已报缺字段，这里不重复
     const row = rows.find((r) => r && rowMatchesMachine(r, n.machine));
     if (!row) {
@@ -597,13 +624,15 @@ export function checkNodes(nodes, machines) {
 
 // checkNodesLive 是 --live 的在线探测：转发面从不启动/安装/重启远端 server，
 // 不可达就是失败，由人处理。status 是测试缝（默认调 herdr machine status）。
-export function checkNodesLive(nodes, status) {
+export function checkNodesLive(nodes, status, identity) {
   const problems = [];
+  const selfId = identity === undefined ? localIdentity() : identity;
   const probe = status || ((machine) => execFileSync(
     "herdr", ["machine", "status", machine, "--json"],
     { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
   ));
   for (const n of nodes || []) {
+    if (isSelfNode(n, selfId)) continue; // 本机节点不需要可达探测（ADR 0042）
     if (!n.machine) continue;
     let rows;
     try {

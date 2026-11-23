@@ -6,3 +6,8 @@ workspace: jobs
 kind: omp
 args: []
 maxConcurrent: 5
+# 石秀去节点是为了「在那台机器上调研」：位置是任务语义的一部分，不参与自动择节点。
+placement: pinned
+targets:
+  - local
+  - dev-mbp

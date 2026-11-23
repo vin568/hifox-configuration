@@ -13,7 +13,7 @@ super-agent/
 ├── bin/superctl         # 稳定入口（构建产物，gitignore；runtime_cmd 与受管 serve 都用它）
 ├── capabilities/        # 能力声明（目录即注册表）：agents/ skills/ scripts/ platforms/<平台>/ nodes/
 │                        #   platforms/<平台>/defaults.yaml = 平台默认 org/space（不指定承接 agent 的建单用）
-│                        #   nodes/<key>.yaml = 远端执行节点（寻址制；见 ADR 0041）
+│                        #   nodes/<key>.yaml = 执行节点（寻址制；本机节点可选；ADR 0041/0042）
 ├── direct/              # 直连白名单脚本（ADR 0019 第 2 级；当前 worktree + server）
 ├── scripts/             # 本实例自检（框架不认识 config/ 与 environments/，跨仓对账在这里）
 ├── config.example.toml  # 实例配置样例；实际配置在 ~/.config/super-agent/superctl.toml
@@ -93,7 +93,7 @@ SUPERAGENT_CONFIG="$tmp/superctl.toml" ./super-agent/bin/superctl outbox list --
 ## 边界提醒
 
 - 主控与吴用分面（ADR 0017）：两个 bot 两套台账，互不同步。群/话题的服务边界、回复锚点、任务负责人/发起人/来源见本仓 ADR 0038–0040。平台派活员朱贵是第三面（本机 job agent，机器入口，ADR 0023）：主控不挑人、不解析平台 ref。
-- 主控不自己干活：平台/产品交付 → 朱贵；本机**只读**活（调研、排查、资料搜集）→ 石秀（ADR 0027）；**改本仓文件的活** → 安道全（ADR 0035，worktree 里开发、只 push 自己的特性分支）；远端执行节点由主控直连 `dispatch --node`，不经朱贵/平台通道（ADR 0041）。
+- 主控不自己干活：平台/产品交付 → 朱贵；本机**只读**活（调研、排查、资料搜集）→ 石秀（ADR 0027）；**改本仓文件的活** → 安道全（ADR 0035，worktree 里开发、只 push 自己的特性分支）；执行节点由主控直连 `dispatch --node`（钉死）或 `dispatch --auto`（按准入阈值自动择节点），不经朱贵/平台通道（ADR 0041/0042）。
 - `config/<集合>/agents/<key>` 声明与 `capabilities/platforms/<平台>/<key>.yaml` 双向一一对应（同步规矩，ADR 0023），由本实例的 `npm run check` 强制（框架 `capabilities --check` 只管框架不变量）。
 - 密钥只走环境变量，不进配置文件、台账、结果文件（密钥卫生）。
 - `direct/` 白名单按需添加，不预制占位脚本。
