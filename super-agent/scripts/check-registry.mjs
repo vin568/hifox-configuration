@@ -131,7 +131,12 @@ export function collect(root) {
     });
   }
 
-  return { platforms, platformDefaults, configSets, configAgents, environments, nodes };
+  // 哨兵盲区的显式豁免（在途差集检查用）。它必须住在清单之外：在途清单就是
+  // 哨兵的视野，「在清单里但标不跟踪」自相矛盾——框架不读 note，照样轮询、照样注入事件。
+  const untrackedBody = readYaml(join(root, "super-agent", "untracked.yaml")) || {};
+  const untracked = Array.isArray(untrackedBody.tasks) ? untrackedBody.tasks : [];
+
+  return { platforms, platformDefaults, configSets, configAgents, environments, nodes, untracked };
 }
 
 // ---------- 离线对账 ----------
@@ -451,8 +456,91 @@ export function recordChecks(env, agents, pointersByKey) {
   return problems;
 }
 
-// checkLiveWith 是注入版（测试用）：io.listOrgs / listSpaces / listAgents。
-export function checkLiveWith({ platforms, environments }, io) {
+// ---------- 在途差集：平台已指派、哨兵却看不见 ----------
+
+// INFLIGHT_TERMINAL 是「不该再被跟踪」的平台状态类别：completed / canceled /
+// duplicate / backlog（最后两个是用户有意搁置，与 sentinel 的 parkedTask 同口径）。
+const INFLIGHT_TERMINAL = /^(completed|canceled|cancelled|duplicate|backlog)$/i;
+
+// loadInflightTaskIDs 读在途清单里的平台任务号。清单是运行时状态（state_dir），
+// 不是本仓文件：路径从实例配置解析，读不到就返回 null 让调用方明说跳过——把
+// 「读不到清单」和「清单是空的」混为一谈，差集就会把所有在途单当漏登。
+export function loadInflightTaskIDs(configPath) {
+  if (!configPath) return null;
+  let stateDir = "";
+  try {
+    stateDir = execFileSync("yq", ["-p=toml", "-o=json", ".state_dir"], {
+      input: readFileSync(configPath),
+      encoding: "utf8",
+    }).trim();
+    stateDir = JSON.parse(stateDir);
+  } catch {
+    return null;
+  }
+  if (typeof stateDir !== "string" || !stateDir) return null;
+  const expanded = stateDir.replace(/^~(?=\/|$)/, process.env.HOME || "~");
+  const file = join(expanded, "inflight.json");
+  if (!existsSync(file)) return null;
+  try {
+    const entries = JSON.parse(readFileSync(file, "utf8") || "[]");
+    if (!Array.isArray(entries)) return null;
+    // kind 缺失或为 cloud 的旧条目也是平台条目（框架 Load 的归一规则）：这里只认
+    // task_id 非空，别因为 kind 写法旧就把它算成漏登。
+    return new Set(entries.map((e) => e?.task_id).filter((t) => typeof t === "string" && t));
+  } catch {
+    return null;
+  }
+}
+
+// inflightDiff 是在 live 检查里补的那条规则：平台侧 delegateStatus=assigned 且未完结的
+// 单，若既不在在途清单、也没登记进 untracked.yaml，哨兵就永远看不见它——停滞、拒执、
+// 疑似卡死三类事件都不会报。实测 HF-16321/16322/16324/16325 四张单这样静默了十小时。
+//
+// 作用域按「承接人是我们部署的 agent」收窄（delegate.id ∈ 部署记录）：组织里有几百张
+// 指派给别人的单，全量报错只会被人忽略。**父单也纳入**：HF-16321 自己 delegate 为空，
+// 但它是 16322/16324/16325 的父单且同样 assigned+未完结——只按 delegate 收窄会漏掉
+// 事故四张里的一张。纯函数，注入版便于测试。
+export function inflightDiff({ tasks, inflight, untracked, deployedAgentIDs }) {
+  const problems = [];
+  if (inflight === null) {
+    return ["在途差集：读不到实例配置或在途清单（--config 指 superctl.toml，或运行时未注册），跳过本轮差集检查"];
+  }
+  const untrackedSet = new Set(untracked.map(String));
+  const ours = new Set(deployedAgentIDs.map(String));
+  const open = (t) => String(t.delegateStatus || "") === "assigned"
+    && !INFLIGHT_TERMINAL.test(String(t.status?.category || t.category || "").toLowerCase());
+  const delegatedToUs = (t) => ours.size > 0 && ours.has(String(t.delegate?.id || t.delegate_id || ""));
+  const leaks = new Set();
+  const consider = (t) => {
+    const id = String(t.identifier || t.task_id || "");
+    if (!id || inflight.has(id) || untrackedSet.has(id)) return;
+    leaks.add(id);
+  };
+
+  // 父单先收：它们不挂在任何承接人身上，只能从子单反查。
+  const parentIDs = new Set();
+  for (const t of tasks) {
+    if (!open(t) || !delegatedToUs(t)) continue;
+    if (t.parentTaskId) parentIDs.add(String(t.parentTaskId));
+  }
+  for (const t of tasks) {
+    if (!open(t)) continue;
+    if (delegatedToUs(t) || parentIDs.has(String(t.id || ""))) consider(t);
+  }
+
+  if (leaks.size > 0) {
+    const list = [...leaks].sort();
+    problems.push(
+      `平台已指派但不在在途清单（哨兵看不见，停滞/拒执/卡死都不会报）：${list.join("、")}` +
+        `——修法：补登记进在途清单，或写进 super-agent/untracked.yaml 的 tasks（有意不跟踪）`,
+    );
+  }
+  return problems;
+}
+
+// checkLiveWith 是注入版（测试用）：io.listOrgs / listSpaces / listAgents /
+// listTasks(orgID) / inflightIDs / untracked。
+export function checkLiveWith({ platforms, environments, untracked = [] }, io) {
   const listOrgs = io.listOrgs;
   const listSpaces = io.listSpaces;
   const listAgents = io.listAgents;
@@ -507,6 +595,32 @@ export function checkLiveWith({ platforms, environments }, io) {
       ),
     );
   }
+
+  // 在途差集按组织各查一遍：平台侧「已指派且未完结」的单必须进哨兵视野。
+  // 部署记录里的 id 就是「我们部署的承接人」——差集只对它们收窄，免得上百张派给
+  // 别人的单把这条规则淹成噪声。
+  if (io.listTasks && io.inflightIDs) {
+    const deployedAgentIDs = [...new Set(environments.flatMap((e) => Object.values(e.agents || {}).map((a) => a.id)))];
+    const orgIDs = [...new Set(environments.filter((e) => e.platform === "hifox").map((e) => {
+      const org = orgs.find((o) => o.slug === e.organization || o.id === e.organization);
+      return org?.id;
+    }).filter(Boolean))];
+    for (const orgID of orgIDs) {
+      let tasks;
+      try {
+        tasks = io.listTasks(orgID);
+      } catch (err) {
+        problems.push(`org ${orgID}：task list 失败，在途差集未核（${err.message}）`);
+        continue;
+      }
+      problems.push(...inflightDiff({
+        tasks,
+        inflight: io.inflightIDs(),
+        untracked,
+        deployedAgentIDs,
+      }));
+    }
+  }
   return problems;
 }
 
@@ -516,7 +630,21 @@ export function checkLive(data) {
     listOrgs: () => hifoxJson(["organization", "list"]),
     listSpaces: () => hifoxJson(["space", "list"]),
     listAgents: (org) => hifoxJson(["agent", "list", "--include-archived"], org),
+    // 全组织的单一次拉：按 Space 拉会漏掉部署在别的 Space 的能力，按承接人拉
+    // 则是 N 个 id × 一次 CLI（实测 25 个 agent 要 40 秒）。组织内全量约 3 秒。
+    listTasks: (org) => hifoxJson(["task", "list", "--limit", "10000"], org),
+    inflightIDs: () => loadInflightTaskIDs(findInstanceConfig()),
   });
+}
+
+// findInstanceConfig 定位实例配置（差集要读 state_dir）。顺序与框架一致：
+// $SUPERAGENT_CONFIG > ~/.config/super-agent/superctl.toml。
+function findInstanceConfig() {
+  const explicit = process.env.SUPERAGENT_CONFIG;
+  if (explicit && existsSync(explicit)) return explicit;
+  const home = process.env.HOME || "";
+  const fallback = join(home, ".config", "super-agent", "superctl.toml");
+  return existsSync(fallback) ? fallback : "";
 }
 
 // ---------- CLI ----------

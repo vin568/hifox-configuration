@@ -16,6 +16,7 @@ super-agent/
 │                        #   nodes/<key>.yaml = 执行节点（寻址制；本机节点可选；ADR 0041/0042）
 ├── direct/              # 直连白名单脚本（ADR 0019 第 2 级；当前 worktree + server）
 ├── scripts/             # 本实例自检（框架不认识 config/ 与 environments/，跨仓对账在这里）
+├── untracked.yaml       # 有意不跟踪的平台任务号（在途差集检查的豁免表；check:live 报漏登时用它）
 ├── config.example.toml  # 实例配置样例；实际配置在 ~/.config/super-agent/superctl.toml
 └── README.md
 ```

@@ -15,8 +15,9 @@ bash <skill-dir>/scripts/worktree.sh remove <name> [--force]    # 自检干净�
 bash <skill-dir>/scripts/worktree.sh prune                      # 清理失联元数据
 ```
 
-- 只在主检出运行（linked worktree 内运行会报错）。worktree 目录是兄弟目录 `../hifox-configuration-<name>`，分支默认 `feature/<name>`（基于 main）；分支已存在则直接挂载该分支。
-- `add` 自动完成：`submodule update --init`（全部子模块）→ 对 `.gitmodules` 声明集成分支的子模块 `switch -c <根仓分支名> origin/<集成分支>` 建同名特性分支 → 从主检出复制机器本地的 `vendor/x-deploy/.env.e2e`（存在才复制）。
+- 只在主检出运行（linked worktree 内运行会报错）。worktree 目录是兄弟目录 `../hifox-configuration-<name>`，分支默认 `feature/<name>`；分支已存在则直接挂载该分支。
+- **基底钉远端，不取本地分支**：`add` 先 `git fetch --prune origin`，新分支从 `origin/<默认分支>`（`refs/remotes/origin/HEAD` 指向的那个）切出。本地默认分支可能停在几天前——实测停滞分支 0 ahead / 2 behind、照它切的特性分支一合就把已并的提交反向撤掉。**开单或复用前，根仓与要动的子模块各 fetch 一次，把基底 commit 与 behind 数写进结果第 1 行**（结论行末尾，形态 `基底 origin/main@1a2b3c4，behind 0`）。
+- `add` 自动完成：`submodule update --init`（全部子模块）→ 对 `.gitmodules` 声明集成分支的子模块先 `fetch origin <集成分支>`、再 `switch -c <根仓分支名> origin/<集成分支>` 建同名特性分支（不 fetch 就从克隆那刻的旧 tip 开分支，实测落后 5 个提交）→ 从主检出复制机器本地的 `vendor/x-deploy/.env.e2e`（存在才复制）。
 - **并行特性不混提交**：每个 worktree 的子模块 WIP 只落在自己的特性分支上，`origin/dev` 上只发生「已测绿特性的合并」（并回流程见下节）。
 - `remove` 先自检根仓与各子模块 `status --porcelain`，脏则拒绝并列出，确认丢弃用 `--force`（子模块特性分支未 push 时先 `git -C <sub> push -u origin <分支>`）；随后 `git worktree remove --force`（子模块在位时无 `--force` 一律 fatal，git 2.50 实测）。两类**预期脏**：子模块特性分支离开根仓 gitlink 使根仓显示 ` M vendor/x-deploy`；`npm install` 在子模块生成未跟踪 `package-lock.json`（仓内无 lockfile）——均为可丢弃工作产物，`--force` 移除即可。
 ## 子模块在 worktree 中的机制与并回流程（git 2.50 实测）

@@ -15,7 +15,9 @@ import {
   checkNodesLive,
   checkOffline,
   collect,
+  inflightDiff,
   isOrgUUID,
+  loadInflightTaskIDs,
   nameMatches,
   platformNameMatches,
   recordChecks,
@@ -457,4 +459,180 @@ test("capability docs: same closed set declared twice is drift", () => {
     "---\nname: proto\ndescription: 协议\n---\n\n# 协议\n\n类型：Bug | 需求 | 任务 | 未指定\n");
   write(root, "super-agent/capabilities/agents/worker/instructions.md", "# 工人\n\n类型：Bug | 需求 | 未指定\n");
   assert.match(checkCapabilityDocs(root).join("\n"), /字段「类型」的闭集声明出现两次/);
+});
+
+// ---------- 在途差集：平台已指派、哨兵却看不见 ----------
+
+// 平台侧 delegateStatus=assigned 且未完结的单，若不在在途清单里，哨兵看不见、停滞检测
+// 永远不报。实测 HF-16321/16322/16324/16325 四张单这样静默了十小时——所以这条规则
+// 的存在价值就是「一批单同时漏登时出错」，不是逐张盯。
+
+const OUR_AGENT = "1bb5f895-01c8-4915-a495-4ad6c6368523";
+const OTHER_AGENT = "99999999-9999-4999-8999-999999999999";
+
+function task(id, { category = "started", delegateStatus = "assigned", delegate = OUR_AGENT } = {}) {
+  return {
+    identifier: id,
+    status: { category },
+    delegateStatus,
+    delegate: delegate ? { type: "agent", id: delegate } : null,
+  };
+}
+
+test("inflight diff: empty diff passes", () => {
+  assert.deepEqual(inflightDiff({
+    tasks: [task("HF-1"), task("HF-2")],
+    inflight: new Set(["HF-1", "HF-2"]),
+    untracked: [],
+    deployedAgentIDs: [OUR_AGENT],
+  }), []);
+});
+
+test("inflight diff: a delegated open task missing from the list is drift", () => {
+  const problems = inflightDiff({
+    tasks: [task("HF-1"), task("HF-16321"), task("HF-16322"), task("HF-16324"), task("HF-16325")],
+    inflight: new Set(["HF-1"]),
+    untracked: [],
+    deployedAgentIDs: [OUR_AGENT],
+  }).join("\n");
+  // 任务号必须逐个列出：只说「有漏登」等于让人自己去翻平台。
+  for (const id of ["HF-16321", "HF-16322", "HF-16324", "HF-16325"]) assert.match(problems, new RegExp(id));
+  assert.doesNotMatch(problems, /HF-1[、—]/);
+});
+
+// 豁免表是「有意不跟踪」的唯一入口：登记后该轮不再报错，其余漏登照样报。
+test("inflight diff: explicitly untracked tasks are not drift", () => {
+  assert.deepEqual(inflightDiff({
+    tasks: [task("HF-1")],
+    inflight: new Set(),
+    untracked: ["HF-1"],
+    deployedAgentIDs: [OUR_AGENT],
+  }), []);
+
+  const problems = inflightDiff({
+    tasks: [task("HF-1"), task("HF-2")],
+    inflight: new Set(),
+    untracked: ["HF-1"],
+    deployedAgentIDs: [OUR_AGENT],
+  }).join("\n");
+  assert.match(problems, /HF-2/);
+  assert.doesNotMatch(problems, /HF-1[、—]/);
+});
+
+// 终态与搁置状态不进差集：completed / canceled 是收口，duplicate / backlog 是用户
+// 有意搁置（与 sentinel 的 parkedTask 同口径）。把这些报成漏登会让规则天天告警。
+test("inflight diff: terminal and parked categories are never drift", () => {
+  assert.deepEqual(inflightDiff({
+    tasks: [
+      task("HF-1", { category: "completed" }),
+      task("HF-2", { category: "canceled" }),
+      task("HF-3", { category: "duplicate" }),
+      task("HF-4", { category: "backlog" }),
+    ],
+    inflight: new Set(),
+    untracked: [],
+    deployedAgentIDs: [OUR_AGENT],
+  }), []);
+});
+
+// 没派出去的单（delegateStatus 不是 assigned）与别家 agent 的单不属于哨兵的视野：
+// 组织里有几百张，全报只会把这条规则淹成噪声。
+test("inflight diff: only our delegated tasks are in scope", () => {
+  assert.deepEqual(inflightDiff({
+    tasks: [
+      task("HF-1", { delegateStatus: "needs_reassignment" }),
+      task("HF-2", { delegateStatus: null }),
+      task("HF-3", { delegate: OTHER_AGENT }),
+      task("HF-4", { delegate: null }),
+    ],
+    inflight: new Set(),
+    untracked: [],
+    deployedAgentIDs: [OUR_AGENT],
+  }), []);
+});
+
+// 读不到在途清单与「清单为空」必须分开：说成漏登会让人去追几十张本来就在跟踪的单。
+test("inflight diff: unreadable inflight list says so instead of reporting every task", () => {
+  const problems = inflightDiff({
+    tasks: [task("HF-1")],
+    inflight: null,
+    untracked: [],
+    deployedAgentIDs: [OUR_AGENT],
+  }).join("\n");
+  assert.match(problems, /读不到实例配置或在途清单/);
+  assert.doesNotMatch(problems, /HF-1/);
+});
+
+// config -> state_dir -> inflight.json 这条链要真的走通（yq 读 TOML + ~ 展开）；
+// 任何一环断掉都返回 null，交给上层说「跳过」，不冒充满清单。
+test("loadInflightTaskIDs resolves state_dir from the instance config", () => {
+  const root = mkdtempSync(join(tmpdir(), "inflight-"));
+  t_cleanup(root);
+  const stateDir = join(root, "state");
+  mkdirSync(stateDir);
+  writeFileSync(join(stateDir, "inflight.json"), JSON.stringify([
+    { kind: "platform", platform: "hifox", task_id: "HF-1" },
+    { kind: "local", agent: "worker-1" },
+    { kind: "cloud", task_id: "HF-2" }, // 旧形状：读入按平台条目归一
+  ]));
+  const cfg = join(root, "superctl.toml");
+  writeFileSync(cfg, `schema_version = 1\nsession = "s"\nstate_dir = "${stateDir}"\n`);
+  const ids = loadInflightTaskIDs(cfg);
+  assert.ok(ids instanceof Set);
+  assert.deepEqual([...ids].sort(), ["HF-1", "HF-2"]);
+
+  // 清单不存在、配置不存在、state_dir 是相对路径读不到：一律 null（明说跳过）。
+  writeFileSync(join(root, "empty.toml"), `session = "s"\n`);
+  assert.equal(loadInflightTaskIDs(join(root, "empty.toml")), null);
+  assert.equal(loadInflightTaskIDs(join(root, "nope.toml")), null);
+  assert.equal(loadInflightTaskIDs(""), null);
+});
+
+// 接线：checkLiveWith 必须把差集接进 --live 的结果里（规则写好了但没调用等于没做）。
+test("checkLiveWith reports the inflight diff through the live io", () => {
+  const data = {
+    platforms: [{ platform: "hifox", key: "daizong", name: "戴宗", space: "HF" }],
+    environments: [{
+      name: "prod", organization: "rayfox", space: "HF", configSet: "hifox", platform: "hifox",
+      agents: { daizong: { id: "a1", deployedName: "戴宗" } },
+    }],
+  };
+  const io = {
+    listOrgs: () => [{ id: "org-1", slug: "rayfox" }],
+    listSpaces: () => [{ id: "space-ours", identifier: "HF", organizationId: "org-1" }],
+    listAgents: () => [{ id: "a1", name: "戴宗", spaceIds: ["space-ours"], allowTaskAssignment: true }],
+    listTasks: () => [task("HF-9", { delegate: "a1" })],
+    inflightIDs: () => new Set(),
+  };
+  assert.match(checkLiveWith(data, io).join("\n"), /HF-9/);
+
+  // 登记进豁免表即通过——这条规则不该逼人只能靠「塞进在途清单」消警。
+  assert.deepEqual(checkLiveWith({ ...data, untracked: ["HF-9"] }, io), []);
+});
+
+// 父单不在任何承接人名下（delegate 为空），只能从子单反查。事故里 HF-16321 就是这种：
+// 自己 assigned + Todo，四个子单里三张派给林冲。只按 delegate 收窄会漏掉父单。
+test("inflight diff: a parent of a delegated task is in scope", () => {
+  const parent = {
+    id: "p1", identifier: "HF-16321", status: { category: "unstarted" },
+    delegateStatus: "assigned", delegate: null, parentTaskId: null,
+  };
+  const child = { ...task("HF-16322"), id: "c1", parentTaskId: "p1" };
+  const problems = inflightDiff({
+    tasks: [parent, child],
+    inflight: new Set(),
+    untracked: [],
+    deployedAgentIDs: [OUR_AGENT],
+  }).join("\n");
+  assert.match(problems, /HF-16321/);
+  assert.match(problems, /HF-16322/);
+
+  // 父单自己已收口时不报（子单仍在跟踪）。
+  const closed = { ...parent, status: { category: "completed" } };
+  assert.deepEqual(inflightDiff({
+    tasks: [closed, child],
+    inflight: new Set(["HF-16322"]),
+    untracked: [],
+    deployedAgentIDs: [OUR_AGENT],
+  }), []);
 });
