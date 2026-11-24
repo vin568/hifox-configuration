@@ -37,6 +37,11 @@ media_retention = "720h"
 # 已发送回帖在发件箱里的保留期（撤回依据）；0 = 永久保留。
 outbox_retention = "168h"
 
+# 注入健康判据（status 的 degraded）：连续失败达到阈值、且窗口内没有一次成功。
+# 默认 2 次 / 60s；启动时钉进 serve.json，status 用运行中进程的策略。
+inject_fail_threshold = 2
+inject_fail_window    = "60s"
+
 # 飞书放行面：open_id 白名单，私聊只放行白名单成员（其他人不注入）。
 allowed_users = ["ou_replace_me"]
 
