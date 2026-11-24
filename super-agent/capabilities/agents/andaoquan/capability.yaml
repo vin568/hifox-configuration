@@ -5,4 +5,4 @@ role: job
 workspace: jobs
 kind: omp
 args: []
-maxConcurrent: 2
+maxConcurrent: 3
