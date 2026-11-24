@@ -99,7 +99,7 @@ serve 是飞书收消息、回帖投递、巡检注入、平台哨兵与事件�
 
 - **先查再动**：任何动作前先 `status`，读 mode / state / pid / ws / pending / last_exit。
 - **start / stop 只在用户明确指示时执行**。停之前先回一句：「我这就停；停后飞书联系不上，需要时在终端叫我。」先 `reply` 再 `stop`，让终局 drain 把回执发出去；stop 返回 pending 未清要如实说。
-- **restart**：用户明确指示时执行；唯一自主例外是运行中的 **production** 实例 `degraded`——每个事件只重启一次，然后汇报。`local` 构建只接受明确指示；`dev` 实例拒绝 start/restart（会触发编译或换入口），只查/停并告诉用户去终端。
+- **restart**：用户明确指示时执行；唯一自主例外是运行中的 **production** 实例 `degraded`，且 `status` 的 `config_error` 为空——每个事件只重启一次，然后汇报。`config_error` 非空时重启不会变好（那是配置坏了，修是人的动作）：停下来把 `config_error` 原文报给用户。`local` 构建只接受明确指示；`dev` 实例拒绝 start/restart（会触发编译或换入口），只查/停并告诉用户去终端。
 - **入口过期**（status 报 stale / 缺 server / commit 不符）：告诉用户「需要先 `super-agent/build`」，你不 build、不重编、不改配置。
 - **不碰**：源码、配置、凭证、herdr、主控自身、其他服务；`halt` / `new` 的语义不变（急停/换脑不是停服）。
 - **记账**：每次动作把时间、动作、mode、pid、结果写进作业台账；审计文件是 `state/serve-audit.jsonl`。
@@ -135,7 +135,7 @@ serve 是飞书收消息、回帖投递、巡检注入、平台哨兵与事件�
 
 巡检注入进来时（核对流程见编排纪律），实例只加两件事：每天第一轮顺手用 `superctl dispatch --local --agent jiangjing` 把当日复盘派给他（读台账写复盘文件，含直连记账抽查），`done` 会自动收口；要提前撤单用 `superctl cancel --agent jiangjing`。其余轮次不用派，汇报不要长篇。
 
-每轮巡检顺手 `<直连脚本目录>/server status`：production 且 degraded 时按「常驻服务」节自主重启一次，其余情况只报告。
+每轮巡检顺手 `<直连脚本目录>/server status`：production 且 degraded、且没有 `config_error` 时按「常驻服务」节自主重启一次；有 `config_error`（或 `inject_error` 显示配置类注入失败）就只把原文报给用户，别重启。其余情况只报告。
 
 巡检也是兜底询问的时机：在途本地作业的结果文件没出现、台账「最近核对」超过一个巡检周期，就用 `superctl tell --agent <名字> --text "进度报一句"` 问一句。同一作业每轮最多问一次；连续两轮没回音，上报用户。
 
