@@ -11,9 +11,12 @@ super-agent/
 ├── superctl             # 开发期入口（go run；不要作为 runtime_cmd）
 ├── build                # 稳定入口构建：注入 build 戳，产出 bin/superctl
 ├── bin/superctl         # 稳定入口（构建产物，gitignore；runtime_cmd 与受管 serve 都用它）
-├── capabilities/        # 能力声明（目录即注册表）：agents/ skills/ scripts/ platforms/<平台>/ nodes/
+├── capabilities/        # 能力声明（目录即注册表）：agents/ skills/ projects/ scripts/ platforms/<平台>/ nodes/
 │                        #   platforms/<平台>/defaults.yaml = 平台默认 org/space（不指定承接 agent 的建单用）
 │                        #   nodes/<key>.yaml = 执行节点（寻址制；本机节点可选；ADR 0041/0042）
+│                        #   nodes/<key>/checkouts.yaml = 该机器上各项目的绝对路径（ADR 0043）
+│                        #   projects/<key>.yaml = 项目（仓库身份 + 基线；repo 缺省 = 目录型，只读）
+│                        #   agents/<key>/projects.yaml = 这个能力能碰哪些项目
 ├── direct/              # 直连白名单脚本（ADR 0019 第 2 级；当前 worktree + server）
 ├── scripts/             # 本实例自检（框架不认识 config/ 与 environments/，跨仓对账在这里）
 ├── untracked.yaml       # 有意不跟踪的平台任务号（在途差集检查的豁免表；check:live 报漏登时用它）
@@ -98,3 +101,4 @@ SUPERAGENT_CONFIG="$tmp/superctl.toml" ./super-agent/bin/superctl outbox list --
 - `config/<集合>/agents/<key>` 声明与 `capabilities/platforms/<平台>/<key>.yaml` 双向一一对应（同步规矩，ADR 0023），由本实例的 `npm run check` 强制（框架 `capabilities --check` 只管框架不变量）。
 - 密钥只走环境变量，不进配置文件、台账、结果文件（密钥卫生）。
 - `direct/` 白名单按需添加，不预制占位脚本。
+- 项目与检出（ADR 0043）：`capabilities/projects/<key>.yaml` 是机器无关的仓库身份，路径只写在 `nodes/<key>/checkouts.yaml`。`dispatch --project <key>` 默认只读；写作业显式 `--in-place`（原地写，脏树要 `--allow-dirty`）或 `--worktree <作业名>`（建作业工作区）。平台侧的仓库绑定仍是 `config/` 的 `agent.yaml`，两套互不相通。
