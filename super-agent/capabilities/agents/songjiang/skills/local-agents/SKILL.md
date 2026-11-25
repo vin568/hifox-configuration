@@ -51,6 +51,7 @@ description: 本机 herdr 与执行节点上的能力 agent 派活、动态并�
 
   `--auto` 只在 agent `targets` 覆盖的已声明节点里按准入阈值（内存/load/agent 数/磁盘）自动选择；能力声明 `placement: pinned` 时拒绝自动选择（位置本身就是任务语义，必须显式 `--node` / `--local`）。本机若声明为节点，`local` 与它的 key 等价。
   节点没有常驻 master/retro，只建 jobs；状态由运行时用 `agent wait` 盯，done/blocked 会注入事件。节点报告走 outbox 由运行时抽取（≤60s），结果/进度/brief 都在节点上，读用 `node read`。同名 agent 在多个位置（本机或节点）时必须带 `--node`。
+  节点上**没有主控机的文件系统**，材料一律由主控随派活推过去：`--attachment` 的附件落在节点 `state_root/attachments/<run>/`，技能与已登记的直连脚本落在 `state_root/jobs/<run>/material/`（ADR 0041 / 0043，机制细节见框架 ADR 0011）；节点不回头取，也没有反向回连通道，不要为此提反向隧道。所以任务要用到主控机上已有的数据（会话历史、台账、结果/进度、serve 日志、report outbox）时不要派节点——那份数据不在那儿，除非把它打包成附件一起推。派节点前先自问「这台机器上有这份数据吗」。
 - **派活用 `superctl dispatch --local`（本机）、`--node`（钉死节点）或 `--auto`（自动择节点）**：确认要与批准都走派活信封，你不在派活前替副手做判断。
 - **回报通道（ADR 0029）**：作业中的 agent 用 `superctl report --agent <名字> --text` 主动找主控；你收到 `[触发器: agent]` 就按需回 `superctl tell --agent <名字> --text`。回合结束时运行时会发 `[触发器: event] ... done（不代表已交付，可能是在等你回话）；结果：<路径>`，读结果文件判断。**派完就收轮**，不要轮询或 `herdr agent wait`；巡检时对没消息的作业用 `tell` 问一句（同一作业每轮最多一次，两次没回音上报用户）。
 - **收掉**：`superctl cancel --agent <名字>`（关 pane、移出在途清单）。干完的活不要留着占并发额度。安道全的 worktree **不**自己 remove——留给你审。
