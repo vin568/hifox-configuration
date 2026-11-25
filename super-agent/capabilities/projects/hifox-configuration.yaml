@@ -1,0 +1,4 @@
+key: hifox-configuration
+name: hifox-configuration
+repo: git@apifox.github.com:vin568/hifox-configuration.git
+base: main

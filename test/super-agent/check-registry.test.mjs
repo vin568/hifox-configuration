@@ -10,6 +10,8 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import {
   checkCapabilityDocs,
+  checkCheckoutsLive,
+  checkProjects,
   checkLiveWith,
   checkNodes,
   checkNodesLive,
@@ -56,7 +58,7 @@ test("node requires a saved herdr machine profile", () => {
   const root = fixture();
   t_cleanup(root);
   write(root, "super-agent/capabilities/nodes/workbox.yaml",
-    "key: workbox\nssh: workbox\nmachine: workbox\nsession: super-agent\ninstance_root: /srv/inst\nstate_root: /srv/state\nwork_dir: /srv/repo\n");
+    "key: workbox\nssh: workbox\nmachine: workbox\nsession: super-agent\nstate_root: /srv/state\nwork_dir: /srv/repo\n");
   const data = collect(root);
   assert.equal(data.nodes.length, 1);
   const profile = { id: "0123456789abcdef0123456789abcdef", label: "workbox", target: "workbox", session: "super-agent" };
@@ -70,7 +72,7 @@ test("self node skips the saved-machine profile check", () => {
   const root = fixture();
   t_cleanup(root);
   write(root, "super-agent/capabilities/nodes/self.yaml",
-    "key: self\nssh: self\nmachine: self\nsession: super-agent\nidentity: LOCAL-ID\ninstance_root: /srv/inst\nstate_root: /srv/state\nwork_dir: /srv/repo\n");
+    "key: self\nssh: self\nmachine: self\nsession: super-agent\nidentity: LOCAL-ID\nstate_root: /srv/state\nwork_dir: /srv/repo\n");
   const data = collect(root);
   // 本机节点用本地执行面，不需要 herdr machine add 自己（ADR 0042）。
   assert.deepEqual(checkNodes(data.nodes, [], "LOCAL-ID"), []);
@@ -82,7 +84,7 @@ test("a label match from another profile is not a saved machine", () => {
   const root = fixture();
   t_cleanup(root);
   write(root, "super-agent/capabilities/nodes/work.yaml",
-    "key: work\nssh: work\nmachine: work\nsession: super-agent\ninstance_root: /srv/inst\nstate_root: /srv/state\nwork_dir: /srv/repo\n");
+    "key: work\nssh: work\nmachine: work\nsession: super-agent\nstate_root: /srv/state\nwork_dir: /srv/repo\n");
   const data = collect(root);
   // 子串命中（work ⊂ workbox）不能当成 profile 存在。
   const problems = checkNodes(data.nodes, [{ label: "workbox", target: "workbox", session: "super-agent" }]);
@@ -93,7 +95,7 @@ test("node profile target and session must match the declaration", () => {
   const root = fixture();
   t_cleanup(root);
   write(root, "super-agent/capabilities/nodes/workbox.yaml",
-    "key: workbox\nssh: workbox\nmachine: workbox\nsession: super-agent\ninstance_root: /srv/inst\nstate_root: /srv/state\nwork_dir: /srv/repo\n");
+    "key: workbox\nssh: workbox\nmachine: workbox\nsession: super-agent\nstate_root: /srv/state\nwork_dir: /srv/repo\n");
   const data = collect(root);
   const problems = checkNodes(data.nodes, [
     { id: "workbox", target: "other-host", session: "other-session" },
@@ -310,7 +312,7 @@ test("CLI skips node profile check when herdr is absent", () => {
   const root = fixture();
   t_cleanup(root);
   write(root, "super-agent/capabilities/nodes/workbox.yaml",
-    "key: workbox\nssh: workbox\nmachine: workbox\nsession: super-agent\ninstance_root: /srv/inst\nstate_root: /srv/state\nwork_dir: /srv/repo\n");
+    "key: workbox\nssh: workbox\nmachine: workbox\nsession: super-agent\nstate_root: /srv/state\nwork_dir: /srv/repo\n");
   const yq = spawnSync("which", ["yq"], { encoding: "utf8" }).stdout.trim();
   assert.ok(yq, "需要 yq 才能跑实例自检用例");
   const bin = mkdtempSync(join(tmpdir(), "only-yq-"));
@@ -635,4 +637,80 @@ test("inflight diff: a parent of a delegated task is in scope", () => {
     untracked: [],
     deployedAgentIDs: [OUR_AGENT],
   }), []);
+});
+
+// ---------- 项目与检出（ADR 0043） ----------
+
+// 声明了项目却没有任何机器检出、也没有能力用它：主控会以为它能派，实际派不出去。
+test("projects: declared but unusable is drift", () => {
+  const root = fixture();
+  t_cleanup(root);
+  write(root, "super-agent/capabilities/projects/xwing.yaml", "key: xwing\nrepo: https://example.invalid/x\nbase: develop\n");
+  assert.match(checkProjects(collect(root).projects, [], []).join("\n"), /声明了但派不出去/);
+});
+
+// 检出表引用了没声明的项目：两处各写各的，只有一处能生效。
+test("projects: checkout referencing an undeclared project is drift", () => {
+  const root = fixture();
+  t_cleanup(root);
+  write(root, "super-agent/capabilities/projects/xwing.yaml", "key: xwing\nrepo: https://example.invalid/x\nbase: develop\n");
+  const checkouts = [{ node: "vin-mbp", project: "ghost", path: "/srv/ghost" }];
+  assert.match(checkProjects(collect(root).projects, checkouts, []).join("\n"), /项目 "ghost" 没有声明/);
+});
+
+// 有检出或有能力声明就算可用：这条门禁只拦「谁都用不上」的空声明。
+test("projects: checkout or a capability makes it usable", () => {
+  const root = fixture();
+  t_cleanup(root);
+  write(root, "super-agent/capabilities/projects/xwing.yaml", "key: xwing\nrepo: https://example.invalid/x\nbase: develop\n");
+  const projects = collect(root).projects;
+  assert.deepEqual(checkProjects(projects, [{ node: "n", project: "xwing", path: "/srv/x" }], []), []);
+  assert.deepEqual(checkProjects(projects, [], [{ key: "worker", projects: ["xwing"] }]), []);
+});
+
+// live 面用固定只读探针：路径不存在、不是工作副本、remote 不匹配都必须报。
+test("checkouts live: missing path, non-git dir, remote mismatch", () => {
+  const projects = [{ key: "xwing", repo: "https://example.invalid/xwing", aliases: [] }];
+  const nodes = [{ key: "self", identity: "SELF", ssh: "self" }];
+  const runLocal = (script, path) => {
+    if (path === "/gone") return "exists=0\n";
+    if (path === "/plain") return "exists=1\nworktree=0\n";
+    if (path === "/other") return "exists=1\nworktree=1\nremote=https://example.invalid/other\nbranch=main\n--\n";
+    return "exists=1\nworktree=1\nremote=https://example.invalid/xwing\nbranch=develop\n--\n M a.go\n";
+  };
+  const opts = { identity: "SELF", runLocal };
+  const missing = checkCheckoutsLive(projects, [{ node: "self", project: "xwing", path: "/gone" }], nodes, opts);
+  assert.match(missing.join("\n"), /不存在/);
+  const plain = checkCheckoutsLive(projects, [{ node: "self", project: "xwing", path: "/plain" }], nodes, opts);
+  assert.match(plain.join("\n"), /不是 git 工作副本/);
+  const other = checkCheckoutsLive(projects, [{ node: "self", project: "xwing", path: "/other" }], nodes, opts);
+  assert.match(other.join("\n"), /都不匹配/);
+  // 脏只提示、不算问题（原地写的脏门禁在派活时由运行时判）。
+  assert.deepEqual(checkCheckoutsLive(projects, [{ node: "self", project: "xwing", path: "/ok" }], nodes, opts), []);
+});
+
+// alias 命中算同一个仓库：同一仓库的几种远端写法不该被判成失配。
+test("checkouts live: alias counts as the same repo", () => {
+  const projects = [{
+    key: "xwing",
+    repo: "https://cnb.cool/tars-lab/xwing",
+    aliases: ["https://cnb.cool/tars-lab/sharkly"],
+  }];
+  const nodes = [{ key: "self", identity: "SELF", ssh: "self" }];
+  const runLocal = () => "exists=1\nworktree=1\nremote=https://cnb.cool/tars-lab/sharkly.git\nbranch=develop\n--\n";
+  assert.deepEqual(
+    checkCheckoutsLive(projects, [{ node: "self", project: "xwing", path: "/ok" }], nodes, { identity: "SELF", runLocal }),
+    [],
+  );
+});
+
+// 目录型项目（没有 repo）只要求目录存在：没有 git 就没有 remote 可核。
+test("checkouts live: directory project only needs to exist", () => {
+  const projects = [{ key: "scratch", repo: "", aliases: [] }];
+  const nodes = [{ key: "self", identity: "SELF", ssh: "self" }];
+  const runLocal = () => "exists=1\nworktree=0\n";
+  assert.deepEqual(
+    checkCheckoutsLive(projects, [{ node: "self", project: "scratch", path: "/scratch" }], nodes, { identity: "SELF", runLocal }),
+    [],
+  );
 });

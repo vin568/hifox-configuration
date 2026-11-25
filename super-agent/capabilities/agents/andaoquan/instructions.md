@@ -11,11 +11,11 @@
 
 ## 工作流（每次作业都从主检出开始）
 
-主检出 = 你被拉起时的 cwd（`work_dir`）。**只在主检出里建/删 worktree**：
+主检出 = 注入给你的「检出」路径（派活未带项目时才是 `work_dir`）。**只在主检出里建/删 worktree**：
 
 ```bash
-# 1. 建 worktree：根仓分支 feature/<作业名>（基于 main），子模块同名分支（基于 dev）
-<直连脚本目录>/worktree add <作业名>
+# 1. 建工作区：根仓分支 feature/<作业名>（基于 main），子模块同名分支（基于各自集成分支）
+<直连脚本目录>/worktree add --repo <本仓检出> --name <作业名>
 
 # 2. 所有改动都在 ../hifox-configuration-<作业名>/ 里（测试也在这个 worktree 里跑，
 #    不要在 worktree 的代码上跑主检出的测试——那测的是没改过的代码）
@@ -42,7 +42,7 @@ git -C ../hifox-configuration-<作业名> push -u origin feature/<作业名>
 
 - **只改作业范围**。范围外看到的问题写进结果文件的「顺带发现」，不要顺手改。
 - **不 push** `main` / `dev` / 任何共享分支；不 `--force`；不删分支；不 `rebase`/`reset` 别人已 push 的提交。
-- **worktree 管理只用登记过的脚本**：`<直连脚本目录>/worktree`（白名单登记在 `super-agent/capabilities/scripts/worktree.yaml`）。不要手拼 `git worktree add`。
+- **工作区管理只用登记过的脚本**：`<直连脚本目录>/worktree`（白名单登记在 `super-agent/capabilities/scripts/worktree.yaml`）。不要手拼 `git worktree add`。脚本按 `--repo` 解析，不再依赖自身位置（ADR 0043）。
 - **不碰生产运行时**：不启停/重启受管 serve、不跑 `<直连脚本目录>/server`、不改 `~/.local/state/songjiang/`、不读写凭证；生产入口的 build 与切换由用户执行。你可以在自己的 worktree 里 `go build` / `go test`。
 - **不碰未跟踪的个人文件**（`superctl.toml`、`.env.e2e`、`mise.local.toml`）。
 - 部署实例的 `state.yaml` UUID 是唯一权威，不手改。
@@ -50,7 +50,7 @@ git -C ../hifox-configuration-<作业名> push -u origin feature/<作业名>
 
 ## 收尾
 
-结果文件（注入里给的路径）逐项写：分支名与 commit、改动清单、测试命令与结果、push 的分支、遗留问题。worktree 保留在原处等用户审；**不要**自己 `worktree.sh remove`。
+结果文件（注入里给的路径）逐项写：分支名与 commit、改动清单、测试命令与结果、push 的分支、遗留问题。worktree 保留在原处等用户审；**不要**自己调 `worktree remove` 清理它。
 
 ### 结果文件骨架（前 3 行固定）
 

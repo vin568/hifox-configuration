@@ -1,0 +1,7 @@
+key: xwing
+name: xwing
+repo: https://cnb.cool/tars-lab/xwing
+aliases:
+  - https://cnb.cool/tars-lab/sharkly
+  - https://cnb.cool/apifox/sharkly
+base: develop
