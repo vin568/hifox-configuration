@@ -51,15 +51,19 @@ note: 只跑只读调研
 
 ```bash
 # 1. 远端：安装并常驻 herdr server（launchd/systemd/登录项由节点自己负责）
+#    再装 agent 侧集成：omp 必须装，否则 herdr 不报 agent 会话路径，派活必失败
+ssh workbox herdr integration install omp
 # 2. 本地：把 SSH 目标存成 herdr saved machine（交互式，可能提示安装/升级远端 herdr）
 herdr machine add workbox --label workbox --remote-session super-agent
 # 3. 自检
+ssh workbox herdr integration status              # omp 必须是 current（不是 not installed）
+herdr --machine workbox agent list                # agent 条目带 agent_session.value（会话文件路径）
 ./super-agent/bin/superctl capabilities --check   # 读实例配置时还校验本机节点的路径与会话
 npm run check            # profile 是否存在、targets 是否引用已声明节点、identity/limits 合法
 npm run check:live       # 再探 herdr machine status（跳过本机节点）
 ```
 
-框架与转发面**从不**安装、启动或重启远端 server；节点重启后 server 要由节点自己回来。
+集成是硬性前置：herdr 只在集成脚本于会话启动时上报后才给出 `agent_session` 路径，没有路径的派活由送达校验判为失败（框架 ADR 0013）。框架与转发面**从不**安装、启动或重启远端 server，也不装 agent 集成；节点重启后 server 要由节点自己回来。
 
 ## agent 声明目标与位置策略
 
