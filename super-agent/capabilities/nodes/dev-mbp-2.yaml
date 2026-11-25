@@ -4,9 +4,6 @@ ssh: dev-mbp-2
 machine: dev-mbp-2
 session: agents
 identity: 786453E9-D938-54D4-9CBD-452A0E56D881
-# instance_root 可选：声明了技能的 agent 才需要节点上的同一份布局。
-# 该机尚未检出本仓；若将来检出到下面路径，再取消注释：
-# instance_root: /Users/developer/code/apifox/hifox-configuration/super-agent
 state_root: /Users/developer/.local/state/super-agent
 work_dir: /Users/developer
 limits:

@@ -4,9 +4,6 @@ ssh: dev-linux-d15
 machine: dev-linux-d15
 session: agents
 identity: 17efd6372a2549049b2fd4d05c641e6f
-# instance_root 可选：声明了技能的 agent 才需要节点上的同一份布局。
-# 该机尚未检出本仓；若将来检出到下面路径，再取消注释：
-# instance_root: /home/vin/code/apifox/hifox-configuration/super-agent
 state_root: /home/vin/.local/state/super-agent
 work_dir: /home/vin
 limits:

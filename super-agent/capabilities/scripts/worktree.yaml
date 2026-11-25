@@ -1,4 +1,4 @@
 key: worktree
-name: worktree 管理
-description: 创建/列出/移除本仓的 git worktree（根仓 + 子模块同名特性分支）；维护作业的隔离面。
+name: 项目工作区管理
+description: 按项目检出建/列/删 linked worktree（根仓与子模块同名特性分支由 .gitmodules 声明）；不 push、不合并、不切检出分支。
 path: direct/worktree

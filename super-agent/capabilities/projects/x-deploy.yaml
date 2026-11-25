@@ -1,0 +1,4 @@
+key: x-deploy
+name: x-deploy
+repo: https://cnb.cool/tars-lab/x-deploy
+base: dev

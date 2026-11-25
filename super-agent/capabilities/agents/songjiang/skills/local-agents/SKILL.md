@@ -27,7 +27,7 @@ description: 本机 herdr 与执行节点上的能力 agent 派活、动态并�
   superctl dispatch --local --agent andaoquan --body "<改什么 + 为什么 + 验收 + 范围>"
   ```
 
-  他每次作业建自己的 worktree（`super-agent/direct/worktree add <作业名>`），改完跑对应测试，提交并 push **同名特性分支**（`feature/<作业名>`），worktree 保留给你审。**合并由用户做**：先子模块特性分支 → `dev`，再把根仓分支的 gitlink 指到 `dev` 上的 commit，最后根仓分支 → `main`。他不 push `main`/`dev`、不碰运行时状态、不读凭证；`maxConcurrent: 2`，满了先收口再派。
+  他每次作业建自己的 worktree（由他自己跑 `super-agent/direct/worktree add --repo <检出> --name <作业名>`，检出取自派活注入的项目事实），改完跑对应测试，提交并 push **同名特性分支**（`feature/<作业名>`），worktree 保留给你审。**合并由用户做**：先子模块特性分支 → `dev`，再把根仓分支的 gitlink 指到 `dev` 上的 commit，最后根仓分支 → `main`。他不 push `main`/`dev`、不碰运行时状态、不读凭证；`maxConcurrent: 2`，满了先收口再派。
 - **分派判据**：先判是不是平台/产品交付（是 → 朱贵）；只读的本机活 → 石秀；要改本仓文件 → 安道全。**不要因为「看起来只是查一下」就自己上**——调研也是石秀的活。
 - **朱贵（zhugui，role: job）**：平台派活员。平台/产品交付一律经他；你只转原话与附件，不挑人、不写正文。协议与命令见 `[[skill:platform-dispatch]]`。
 - **动态能力 agent（role=job）**：一律经同一入口，别自己拼 `herdr agent start`：

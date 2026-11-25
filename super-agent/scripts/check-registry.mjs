@@ -115,6 +115,30 @@ export function collect(root) {
     if (body) nodes.push({ key, ...body });
   }
 
+  // 项目与检出表（ADR 0043）：项目是机器无关的仓库身份，检出路径写在 nodes/<key>/。
+  const projects = [];
+  for (const file of listFiles(join(capRoot, "projects"))) {
+    const key = file.replace(/\.ya?ml$/, "");
+    if (key === file) continue;
+    const body = readYaml(join(capRoot, "projects", file));
+    if (body) projects.push({ key, ...body });
+  }
+  // 能力对项目的声明（agents/<key>/projects.yaml，ADR 0043）。
+  const capabilityAgents = [];
+  for (const key of listDirs(join(capRoot, "agents"))) {
+    const body = readYaml(join(capRoot, "agents", key, "projects.yaml"));
+    capabilityAgents.push({ key, projects: Array.isArray(body) ? body.map(String) : [] });
+  }
+  const checkouts = []; // { node, project, path }
+  for (const node of listDirs(join(capRoot, "nodes"))) {
+    const file = join(capRoot, "nodes", node, "checkouts.yaml");
+    const body = readYaml(file);
+    if (!body) continue;
+    for (const [project, path] of Object.entries(body)) {
+      checkouts.push({ node, project, path: String(path || "") });
+    }
+  }
+
   const environments = [];
   for (const name of listDirs(join(root, "environments"))) {
     const dir = join(root, "environments", name);
@@ -131,10 +155,29 @@ export function collect(root) {
     });
   }
 
-  return { platforms, platformDefaults, configSets, configAgents, environments, nodes };
+  return { platforms, platformDefaults, configSets, configAgents, environments, nodes, projects, checkouts, capabilityAgents };
 }
 
 // ---------- 离线对账 ----------
+
+// checkProjects 校验项目与检出表的引用闭合（ADR 0043）。框架 Check 已覆盖 schema
+// 半边；这里补本仓口径：一个项目至少要有一台机器能干活，否则声明了也派不出去。
+export function checkProjects(projects, checkouts, agents) {
+  const problems = [];
+  const keys = new Set((projects || []).map((p) => p.key));
+  for (const p of projects || []) {
+    if (!(checkouts || []).some((c) => c.project === p.key) && !(agents || []).some((a) => a.projects?.includes(p.key))) {
+      // 只声明、没人用也没机器能跑：留着等于让主控以为它能派。
+      problems.push(`projects/${p.key}.yaml：没有机器检出，也没有任何能力声明它——声明了但派不出去`);
+    }
+  }
+  for (const c of checkouts || []) {
+    if (!keys.has(c.project)) {
+      problems.push(`nodes/${c.node}/checkouts.yaml：项目 ${JSON.stringify(c.project)} 没有声明（应放在 projects/${c.project}.yaml）`);
+    }
+  }
+  return problems;
+}
 
 // checkOffline 返回给人读的问题列表。规则都来自本仓 ADR 0023（指针 ↔ config 双向同步）
 // 与 ADR 0033（environment 的字段名）。
@@ -659,6 +702,118 @@ export function checkNodesLive(nodes, status, identity) {
   return problems;
 }
 
+// GIT_PROBE 与框架 internal/gitprobe 的脚本一致（ADR 0043）：只读，不 fetch、不 checkout。
+// 跨语言重复是有意的：实例检查器零依赖（只要求 node + yq + git），不能 import Go 包；
+// 两处改一处时另一处必须同改，格式由 parseGitProbe 的用例钉住。
+// status 不留 `|| true`：读不出工作树状态（index.lock、坏索引）必须让探针失败，不能
+// 当成「干净」——脏提示会变成假阴性。
+const GIT_PROBE = `set -e
+d=$1
+if [ ! -e "$d" ]; then echo exists=0; exit 0; fi
+echo exists=1
+if ! git -C "$d" rev-parse --is-inside-work-tree >/dev/null 2>&1; then echo worktree=0; exit 0; fi
+echo worktree=1
+printf 'remote=%s\\n' "$(git -C "$d" config --get remote.origin.url 2>/dev/null || true)"
+printf 'branch=%s\\n' "$(git -C "$d" symbolic-ref --short -q HEAD 2>/dev/null || echo detached)"
+echo --
+git -C "$d" status --porcelain=v1
+`;
+
+function parseGitProbe(out) {
+  const st = { exists: false, worktree: false, remote: "", branch: "", dirty: [] };
+  const lines = String(out).split("\n");
+  let i = 0;
+  for (; i < lines.length; i++) {
+    const line = lines[i].replace(/\r$/, "");
+    if (line === "--") { i += 1; break; }
+    const at = line.indexOf("=");
+    if (at < 0) continue;
+    const key = line.slice(0, at), value = line.slice(at + 1);
+    if (key === "exists") st.exists = value === "1";
+    else if (key === "worktree") st.worktree = value === "1";
+    else if (key === "remote") st.remote = value;
+    else if (key === "branch") st.branch = value;
+  }
+  for (; i < lines.length; i++) {
+    const line = lines[i].replace(/\r$/, "");
+    if (line.trim()) st.dirty.push(line);
+  }
+  return st;
+}
+
+function normalizeRepo(url) {
+  return String(url || "").trim().replace(/\/$/, "").replace(/\.git$/, "");
+}
+
+function matchesRepo(project, url) {
+  const want = normalizeRepo(url);
+  if (!want) return false;
+  if (normalizeRepo(project.repo) === want) return true;
+  return (project.aliases || []).some((a) => normalizeRepo(a) === want);
+}
+
+// checkCheckoutsLive 用固定只读探针逐台核检出（ADR 0043）：路径存在、是工作副本、
+// remote 命中项目 repo/aliases；脏只报告不拦（原地写的脏门禁在派活时由运行时判）。
+// sshFn 是测试缝；本机节点直跑本地探针，不走 ssh。
+export function checkCheckoutsLive(projects, checkouts, nodes, { identity, runLocal, runRemote } = {}) {
+  const problems = [];
+  const byKey = new Map((projects || []).map((p) => [p.key, p]));
+  const selfId = identity === undefined ? localIdentity() : identity;
+  const local = runLocal || ((script, arg) => execFileSync("sh", ["-c", script, "probe", arg], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+  const remote = runRemote || ((target, script, arg) => execFileSync("ssh", [
+    "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", target, "sh -c " + shellQuote(script) + " probe " + shellQuote(arg),
+  ], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+  for (const c of checkouts || []) {
+    const project = byKey.get(c.project);
+    if (!project) continue; // 未声明的引用已由静态检查报过
+    if (!c.path || !c.path.startsWith("/")) continue; // 相对路径由框架 Check 报
+    const node = (nodes || []).find((n) => n.key === c.node);
+    // 只有目录没有 <key>.yaml：引用本身已由 checkProjects 报「项目没有声明」的反面
+    // （这里反过来，是检出挂在一个不存在的节点上），别让 node.ssh 抛成探针失败。
+    if (!node) {
+      problems.push(`nodes/${c.node}/checkouts.yaml：目录存在，但 nodes/${c.node}.yaml 没有声明（检出表挂在未声明的节点上）`);
+      continue;
+    }
+    const isSelf = isSelfNode(node, selfId);
+    if (!isSelf && !node.ssh) continue;
+    let out;
+    try {
+      out = isSelf ? local(GIT_PROBE, c.path) : remote(node.ssh, GIT_PROBE, c.path);
+    } catch (err) {
+      // ssh 自身失败（255）是「节点不可达」：ADR 0043 说跳过，可达性由 checkNodesLive 报。
+      if (!isSelf && err.status === 255) {
+        console.error(`提示：节点 ${c.node} 不可达，跳过 ${c.project} 的检出探针`);
+        continue;
+      }
+      const detail = String(err.stderr || err.message || "").trim().split("\n")[0];
+      problems.push(`nodes/${c.node}/checkouts.yaml：${c.project} 检出探针失败（${detail}）`);
+      continue;
+    }
+    const st = parseGitProbe(out);
+    const label = `nodes/${c.node}/checkouts.yaml（${c.project}）`;
+    if (!st.exists) {
+      problems.push(`${label}：路径 ${c.path} 不存在（这台机器还没拉这个仓库）`);
+      continue;
+    }
+    if (!project.repo) continue; // 目录型项目只需存在
+    if (!st.worktree) {
+      problems.push(`${label}：${c.path} 不是 git 工作副本，与项目声明的 repo 不符`);
+      continue;
+    }
+    if (!matchesRepo(project, st.remote)) {
+      problems.push(`${label}：${c.path} 的 origin 是 ${JSON.stringify(st.remote)}，与项目 ${c.project} 的 repo/aliases 都不匹配`);
+    }
+    if (st.dirty.length > 0) {
+      console.error(`提示：${label} 有 ${st.dirty.length} 项未提交改动（原地写会在派活时要求 --allow-dirty）`);
+    }
+  }
+  return problems;
+}
+
+function shellQuote(s) {
+  return "'" + String(s).replace(/'/g, `'\\''`) + "'";
+}
+
 function main(argv) {
   const args = new Set(argv);
   if (args.has("-h") || args.has("--help")) {
@@ -669,6 +824,7 @@ function main(argv) {
   const root = rootIndex >= 0 ? resolve(argv[rootIndex + 1] || ".") : DEFAULT_ROOT;
   const data = collect(root);
   const problems = checkOffline(data);
+  problems.push(...checkProjects(data.projects, data.checkouts, data.capabilityAgents));
   problems.push(...checkCapabilityDocs(root));
   if ((data.nodes || []).length > 0) {
     let machines = [];
@@ -689,7 +845,10 @@ function main(argv) {
       else problems.push(...checkNodesLive(data.nodes));
     }
   }
-  if (args.has("--live")) problems.push(...checkLive(data));
+  if (args.has("--live")) {
+    problems.push(...checkLive(data));
+    problems.push(...checkCheckoutsLive(data.projects, data.checkouts, data.nodes));
+  }
 
   if (!args.has("--no-framework")) {
     try {
