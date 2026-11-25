@@ -40,8 +40,28 @@ cmd_add() {
   local dir
   dir=$(worktree_dir "$name")
   [ -e "$dir" ] && die "目标目录已存在: $dir"
+
+  # 基底必须取远端：本地默认分支可以停在几天前（实测停滞分支 0 ahead / 2 behind，
+  # 从它切出来的特性分支一合就把已并的提交反向撤掉）。先 fetch，再把 base 钉成
+  # origin/<默认分支> 这个完整 ref——只拿名字再切本地 ref 是同一种错。
+  info "fetch origin（取远端最新基底）"
+  git fetch --prune origin
   local base
-  base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || echo main)
+  base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || true)
+  if [ -z "$base" ] || ! git rev-parse --verify --quiet "refs/remotes/${base}" >/dev/null; then
+    # origin/HEAD 没设（部分克隆/手工建的远端）时按远端实际分支猜默认名为 main，
+    # 猜不到就报错——静默退回本地分支正是要消灭的行为。
+    local candidate
+    for candidate in main master; do
+      if git rev-parse --verify --quiet "refs/remotes/origin/${candidate}" >/dev/null; then
+        base="origin/${candidate}"
+        break
+      fi
+    done
+    [ -n "$base" ] || die "推不出远端默认分支（origin/HEAD 未设且没有 origin/main、origin/master）：手工 fetch 一次或设 git remote set-head origin -a"
+  fi
+  case "$base" in origin/*) ;; *) base="origin/${base##*/}" ;; esac
+  info "基底 ${base} @ $(git rev-parse --short "$base")"
 
   if git show-ref --verify --quiet "refs/heads/$branch"; then
     info "挂载已有分支 $branch 到 $dir"
@@ -57,10 +77,13 @@ cmd_add() {
   local path branch_name
   while IFS= read -r path; do
     branch_name=$(sub_branch "$path")
-    if [ -n "$branch_name" ]; then
-      info "子模块 $path -> 特性分支 ${branch}（基于 origin/${branch_name}，WIP 不进 ${branch_name}）"
-      git -C "$dir/$path" switch --no-track -c "$branch" "origin/$branch_name"
-    fi
+    [ -n "$branch_name" ] || continue
+    # 子模块的集成分支同样先 fetch：worktree 里的子模块是远端克隆，但 origin/dev
+    # 的 tip 只到克隆那一刻；不 fetch 就从旧 tip 开特性分支（实测落后 5 个提交）。
+    info "子模块 ${path}：fetch origin ${branch_name}"
+    git -C "$dir/$path" fetch --prune origin "$branch_name"
+    info "子模块 $path -> 特性分支 ${branch}（基于 origin/${branch_name}，WIP 不进 ${branch_name}）"
+    git -C "$dir/$path" switch --no-track -c "$branch" "origin/$branch_name"
   done < <(sub_paths)
 
   local root
