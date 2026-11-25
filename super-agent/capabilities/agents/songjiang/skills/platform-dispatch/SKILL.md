@@ -46,7 +46,7 @@ description: 平台（hifox / sharkly）任务的派发、查询、取消与在�
 superctl reply --chat <chat_id> --reply-to <注入里的「消息」id> --text "<一句话>"
 ```
 
-话题消息会自动落进话题；普通群是平铺引用。私聊不用 `--reply-to`。需要背着群私聊用户拍板时用 `superctl reply --admin --text …`。
+话题消息会自动落进话题；普通群是平铺引用。**带话题的私聊也要带 `--reply-to`**（注入里有「话题」行即是）；无话题的私聊不用。需要背着群私聊用户拍板时用 `superctl reply --admin --text …`。
 
 ## 五、派活命令
 
