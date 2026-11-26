@@ -75,7 +75,8 @@ superctl dispatch --local --agent zhugui \
 - 正文归档在 `briefs/<任务号>.md`（运行时建的稳定副本，与平台一致）：要核对「这单到底写了什么」读它，不用开网页。
 - 真值三件套：`hifox task view <任务号> --output json`（status / delegateStatus / agentWorkingStatus）、`hifox run list --task <任务号>`。
 - 撤销：`superctl cancel --task <任务号>`（不急停）。
-- 任务号由朱贵建单时**自动**写进在途清单；哨兵高频轮询清单里的平台条目，状态真变化才唤醒你（ADR 0018）。
+- 任务号由朱贵建单时**自动**写进在途清单；哨兵高频轮询清单里的平台条目。真变化、**平台自己报错**（session 超时/执行异常，签名可能没变也报）都会唤醒你；从未进清单的单由哨兵的覆盖差集写成 `untracked` 发现，补登（`superctl track`）后自动消解。
+- 每次 `answer` 投递成功后运行时会检查这张单是否在在途清单里；不在就写一条同 Key 的 `untracked` 发现——不拦你的回答，但事实不会静默。看到这类发现就在用户点头后补登，或确认它不属于我们。
 
 层级语义：`prod` = 远端名不带后缀的那一份，`staging` = 带实例后缀的那一份；层级写进信封，朱贵负责落到 `--instance`，结果文件里的 `层级` 是他**实际建到**的那一层。
 
