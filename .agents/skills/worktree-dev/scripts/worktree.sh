@@ -78,11 +78,12 @@ cmd_add() {
   while IFS= read -r path; do
     branch_name=$(sub_branch "$path")
     [ -n "$branch_name" ] || continue
-    # 子模块的集成分支同样先 fetch：worktree 里的子模块是远端克隆，但 origin/dev
-    # 的 tip 只到克隆那一刻；不 fetch 就从旧 tip 开特性分支（实测落后 5 个提交）。
+    # 子模块的集成分支同样先 fetch：worktree 里的子模块是远端克隆，但集成分支的
+    # tip 只到克隆那一刻；不 fetch 就从旧 tip 开特性分支（实测落后 5 个提交）。
+    # 分支名必须与根仓同名（AGENTS.md 子模块开发第 2 条：同频分支）。
     info "子模块 ${path}：fetch origin ${branch_name}"
     git -C "$dir/$path" fetch --prune origin "$branch_name"
-    info "子模块 $path -> 特性分支 ${branch}（基于 origin/${branch_name}，WIP 不进 ${branch_name}）"
+    info "子模块 $path -> 特性分支 ${branch}（与根仓同名；基于 origin/${branch_name}，WIP 不进集成分支）"
     git -C "$dir/$path" switch --no-track -c "$branch" "origin/$branch_name"
   done < <(sub_paths)
 

@@ -70,8 +70,8 @@ function advanceRemote({ seed, work }, message) {
 
 // add 在会话里跑脚本：file:// 传输的允许项走环境变量，git 会把它传给
 // 子模块 update 内部 fork 的 clone —— 仓库配置在 worktree 里不够（实测仍被拒）。
-const add = (work, name) =>
-  execFileSync("bash", [SCRIPT, "add", name], {
+const add = (work, name, ...extra) =>
+  execFileSync("bash", [SCRIPT, "add", name, ...extra], {
     cwd: work,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -90,9 +90,9 @@ test("add bases the new branch on origin, not a stale local default branch", (t)
   assert.equal(git(wt, "rev-parse", "--abbrev-ref", "HEAD"), "feature/feat");
 });
 
-// 子模块必须按集成分支的远端 tip 切分支：本地 gitlink 记的是子模块 HEAD，
-// 不 fetch 就会从旧 tip 开特性分支（根仓 gitlink 落后的那次实测）。
-test("add fetches the re-declared integration branch before branching in submodules", (t) => {
+// withSubmodule 给 root 仓库挂一个 branch=dev 的子模块，返回子模块种子目录。
+// 子模块夹具（远端 bare + seed 提交 + .gitmodules + gitlink）在多个用例里共用。
+function withSubmodule(t) {
   const r = repo(t);
   const sub = join(r.root, "sub-seed");
   git(r.root, "init", "-q", "-b", "dev", sub);
@@ -111,6 +111,14 @@ test("add fetches the re-declared integration branch before branching in submodu
   git(r.work, "add", ".gitmodules", "vendor/demo");
   git(r.work, "commit", "-qm", "add submodule");
   git(r.work, "push", "-q", "origin", "main");
+  return { ...r, sub };
+}
+
+// 子模块必须按集成分支的远端 tip 切分支：本地 gitlink 记的是子模块 HEAD，
+// 不 fetch 就会从旧 tip 开特性分支（根仓 gitlink 落后的那次实测）。
+test("add fetches the re-declared integration branch before branching in submodules", (t) => {
+  const r = withSubmodule(t);
+  const sub = r.sub;
 
   // 远端 dev 在检出之后又前进一格：worktree 必须拿到这一格。
   writeFileSync(join(sub, "s2.txt"), "2\n");
@@ -123,6 +131,17 @@ test("add fetches the re-declared integration branch before branching in submodu
   const wtSub = join(r.root, "work-feat", "vendor/demo");
   assert.equal(git(wtSub, "rev-parse", "HEAD"), devTip, "子模块特性分支必须基于 origin/dev 的最新 tip");
   assert.equal(git(wtSub, "rev-parse", "--abbrev-ref", "HEAD"), "feature/feat");
+});
+
+// 同频分支（AGENTS.md 子模块开发第 2 条）：根仓与子模块必须用逐字相同的分支名，
+// 合并才能一次做完两侧。自定义 -b 时也要一致，不能只给根仓改名。
+test("add uses the same branch name in root and submodule", (t) => {
+  const r = withSubmodule(t);
+  add(r.work, "sync", "-b", "feature/custom-name");
+  const wt = join(r.root, "work-sync");
+  assert.equal(git(wt, "rev-parse", "--abbrev-ref", "HEAD"), "feature/custom-name");
+  assert.equal(git(join(wt, "vendor/demo"), "rev-parse", "--abbrev-ref", "HEAD"), "feature/custom-name",
+    "子模块分支名必须与根仓逐字相同");
 });
 
 // 已有分支照旧挂载：不该被改写成基于远端的新分支（分支身份是 push 出去的物体）。

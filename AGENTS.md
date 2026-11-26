@@ -38,10 +38,12 @@
 ## 子模块开发（唯一允许改部署逻辑的地方）
 
 1. `vendor/x-deploy` 是完整 git 仓库，不是 vendored 只读代码；`.gitmodules` 固定 `branch = dev`（`main` 为稳定分支）。detached HEAD 时先 `git -C vendor/x-deploy switch dev`。
-2. 在子模块内编辑并运行 `npm test`；真实 API 测试按 CLI App 参数化（hifox / sharkly 双套），只在各自专用测试组织上跑，见子模块 `AGENTS.md`「测试」节的 `.env.e2e` / `<APP>_ORGANIZATION_ID` 与 `<APP>_E2E_*` 约定。
-3. 在子模块仓库提交并推送 `origin/dev`，再回本仓库 `git add vendor/x-deploy && git commit` 更新指针。根仓库的提交只包含配置/文档/壳脚本/测试/指针/super-agent 实例物料变化（框架代码在 `vendor/super-agent`）。
-4. 拉上游更新：`git submodule update --remote --rebase vendor/x-deploy`，随后 `./x-deploy init` 刷新受管物料；`./x-deploy update` 对子模块布局一律拒绝（见 `./x-deploy guide upgrade`）。`vendor/super-agent` 同样按子模块流程更新（框架仓 `main`），更新后跑 `npm run check` 与 `go -C vendor/super-agent test -race ./...`。
-5. **维护员安道全**（`role: job`，ADR 0035）承接本仓文件改动：每作业一个 git worktree（派活时按注入的项目事实跑 `super-agent/direct/worktree add --repo <检出> --name <作业名>`；`.agents/skills/worktree-dev/scripts/worktree.sh` 只给本仓开发 agent 用，含子模块初始化），提交并 push **同名特性分支**（`feature/<作业名>`），合并与 worktree 清理由用户做。
+2. **同频分支（根仓与子模块同名）**：一个需求从开工到合并只用一个分支名 `feature/<作业名>`，根仓与**每个要动的子模块**都用这个名字——不允许「根仓在 `main`、子模块在 `dev`」或「子模块在特性分支、根仓在 `main`」的错位。起点一律钉远端：根仓从 `origin/main` 切，子模块从各自 `.gitmodules` 声明的集成分支切（`x-deploy` / `v-skills` 是 `dev`，`super-agent` 是 `main`）。开工前根仓与要动的子模块各 `git fetch --prune origin`，把基底 commit 与 behind 数写进结果第 1 行。
+3. 在子模块内编辑并运行测试（`x-deploy` / `v-skills` 是 `npm test`，`super-agent` 是 `go test -race ./...`）；真实 API 测试按 CLI App 参数化（hifox / sharkly 双套），只在各自专用测试组织上跑，见子模块 `AGENTS.md`「测试」节的 `.env.e2e` / `<APP>_ORGANIZATION_ID` 与 `<APP>_E2E_*` 约定。
+4. **提交边界**：子模块的提交落在自己的 `feature/<名>` 上；根仓的提交落在根仓的 `feature/<名>` 上，只包含配置/文档/壳脚本/测试/指针/super-agent 实例物料变化（框架代码在 `vendor/super-agent`）。指针可以先指向子模块**特性分支**上的 commit（同频开发的中间态，此时尚未合并）。
+5. **一次合并，两侧同时到位**：先把子模块 `feature/<名>` 并入它的集成分支并推送，再把根仓分支的 gitlink 更新到**集成分支上的 commit**（快进则 sha 不变；产生了 merge commit 就补一次指针提交），最后把根仓 `feature/<名>` 并入 `main`。只并一侧不算完成：根仓 `main` 会指向一个子模块集成分支上不存在的 commit，或整批子模块改动没进根仓。合并后校验：`git -C vendor/<sub> rev-parse <集成分支>` 必须等于 `git ls-tree main vendor/<sub>`，且两侧集成分支都已推送到 origin。
+6. 拉上游更新：`git submodule update --remote --rebase vendor/x-deploy`，随后 `./x-deploy init` 刷新受管物料；`./x-deploy update` 对子模块布局一律拒绝（见 `./x-deploy guide upgrade`）。`vendor/super-agent` 同样按子模块流程更新（框架仓 `main`），更新后跑 `npm run check` 与 `go -C vendor/super-agent test -race ./...`。
+7. **维护员安道全**（`role: job`，ADR 0035）承接本仓文件改动：每作业一个 git worktree（派活时按注入的项目事实跑 `super-agent/direct/worktree add --repo <检出> --name <作业名>`；`.agents/skills/worktree-dev/scripts/worktree.sh` 只给本仓开发 agent 用，含子模块初始化），提交并 push **同名特性分支**（`feature/<作业名>`，根仓与子模块同名），合并与 worktree 清理由用户按第 5 条一次做完两侧。
 
 不要把子模块当只读依赖，也不要绕开它把部署逻辑复制进根仓库或壳脚本；`x-deploy` 壳脚本的路径与 `--root` 语义属消费方契约，不要改。修改术语或契约前，先读子模块 `GLOSSARY.md` 与 `docs/adr/` 并同步。子模块文档拆分约束见其 `AGENTS.md`「文档职责」节：工具仓 `README.md` 是随包分发的纯消费契约（`guide contract` 原样输出）；维护者内容归子模块 `AGENTS.md`；随包文档（README 与 runbooks）不反向引用不随包的文件（`docs/adr/`、`AGENTS.md`、`GLOSSARY.md` 的编号与链接在安装形态下是死链）；部署实例名只出现在校验闭集处（依赖节、`cli.app` 字段表）；改契约措辞需同步其不变量与 runbook。
 

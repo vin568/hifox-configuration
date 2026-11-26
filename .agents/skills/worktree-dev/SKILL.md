@@ -1,6 +1,6 @@
 ---
 name: worktree-dev
-description: Develop the hifox-configuration repository (root repo plus two submodules) in git worktrees. Use when creating, inspecting, or removing worktrees for this repo, preparing one for submodule development (fresh remote submodule clones, per-worktree feature branches off the declared integration branch, .env.e2e copy, npm install, doctor), merging a finished submodule feature branch back into origin/dev, or cleaning up afterwards (submodule-aware dirty check and metadata cleanup). Covers git 2.50 worktree-with-submodules mechanics that plain git commands get wrong.
+description: Develop the hifox-configuration repository (root repo plus three submodules) in git worktrees. Use when creating, inspecting, or removing worktrees for this repo, preparing one for submodule development (fresh remote submodule clones, per-worktree feature branches off the declared integration branch, .env.e2e copy, npm install, doctor), merging a finished feature branch into both the submodule's integration branch and the root repo's main (same branch name, one merge), or cleaning up afterwards (submodule-aware dirty check and metadata cleanup). Covers git 2.50 worktree-with-submodules mechanics that plain git commands get wrong.
 ---
 # XWing Worktree Development
 
@@ -18,17 +18,23 @@ bash <skill-dir>/scripts/worktree.sh prune                      # 清理失联�
 - 只在主检出运行（linked worktree 内运行会报错）。worktree 目录是兄弟目录 `../hifox-configuration-<name>`，分支默认 `feature/<name>`；分支已存在则直接挂载该分支。
 - **基底钉远端，不取本地分支**：`add` 先 `git fetch --prune origin`，新分支从 `origin/<默认分支>`（`refs/remotes/origin/HEAD` 指向的那个）切出。本地默认分支可能停在几天前——实测停滞分支 0 ahead / 2 behind、照它切的特性分支一合就把已并的提交反向撤掉。**开单或复用前，根仓与要动的子模块各 fetch 一次，把基底 commit 与 behind 数写进结果第 1 行**（结论行末尾，形态 `基底 origin/main@1a2b3c4，behind 0`）。
 - `add` 自动完成：`submodule update --init`（全部子模块）→ 对 `.gitmodules` 声明集成分支的子模块先 `fetch origin <集成分支>`、再 `switch -c <根仓分支名> origin/<集成分支>` 建同名特性分支（不 fetch 就从克隆那刻的旧 tip 开分支，实测落后 5 个提交）→ 从主检出复制机器本地的 `vendor/x-deploy/.env.e2e`（存在才复制）。
-- **并行特性不混提交**：每个 worktree 的子模块 WIP 只落在自己的特性分支上，`origin/dev` 上只发生「已测绿特性的合并」（并回流程见下节）。
+- **并行特性不混提交**：每个 worktree 的子模块 WIP 只落在自己的特性分支上，子模块集成分支上只发生「已测绿特性的合并」（合并流程见下节）。
 - `remove` 先自检根仓与各子模块 `status --porcelain`，脏则拒绝并列出，确认丢弃用 `--force`（子模块特性分支未 push 时先 `git -C <sub> push -u origin <分支>`）；随后 `git worktree remove --force`（子模块在位时无 `--force` 一律 fatal，git 2.50 实测）。两类**预期脏**：子模块特性分支离开根仓 gitlink 使根仓显示 ` M vendor/x-deploy`；`npm install` 在子模块生成未跟踪 `package-lock.json`（仓内无 lockfile）——均为可丢弃工作产物，`--force` 移除即可。
 ## 子模块在 worktree 中的机制与并回流程（git 2.50 实测）
 
-- 每个 worktree 的子模块是**从远端 URL 的全新克隆**（需网络），git dir 位于主仓 `.git/worktrees/<dir>/modules/`；init 后 detached 在根仓 gitlink，随即切到基于 `origin/dev` tip 的同名特性分支——与根仓 gitlink 不同、根仓显示 ` M vendor/x-deploy` 属预期。
-- **并行隔离**：worktree 内子模块开发全程在特性分支，两个未完成的特性之间零共享提交。主检出未推送的 dev 提交对 worktree 不可见的旧约束由此降级：其影响只是「并回时才汇合」，不再要求建 worktree 前先推 `origin/dev`。
-- **特性分支先 push，合并由用户做**：`git push -u origin feature/<name>`（根仓与子模块各一条）。合并顺序固定：**先子模块特性合并**（`feature/<name>` → 该子模块的集成分支——`x-deploy`/`v-skills` 是 `dev`，`super-agent` 是 `main`，以 `.gitmodules` 的 `branch` 为准：`git fetch origin <branch> && git merge origin/<branch> && npm test && git push origin HEAD:<branch>`）→ 再回根仓把 gitlink 指到该集成分支上的 commit → 最后**根仓特性合并**（`feature/<name>` → `main`）。术语「特性合并」与流水线的「并回（Backmerge）」不是一回事：后者是 main → dev 的自动回并。
+- 每个 worktree 的子模块是**从远端 URL 的全新克隆**（需网络），git dir 位于主仓 `.git/worktrees/<dir>/modules/`；init 后 detached 在根仓 gitlink，随即切到基于该子模块集成分支 tip 的同名特性分支——与根仓 gitlink 不同、根仓显示 ` M vendor/x-deploy` 属预期。
+- **并行隔离**：worktree 内子模块开发全程在特性分支，两个未完成的特性之间零共享提交。主检出未推送的 dev 提交对 worktree 不可见的旧约束由此降级：其影响只是「合并时才汇合」，不再要求建 worktree 前先推子模块集成分支。
+- **同频分支（根 AGENTS.md 子模块开发第 2 条）**：根仓与每个要动的子模块共用同一个分支名 `feature/<name>`——`add` 已经这样建（第 86 行的 `switch --no-track -c "$branch"`），但它只是「建得对」，**合并时两侧必须一起做**，见下一条。任何一侧留在集成分支上开发都算错位。
+- **特性分支先 push，合并由用户做**：`git push -u origin feature/<name>`（根仓与子模块各一条）。**一次合并、两侧同时到位**：
+  1. 子模块特性合并：`feature/<name>` → 该子模块的集成分支（`x-deploy`/`v-skills` 是 `dev`，`super-agent` 是 `main`，以 `.gitmodules` 的 `branch` 为准）：`git fetch origin <branch> && git merge origin/<branch> && npm test && git push origin HEAD:<branch>`（`super-agent` 把 `npm test` 换成 `go test -race ./...`）。
+  2. 回根仓把 gitlink 指到**该集成分支上的 commit**（快进则 sha 不变；产生 merge commit 就补一次指针提交）。
+  3. **根仓特性合并**：`feature/<name>` → `main`，然后 `git push origin main`。
+  4. 校验两侧到位：`git -C vendor/<sub> rev-parse <集成分支>` 必须等于根仓 `main` 上的 `git ls-tree main vendor/<sub>`；两侧集成分支都要在 origin 上。**只并一侧不算完成**——根仓 `main` 会指向子模块集成分支上不存在的 commit。
+  术语「特性合并」与流水线的「并回（Backmerge）」不是一回事：后者是 main → dev 的自动回并。
 - **自动化 agent（安道全）的终点是 push 特性分支**：合并、worktree 清理都归用户；它不 push `dev`/`main`（ADR 0035）。
-- **worktree 可以安全删除的前提是特性分支已 push**：以前要求「先并回 dev 或 push 备份」，现在 push 同名分支即可；未 push 的子模块特性分支随 worktree 移除而消失。
-- 回所在 worktree 分支提交指针时，以**并回后的 commit** 为准（必在 origin/dev 上，无悬空指针风险）。
-- `remove --force` 会连带清理 `.git/worktrees/<dir>/modules`（实测无残留）：根仓分支保留、自行 `git branch -d feature/<name>`；**未并回 dev 的子模块特性分支随 worktree 移除而消失**——remove 前先并回，或 `git push -u origin <分支名>` 备份。
+- **worktree 可以安全删除的前提是特性分支已 push**：以前要求「先合并或 push 备份」，现在 push 同名分支即可；未 push 的子模块特性分支随 worktree 移除而消失。
+- 回所在 worktree 分支提交指针时，以**并回后的 commit** 为准（必在子模块集成分支上，无悬空指针风险）；合并前也可以先把指针指向子模块特性分支的 commit——那是同频开发的中间态，只要**合并时**按第四节把两侧一起做完。
+- `remove --force` 会连带清理 `.git/worktrees/<dir>/modules`（实测无残留）：根仓分支保留、自行 `git branch -d feature/<name>`；**未合并的子模块特性分支随 worktree 移除而消失**——remove 前先按第四节合并，或 `git push -u origin <分支名>` 备份。
 
 ## add 之后的就绪清单
 
@@ -41,4 +47,4 @@ bash <skill-dir>/scripts/worktree.sh prune                      # 清理失联�
 离线用例：子模块内 `npm test` 必须全绿。真实 API e2e：`.env.e2e`（`add` 已复制；无则 `cp .env.e2e.example .env.e2e` 并填专用测试组织变量，缺省即 skip）。
 
 ## 提交边界（与根 `AGENTS.md` 相同，worktree 内同样成立）
-子模块内在**特性分支**上开发，`npm test` 全绿后按上节流程并回 `origin/dev`，再回所在 worktree 分支 `git add vendor/x-deploy` 更新指针（指向并回后的 commit）；根仓提交只含配置/文档/壳脚本/指针。主检出的子模块仍在 dev 上单线开发（根 `AGENTS.md` 流程），多 worktree 并行才走特性分支。`state.yaml` UUID 是已部署资源唯一权威，勿手改；变更命令默认预览，显式 `--apply` 才执行。
+子模块与根仓都在**同名特性分支**上开发（`feature/<name>`，根 `AGENTS.md` 子模块开发第 2 条），测试全绿后按上节的四步一次合并两侧；根仓提交只含配置/文档/壳脚本/指针。主检出的子模块如需改动，同样从集成分支切同名特性分支——不再有「主检出在 dev 上单线开发」的例外，那条规则会让根仓 `main` 与子模块集成分支错位。`state.yaml` UUID 是已部署资源唯一权威，勿手改；变更命令默认预览，显式 `--apply` 才执行。
