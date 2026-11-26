@@ -1,0 +1,8 @@
+key: shiqian
+name: 时迁
+description: 巡检者（本机常驻，只读检测）：按固定周期对账在途清单、herdr agent、结果文件与活跃台账，把「需要处理」的事实写成发现；平台侧真值归哨兵，它不查平台、不重试、不派活、不重启服务、不对外发消息。
+role: inspector
+workspace: crew
+kind: omp
+args: []
+maxConcurrent: 1

@@ -19,7 +19,7 @@ super-agent/
 │                        #   agents/<key>/projects.yaml = 这个能力能碰哪些项目
 ├── direct/              # 直连白名单脚本（ADR 0019 第 2 级；当前 worktree + server）
 ├── scripts/             # 本实例自检（框架不认识 config/ 与 environments/，跨仓对账在这里）
-├── untracked.yaml       # 有意不跟踪的平台任务号（在途差集检查的豁免表；check:live 报漏登时用它）
+├── untracked.yaml       # 有意不跟踪的平台任务号（在途差集检查的豁免表；check:live 与哨兵覆盖差集共用，路径由配置键 untracked_path 指定）
 ├── config.example.toml  # 实例配置样例；实际配置在 ~/.config/super-agent/superctl.toml
 └── README.md
 ```
@@ -58,6 +58,19 @@ agent（回退到配置的 `runtime_cmd`），也无法被 `server start/restart
 - **主控权限**：只经 `super-agent/direct/server status|start|stop|restart`（actor=master）；
   构建、改配置、重启 herdr/主控都不在白名单内（ADR 0036）。
 - 运行中的 `dev` 入口（wrapper / go run）与未受管实例可查可停，**不能** restart：先停掉它，再用稳定入口启动。
+- **主控 blocked**：`blocked` 是 herdr 的状态名，两个成因（herdr 只报状态不报成因）：
+  ① harness 停在审批/提问 UI 等人按键（omp 的 `ask` 表单）；② omp 的自动重试预算耗尽
+  （provider 超时等）。两种情况下所有注入都在写输入之前被拒。
+  框架处置（框架 ADR 0017）：巡检每轮写一条 `blocked:master` 发现、经 outbox 给用户发一句
+  提醒（带屏上最后一行）；**是 `ask` 就不换脑**（会丢掉那个问题，只等人回答），
+  非 ask 则卡满 `blocked_recover_after`（本实例 `30m`）自动换脑，24h 内至多两次。
+  自查：`superctl status`（`master_blocked.since` / `recoveries` / `awaiting_answer`）、
+  `superctl finding list --pending`、`state/blocked.json`（含 `screen_tail` 与 `awaiting_answer`）。
+  人工兜底：去那个 pane 回答（ask）或点框，或 `superctl new` 立刻换脑。
+- **主控与作业都不该用确认框提问**：ask 会把回合卡在 blocked、停掉整条注入链。
+  主控要用户拍板就用 `superctl reply --admin`；作业要裁决就用回报通道给主控。
+  作业真的卡在 ask 上时：主控读屏（`herdr agent read <名字>`）看它问什么，能按既有授权答就
+  `superctl tell` 回去（必须在台账记一句），拿不准就问用户。
 
 本机已部署的实例用 `~/.config/super-agent/superctl.toml`。旧配置路径与旧键已按一版期限移除（框架 ADR 0005）。
 

@@ -18,6 +18,9 @@ work_dir   = "~/code/apifox/hifox-configuration"  # agent pane 的 cwd（主检�
 
 tick_interval          = "10m"  # 作业巡检兜底周期（三源皆空不发）
 platform_poll_interval = "60s"  # 平台哨兵轮询周期（纯 CLI 轮询零 LLM 成本，有变化才唤醒主控）
+untracked_path         = "untracked.yaml"  # 平台任务人工豁免表（相对 instance_dir；空 = 不豁免）
+review_interval        = "3h"   # 主控整体审视周期（墙钟对齐到日界；干净时只写审视记录）
+retro_at               = "02:00" # 日度复盘触发时刻（本地时区 HH:MM；off = 不排期）
 
 # 上下文轮换：主判定 = provider 回报的 token / 模型 contextWindow；
 # context_reserve_* 决定 handoff 触发点（window - max(15%, 16k)）。session_max_bytes
@@ -28,6 +31,7 @@ context_reserve_min_tokens = 16000
 context_warn_margin_tokens = 8000
 context_model_db           = "~/.omp/agent/models.db"
 local_stall_after          = "45m"  # working 但会话文件这么久没写入 → 巡检告警（0 = 关）
+blocked_recover_after      = "30m"  # 主控卡在等人确认的界面这么久 → 自动换脑自救（24h 内至多两次；0 = 关）
 session_max_bytes          = 8388608
 sessions_keep              = 5
 
