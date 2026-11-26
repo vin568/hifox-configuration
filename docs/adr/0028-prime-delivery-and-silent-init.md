@@ -21,6 +21,10 @@
 2. **冷启动拒绝要重试**：omp 起得慢时 herdr 已把 agent 列进 `agent list`（`interactive_ready=false`），但 `agent prompt` 仍以 `agent_not_found` / `agent_not_ready` 整体拒绝（实测复现）。herdr 的提交语义是「文本 + 回车都写成功才报成功」，`agent_blocked` 明确在写输入前拒绝；`agent_not_found` 是目标解析阶段拒绝，`agent_not_ready` 是就绪检查阶段拒绝，都早于写输入（herdr `validate_agent_prompt` 在 `queue_user_input_submission` 之前返回）。`submitPromptText` 重试到 `SubmitReadyWait`（90s）：`agent list` 瞬时失败继续重试，只有 agent 不在列表里才立刻失败；重试期间转 `blocked` 时再提交一次，让 herdr 给出真实的 `agent_blocked`，`dispatch` 才能按 `IsBlocked` 把审批框交回用户。
 3. **`agent start` 超时只对 omp 放宽到 120s**（herdr 默认 30s）：一条成功 `agent start` 只在 herdr 检测到该 agent 可交互输入后返回；omp 冷启动（加载配置/模型）偶尔超过 30s。别的 kind 仍按默认 30s 失败，避免起不来时把 dispatch/handoff 白拖两分钟。另：start 期的 `agent_not_ready` 是「启动时卡在审批/提问界面」（herdr 原文），与 prompt 的未就绪同名不同义；`Ensure`/`startLocal` 把它翻译成「需要用户先处理」的错误，而不是普通启动失败。
 
+**2026-11-26 现场修订（并发重复注入）：** 15:34 一次 `/new` 后主控输入框里出现三份岗位材料，其中两份被同一条消息提交（会话里 32 425 字符，正好是一份 16 212 的两倍），第三份停成草稿。原因是引导没有临界区：prime 标记只在送达校验通过后才落盘（本 ADR 的决策），而「agent 在跑、这个会话还没有标记」这个窗口（实测 3–13s）里，`/new` 的 `Fresh`、巡检 tick 与平台巡检 tick 各自读到「没 prime 过」并各提交一遍。引导因此成为一个跨进程临界区：`boot.Ensure` 与 `boot.Fresh` 共用 `state/prime.lock`，后来者排队，拿到锁后重读拓扑与标记、按 `AlreadyRunning` 返回；等锁有预算（默认 5 分钟），等满报可重试错误而不是跳过锁。机制细节与取舍见框架 ADR 0019。
+
+**2026-11-26 现场修订（串行重复注入，机制见框架 ADR 0020）：** 同一天 07:52:31 主控会话第 33 行又出现一整份手册（16 286 字符），而第 6 行（07:35:01）已经收过一份；中间没有 `/new`、没有重启，触发是 `instructions.md` 在 07:51:26 被编辑 → 摘要不符 → `ensure` 判定「这个会话没 prime 过（当前版本）」→ 对运行中的会话重灌。本条 ADR 的「标记记摘要、文本变了就重新 prime」因此被推翻：**标记里的摘要不再触发投递，只用于观测**。首条注入改为只投出生点（会话里还没有任何 message 时），已 prime 的会话拿新契约只能靠换脑；`stale` / `unprimed` / `unknown` 进 `ensure` 报告，`unprimed` 由 serve 发一条用户可见告警（30 分钟同文去重；主控用 `/new`、其他常驻用 `superctl new --agent <名>` 换脑恢复）。同时补 `primed/<agent>.pending`：提交未确认送达时下一轮只补 Enter、绝不重贴，消灭「两轮各贴一份、一次 Enter 提交两份」。送达校验、banner 静默、标记记会话路径三条不变。
+
 **Considered Options（修订）：**
 
 - **用 `agent prompt --wait` 代替校验**：拒。它等的是 lifecycle 状态落定，可能等一整轮，而且仍然不证明文本进了会话；herdr 的 `agent_prompt_stalled` 只证明「没观察到 working」，不能区分「输入框卡住」与「已提交但很快结束」。
