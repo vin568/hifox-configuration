@@ -37,7 +37,7 @@ description: 本机 herdr 与执行节点上的能力 agent 派活、动态并�
   superctl dispatch --local --agent <能力 key> --body "<任务 + 上下文 + 验收要点>"
   ```
 
-  它会按注册表的配方（kind/args/workspace/并发上限）拉起 agent、把**该 agent 自己的手册**与任务一起注入、把结果路径写进任务、并登记在途清单；结果落盘后你读文件。`--attachment <路径>`（可重复）会单列成注入里的一段，交给承接 agent 原样带上。
+  它会按注册表的配方（kind/args/workspace/并发上限）拉起 agent、把**该 agent 自己的手册**与任务一起注入、把结果路径写进任务、并登记在途清单；结果落盘后你读文件。`--attachment <路径>`（可重复）会单列成注入里的一段，交给承接 agent 原样带上。派活结果里的 `- key` 是 `job:<台账短名>`：回用户提到这件活时带上 `--key <那个 key>`（第一次带锚点会懒建话题），台账里也记这一行。
 - **执行节点（远端 herdr，ADR 0041）**：节点声明在 `super-agent/capabilities/nodes/<key>.yaml`；agent 的 `targets` 必须包含该节点。派活与收口：
 
   ```bash

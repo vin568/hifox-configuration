@@ -29,3 +29,7 @@
 - 台账与文档保持可共享（Space 成员可见）而无需事后清洗。
 - 规则由 `instructions.md` §6 承担，`skills/ledger/SKILL.md` 与 automation description 同步「永不入账 / 不打印」约束；改动需同步本 ADR 与 `GLOSSARY.md`。
 - 仓库现状（2026-11-10 扫描）：`config/` / `environments/` / `skills/` / `docs/` 无字面密钥；workflow 变量中 `XWING_DEPLOY_PUSH_TOKEN` 为 `$NAME` 环境引用，其余命中均为模板占位符、printf 格式串或 `process.env` 透传。该扫描应作为提交前检查复用。
+
+## 2026-11-27 修订：节点 key 是注册表标签
+
+节点 key（`capabilities/nodes/<key>.yaml` 的目录名）不进入「机器标识」闭集：主人面与作业台账可以用「name（key）」指认执行节点（ADR 0046）。机器标识仍包括 `identity`、`ssh` / `machine` 寻址、IP、端口、主机名与文件系统路径，照旧永不出口；群/成员面不出现节点 key。节点 key 与 SSH 别名目前可能同值，这是配置巧合：规则只放行 key 这个标签本身，不放行 `ssh:` 字段或任何实际寻址值；若某个 key 本身承载敏感主机信息，应改 key，而不是扩大例外。

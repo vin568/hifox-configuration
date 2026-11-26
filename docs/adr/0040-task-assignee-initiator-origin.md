@@ -27,3 +27,9 @@
 - 台账骨架多一行「来源」；成员消息注入带本群在途任务清单。
 - 主控硬禁区补「不直接建单/改单」，只读 `task view` 仍允许。
 - 新增 `superctl member find --feishu <open_id> --chat <chat_id>` 供人工/主控做身份互查。
+
+## 2026-11-27 修订：绑定话题与 url
+
+- `inflight.Entry` 新增 `url`：`dispatch` 写平台返回的链接，`track` 新增可选 `--url`（不联网取真值）。
+- 作业话题绑定（ADR 0046）按话题 id 匹配作业：成员在绑定话题里问进度时列出该话题绑定的作业；主区消息仍按 `origin_chat` / `origin_thread` 匹配。origin 仍是建单来源，不因绑定话题而改写。
+- `<group_tasks>` 渲染短 id + 链接 + 备注；成员进度回答可带这两者（ADR 0038 修订）。

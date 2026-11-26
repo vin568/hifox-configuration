@@ -43,8 +43,10 @@ description: 平台（hifox / sharkly）任务的派发、查询、取消与在�
 群里回帖要挂在触发消息下，否则读者看不出在答哪条，话题群里还会开新话题：
 
 ```bash
-superctl reply --chat <chat_id> --reply-to <注入里的「消息」id> --text "<一句话>"
+superctl reply --chat <chat_id> --reply-to <注入里的「消息」id> --key hifox:HF-xxxxx --text "<一句话>"
 ```
+
+`--key` 是作业指认（ADR 0046）：第一次带锚点的 keyed 回帖会懒建作业话题；之后不带 `--reply-to` 的主动更新自动回该话题。正文里的短 id 与可点击链接由运行时补，不要手写尾行。平台作业的 key 是 `hifox:<任务号>`；任务号前缀由 Space 自定，照平台返回的原样抄，不要自己拼。
 
 话题消息会自动落进话题；普通群是平铺引用。**带「话题」行的一律带 `--reply-to`**（「消息」行就是硬锚点，私聊带话题也一样，不挂会落出话题）。其余消息按「我要回的是不是用户最后一条」判——不是就挂，判断不了就挂；纯私聊无话题的信封既没有「话题」也没有「消息」行，物理上挂不了，普通发送。哪个回复该挂锚点见手册「群与话题」节，本节只给命令形态。需要背着群私聊用户拍板时用 `superctl reply --admin --text …`。
 
@@ -57,7 +59,7 @@ superctl dispatch --local --agent zhugui \
   --attachment <附件路径>            # 有几个写几个，顺序与注入一致
 # 用户给的是已有任务号 → 信封里写「任务号：HF-16095」，朱贵走 --update 改原单，不新建
 
-# 读结果（JSON 的 result 路径：- 任务号 / - 链接 / - 类型 / - 承接 / - 层级 / - space / - 附件 / - 正文 / - build_notes）
+# 读结果（JSON 的 result 路径：- 任务号 / - key / - 链接 / - 类型 / - 承接 / - 层级 / - space / - 附件 / - 正文 / - build_notes）
 ```
 
 `build_notes` 必须读：
@@ -68,11 +70,12 @@ superctl dispatch --local --agent zhugui \
 
 朱贵建单/指派成功后会先 `report` 一句（`[触发器: agent] ...`，带任务号、承接人与链接）——收到就能回用户，不必等结果文件。
 
-**回用户一句话带链接**（结果文件的 `- 链接：` 行，朱贵从 `dispatch` 的 JSON `url` 抄来的，如 `https://app.hifox.com/rayfox/task/HF-16095`）：「已建好 <类型>，跟着看：<链接>」——用户点得进去才叫交付；`build_notes` 里有失败项时补一句「图还在补」，别只说「已创建」。
+**回用户一句话带链接**（结果文件的 `- 链接：` 行，朱贵从 `dispatch` 的 JSON `url` 抄来的，如 `https://app.hifox.com/rayfox/task/HF-16095`）：「已建好 <类型>，跟着看：<链接>」——用户点得进去才叫交付；`build_notes` 里有失败项时补一句「图还在补」，别只说「已创建」。这条回帖带上 `--key hifox:<任务号>`，运行时会在尾行补可点击短 id，并把这次回帖当作作业话题的第一条。
 
 ## 六、复查与跟踪
 
 - 正文归档在 `briefs/<任务号>.md`（运行时建的稳定副本，与平台一致）：要核对「这单到底写了什么」读它，不用开网页。
+- 提到任何一张单时都带短 id（`HF-xxxxx`）与链接；只报「那张单」不算交代。任务号前缀按 Space 实际值，不假设一定是 `HF-`。
 - 真值三件套：`hifox task view <任务号> --output json`（status / delegateStatus / agentWorkingStatus）、`hifox run list --task <任务号>`。
 - 撤销：`superctl cancel --task <任务号>`（不急停）。
 - 任务号由朱贵建单时**自动**写进在途清单；哨兵高频轮询清单里的平台条目。真变化、**平台自己报错**（session 超时/执行异常，签名可能没变也报）都会唤醒你；从未进清单的单由哨兵的覆盖差集写成 `untracked` 发现，补登（`superctl track`）后自动消解。
