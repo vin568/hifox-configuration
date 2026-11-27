@@ -12,6 +12,7 @@ import {
   checkCapabilityDocs,
   checkCheckoutsLive,
   checkProjects,
+  checkLessons,
   checkLiveWith,
   checkNodes,
   checkNodesLive,
@@ -713,4 +714,85 @@ test("checkouts live: directory project only needs to exist", () => {
     checkCheckoutsLive(projects, [{ node: "self", project: "scratch", path: "/scratch" }], nodes, { identity: "SELF", runLocal }),
     [],
   );
+});
+
+// ---------- 记忆面（ADR 0048） ----------
+
+// 没有经验文件 = 正常（首次运行），不能报红。
+test("checkLessons tolerates a missing file", () => {
+  const dir = mkdtempSync(join(tmpdir(), "lessons-check-"));
+  assert.deepEqual(checkLessons(dir), []);
+});
+
+// 三段作用域的闭集：自创小节（如「杂项」）必须报出来，否则读侧永远命中不到。
+test("checkLessons rejects sections outside the closed set", () => {
+  const dir = mkdtempSync(join(tmpdir(), "lessons-check-"));
+  writeFileSync(join(dir, "lessons.md"), "## 杂项\n- [已验证] (2026-11-27) 一条 — 证据：x\n");
+  const problems = checkLessons(dir);
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /三段闭集/);
+});
+
+// 行格式：状态闭集 + 日期 + 证据，缺一项就报。
+test("checkLessons rejects malformed lines", () => {
+  const dir = mkdtempSync(join(tmpdir(), "lessons-check-"));
+  writeFileSync(join(dir, "lessons.md"),
+    "## 全局\n- [随便] (2026-11-27) 状态不在闭集 — 证据：x\n- [已验证] 没有日期 — 证据：x\n");
+  const problems = checkLessons(dir);
+  assert.equal(problems.length, 2);
+  for (const p of problems) assert.match(p, /格式/);
+});
+
+// 上限：恰好 100 条合法，101 条必须报红——边界要两侧都钉住，否则 >= 写成 > 也测不出。
+test("checkLessons enforces the 100-line cap at the boundary", () => {
+  const at = (n) => {
+    const dir = mkdtempSync(join(tmpdir(), "lessons-check-"));
+    const body = "## 全局\n" + Array.from({ length: n }, () => "- [已验证] (2026-11-27) 条目 — 证据：x").join("\n") + "\n";
+    writeFileSync(join(dir, "lessons.md"), body);
+    return checkLessons(dir);
+  };
+  assert.deepEqual(at(100), [], "恰好 100 条应当通过");
+  const over = at(101);
+  assert.equal(over.length, 1);
+  assert.match(over[0], /超过上限 100/);
+});
+
+// 正常文件（三段齐全、数量在内）不得报任何问题。
+test("checkLessons passes a well-formed file", () => {
+  const dir = mkdtempSync(join(tmpdir(), "lessons-check-"));
+  writeFileSync(join(dir, "lessons.md"), [
+    "## 全局",
+    "- [已验证] (2026-11-27) 规则一 — 证据：a.md",
+    "## 仓库/hifox-configuration",
+    "- [待确认] (2026-11-27) 规则二 — 证据：b.md",
+    "## agent/andaoquan",
+    "- [已验证] (2026-11-27) 规则三 — 证据：c.md",
+    "",
+  ].join("\n"));
+  assert.deepEqual(checkLessons(dir), []);
+});
+
+// 形状对不代表日期有效、正文非空：Go 读侧会整行丢弃这两种行，实例检查必须同样报红，
+// 否则「检查绿灯、prompt 里却永远没有这条」（2026-11-27 测试评审 F-10）。
+test("checkLessons rejects impossible dates and empty bodies", () => {
+  const cases = [
+    "- [已验证] (2026-13-01) 月份越界 — 证据：x",
+    "- [已验证] (2026-02-30) 不存在的日子 — 证据：x",
+    "- [已验证] (2026-02-29) 非闰年的 2-29 — 证据：x",
+    "- [已验证] (2026-11-27)    ",
+    "- [已验证] (2026-11-27) 没有证据的断言",
+  ];
+  for (const line of cases) {
+    const dir = mkdtempSync(join(tmpdir(), "lessons-check-"));
+    writeFileSync(join(dir, "lessons.md"), `## 全局\n${line}\n`);
+    const problems = checkLessons(dir);
+    assert.ok(problems.length >= 1, `${line} 应当被拒，实际 ${JSON.stringify(problems)}`);
+  }
+});
+
+// 与 Go 读侧共读同一形状：这条合法行两边都必须接受。
+test("checkLessons accepts the shape the Go reader accepts", () => {
+  const dir = mkdtempSync(join(tmpdir(), "lessons-check-"));
+  writeFileSync(join(dir, "lessons.md"), "## 全局\n- [待确认] (2028-02-29) 闰日合法 — 证据：x\n");
+  assert.deepEqual(checkLessons(dir), []);
 });
