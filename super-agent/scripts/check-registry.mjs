@@ -11,12 +11,16 @@
 // YAML 用 yq 转 JSON 读：与 x-deploy 同一套工具前提，不引 node 依赖。
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_ROOT = resolve(HERE, "../..");
+
+// LESSON_SCOPE_SECTIONS 与框架 internal/lessons 的三段作用域同构：改这里必须同步那边。
+const LESSON_SCOPE_RE = /^(全局|仓库\/[^/\s]+|agent\/[^/\s]+)$/;
+const LESSON_LINE_RE = /^- \[(已验证|待确认)\] (\(\d{4}-\d{2}-\d{2}\)) .+$/;
 
 // ---------- 通用 ----------
 
@@ -683,6 +687,18 @@ export function checkLive(data) {
   });
 }
 
+// stateDirOf 从实例配置读 state_dir（与 loadInflightTaskIDs 同一套展开规则）。
+function stateDirOf(configPath) {
+  try {
+    const raw = execFileSync("yq", ["-p=toml", "-o=json", ".state_dir", configPath], { encoding: "utf8" }).trim();
+    const parsed = JSON.parse(raw);
+    if (typeof parsed !== "string" || !parsed) return "";
+    return parsed.replace(/^~(?=\/|$)/, process.env.HOME || "~");
+  } catch {
+    return "";
+  }
+}
+
 // findInstanceConfig 定位实例配置（差集要读 state_dir）。顺序与框架一致：
 // $SUPERAGENT_CONFIG > ~/.config/super-agent/superctl.toml。
 function findInstanceConfig() {
@@ -957,6 +973,13 @@ function main(argv) {
   const problems = checkOffline(data);
   problems.push(...checkProjects(data.projects, data.checkouts, data.capabilityAgents));
   problems.push(...checkCapabilityDocs(root));
+  const instanceConfig = findInstanceConfig();
+  const stateDir = instanceConfig ? stateDirOf(instanceConfig) : "";
+  problems.push(...checkLessons(stateDir));
+  if (stateDir) {
+    const note = findingsJournalNote(stateDir);
+    if (note) console.error(note);
+  }
   if ((data.nodes || []).length > 0) {
     let machines = [];
     let herdrAvailable = true;
@@ -1013,3 +1036,73 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 }
 
 
+
+// ---------- 记忆面（ADR 0048） ----------
+
+// checkLessons 校验经验文件的形态与上限。超上限必须报红（写入侧要合并或晋升，
+// 不能靠读侧截断）；行格式坏只提示，不阻断——经验是旁路增强，不是运行前提。
+export function checkLessons(stateDir) {
+  const problems = [];
+  if (!stateDir) return problems;
+  const path = join(stateDir, "lessons.md");
+  if (!existsSync(path)) return problems; // 还没有经验 = 正常（首次运行）
+  let text;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (err) {
+    return [`经验文件：读不到 ${path}（${err.message}）`];
+  }
+  let scope = "";
+  let count = 0;
+  text.split("\n").forEach((line, i) => {
+    const at = `${path}:${i + 1}`;
+    if (line.startsWith("## ")) {
+      scope = line.slice(3).trim();
+      if (!LESSON_SCOPE_RE.test(scope)) {
+        problems.push(`经验文件：${at} 小节「${scope}」不在三段闭集（全局 / 仓库/<名> / agent/<key>）`);
+      }
+      return;
+    }
+    if (!line.startsWith("- ")) return;
+    count++;
+    if (!scope) problems.push(`经验文件：${at} 条目出现在任何小节之前`);
+    if (!LESSON_LINE_RE.test(line)) {
+      problems.push(`经验文件：${at} 格式应为 - [已验证|待确认] (YYYY-MM-DD) 正文 — 证据：…`);
+      return;
+    }
+    // 形状对不代表日期有效、正文非空：Go 读侧会整行丢弃这两种行（lessons.parseLine），
+    // 只查形状会让 `npm run check` 绿灯、prompt 里却永远没有这条。
+    const date = line.slice(line.indexOf("(") + 1, line.indexOf(")"));
+    const [y, m, d] = date.split("-").map(Number);
+    const round = new Date(Date.UTC(y, m - 1, d));
+    if (round.getUTCFullYear() !== y || round.getUTCMonth() !== m - 1 || round.getUTCDate() !== d) {
+      problems.push(`经验文件：${at} 日期 ${date} 不是合法日历日期`);
+    }
+    if (line.slice(line.indexOf(")") + 1).trim() === "") {
+      problems.push(`经验文件：${at} 正文为空`);
+    }
+    // ADR 0048 的格式是「… — 证据：…」：没有证据的经验无法被推翻，也没法判断多旧。
+    // 读侧不校验它（缺了照样注入），所以只有这里能拦住——宁可报红也不要积累无主断言。
+    if (!/—\s*证据：\S/.test(line)) {
+      problems.push(`经验文件：${at} 缺少「— 证据：…」`);
+    }
+  });
+  if (count > 100) problems.push(`经验文件：${count} 条超过上限 100，先合并或晋升`);
+  return problems;
+}
+
+// findingsJournalNote 只做容量提示：流水是旁路历史，不参与运行判定，所以超量是
+// 提示而不是红——但超到没人会读的时候，就该归档了。
+export function findingsJournalNote(stateDir) {
+  if (!stateDir) return "";
+  const path = join(stateDir, "findings-journal.jsonl");
+  let size = 0;
+  try {
+    size = statSync(path).size;
+  } catch {
+    return "";
+  }
+  const limit = 2 << 20; // 2 MiB：约一万条消解记录
+  if (size <= limit) return "";
+  return `提示：发现流水 ${path} 已 ${(size / 1024 / 1024).toFixed(1)} MiB，考虑归档（check 不自动删）`;
+}
