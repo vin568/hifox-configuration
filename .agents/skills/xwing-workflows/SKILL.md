@@ -90,7 +90,7 @@ node scripts/catalog-doc.mjs view <blockType>     # 单块全量：字段/控件
 node scripts/catalog-doc.mjs options <type> <字段> # 动态选项
 ```
 
-脚本自动从 `environments/*/environment.yaml` 解析 cli.app 与 space（identifier 或 UUID；可用 `--cli`/`--space` 覆盖）。**不要凭记忆写块字段**——先 `view`。
+脚本先问 `x-deploy settings` 要布局（与 `doctor` 同一套严格校验），再在其 `environmentsDir` 下首个 `environment.yaml` 解析 cli.app 与 space（identifier 或 UUID；可用 `--cli`/`--space` 覆盖）。settings 非法时脚本硬失败，不按默认目录猜。**不要凭记忆写块字段**——先 `view`。
 
 ## 4. 关键不变式（踩过坑的实证）
 
@@ -131,4 +131,4 @@ node scripts/catalog-doc.mjs options <type> <字段> # 动态选项
 node .agents/skills/xwing-workflows/scripts/contract-snapshot.mjs [--update]
 ```
 
-The baseline lives at the repo root `.contract-snapshots/catalog.tsv` (committed). Drift only indicates "the engine surface has changed", not an error in your own workflow. Exit codes are tiered: `-` type deleted (the only compatibility risk; if used in `config/*/workflows/**` declarations, migrate before deploy — deletions are usually renames, see the `+` counterpart in the same output) → exit 1; `+` new type / `~` copy or category tweaks → informational, exit 0. After review, rerun `--update` to re-stamp and commit; new structural families (sugar/roundtrip fixtures) are handled in the x-deploy repo.
+The baseline lives in `.contract-snapshots/catalog.tsv` beside the deployment directories (repo root in the dedicated layout, inside `.xwing/` in the embedded layout), committed. The layout comes from `x-deploy settings`; an invalid settings file stops the run instead of falling back to defaults. Drift only indicates "the engine surface has changed", not an error in your own workflow. Exit codes are tiered: `-` type deleted (the only compatibility risk; if used in `config/*/workflows/**` declarations, migrate before deploy — deletions are usually renames, see the `+` counterpart in the same output) → exit 1; `+` new type / `~` copy or category tweaks → informational, exit 0. After review, rerun `--update` to re-stamp and commit; new structural families (sugar/roundtrip fixtures) are handled in the x-deploy repo.

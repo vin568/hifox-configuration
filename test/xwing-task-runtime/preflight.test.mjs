@@ -1,4 +1,4 @@
-// Tests for the shared environment preflight (skills/xwing-task-runtime/scripts/preflight.sh).
+// Tests for the shared environment preflight (.xwing/skills/xwing-task-runtime/scripts/preflight.sh).
 // The script is the P0 gate every xwing agent runs before touching a task; a surface
 // that silently stops checking (or starts passing without its tools) would make
 // missing-tool reports disappear instead of surfacing as blockers.
@@ -15,7 +15,7 @@ function which(name) {
 }
 
 const SCRIPT = fileURLToPath(
-  new URL("../../skills/xwing-task-runtime/scripts/preflight.sh", import.meta.url),
+  new URL("../../.xwing/skills/xwing-task-runtime/scripts/preflight.sh", import.meta.url),
 );
 
 const BASE_TOOLS = ["git", "node", "pnpm", "make"];

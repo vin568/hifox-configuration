@@ -1,0 +1,5 @@
+# x-deploy layout settings (ADR 0027); embedded convention: everything under .xwing/.
+configDir: .xwing/config
+environmentsDir: .xwing/environments
+snapshotsDir: .xwing/snapshots
+backupsDir: .xwing/backups

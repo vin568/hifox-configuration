@@ -33,6 +33,6 @@ jobs:
       - name: install yq
         run: brew install yq
       - name: build stable entry
-        run: ./super-agent/build
+        run: ./scripts/build
       - run: npm test
       - run: npm run check

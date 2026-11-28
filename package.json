@@ -1,10 +1,10 @@
 {
   "name": "hifox-configuration",
   "private": true,
-  "description": "Declarative xwing family configuration; tests cover the locally maintained skill scripts and the super-agent instance checks.",
+  "description": "Declarative xwing family configuration under .xwing/ plus the super-agent runtime instance; tests cover the locally maintained skill scripts and the instance checks.",
   "scripts": {
     "test": "node --test \"test/**/*.test.mjs\"",
-    "check": "node super-agent/scripts/check-registry.mjs",
-    "check:live": "node super-agent/scripts/check-registry.mjs --live"
+    "check": "node scripts/check-registry.mjs",
+    "check:live": "node scripts/check-registry.mjs --live"
   }
 }

@@ -1,0 +1,15 @@
+#!/bin/sh
+# 本实例的开发期 superctl 入口：从 vendor/super-agent 子模块 go run 框架。
+#
+# 不要把它写进 superctl.toml 的 runtime_cmd：go run 每次触发编译，且入口没有
+# build 戳，受管 serve 会把它判成 dev。生产入口是 bin/superctl
+# （scripts/build 产物）；本脚本只用于开发与临时排查。
+#
+# 用法（实例根 = 仓根）：
+#   SUPERAGENT_CONFIG=<ABS>/superctl.toml ./superctl serve
+set -e
+root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if command -v mise >/dev/null 2>&1; then
+  exec mise exec go -- go -C "$root/vendor/super-agent" run ./cmd/superctl "$@"
+fi
+exec go -C "$root/vendor/super-agent" run ./cmd/superctl "$@"

@@ -17,7 +17,7 @@ import { join } from "node:path";
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const SCRIPT_URL = new URL("../../../config/hifox/agents/daizong/skills/acceptance/scripts/screenshot.mjs", import.meta.url);
+const SCRIPT_URL = new URL("../../../.xwing/config/hifox/agents/daizong/skills/acceptance/scripts/screenshot.mjs", import.meta.url);
 const STUB_URL = new URL("../../fixtures/playwright-stub", import.meta.url);
 
 function runScript({ args = [], env = {}, stub = true, files = {} } = {}) {

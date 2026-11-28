@@ -1,0 +1,78 @@
+#!/bin/sh
+# 用途：构建本实例的稳定入口 bin/superctl（注入 version/commit/dirty/buildTime
+#       四个 build 戳）。受管 serve 只从这个入口启动（框架 ADR 0004）。
+# 参数：无。
+# 示例：scripts/build
+# 副作用：写 bin/superctl（校验通过后才替换旧产物）。不启动/不重启 serve、
+#         不改配置/凭证；是否切换运行中的实例由用户或维护员另行决定。
+set -eu
+
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) # scripts/
+root=$(CDPATH= cd -- "$here/.." && pwd)           # 仓根（= 实例根）
+src="$root/vendor/super-agent"
+out="$root/bin/superctl"
+tmp="$out.tmp.$$"
+
+if [ ! -d "$src" ]; then
+  echo "build: 找不到框架源码 ${src}（子模块未初始化？先 git submodule update --init vendor/super-agent）" >&2
+  exit 1
+fi
+
+commit=$(git -C "$src" rev-parse HEAD 2>/dev/null || true)
+if [ -z "$commit" ]; then
+  echo "build: 读不到 $src 的 HEAD（不是 git 检出？）" >&2
+  exit 1
+fi
+# 未提交源码（含未跟踪文件）= local 构建；框架据此拒绝自主 restart。
+dirty=false
+if [ -n "$(git -C "$src" status --porcelain 2>/dev/null || true)" ]; then
+  dirty=true
+fi
+version=$(git -C "$src" describe --tags --always 2>/dev/null || echo "$commit")
+build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+mkdir -p "$root/bin"
+trap 'rm -f "$tmp"' 0 2 15
+# 本机 PATH 可能先命中旧 go（如 /usr/local/go 1.18，不支持 go -C）；有 mise 就用
+# 仓库钉住的工具链。没有 mise 时按 PATH 的 go（CI 由 setup-go 保证版本）。
+go_cmd() {
+  if command -v mise >/dev/null 2>&1; then
+    mise exec go -- go "$@"
+  else
+    go "$@"
+  fi
+}
+# 先构建到临时文件，自校验通过后才替换旧入口：校验失败不能留下一个半成品 bin。
+go_cmd -C "$src" build \
+  -ldflags "-X main.version=$version -X main.commit=$commit -X main.dirty=$dirty -X main.buildTime=$build_time" \
+  -o "$tmp" ./cmd/superctl
+# touch 让入口比所有源码新：框架的 find -newer 新鲜度判据依赖它。
+touch "$tmp"
+
+# 自校验：戳齐全（ldflags 写错符号名会被链接器静默忽略，必须核对输出）+ 认识 server 命令。
+stamp=$("$tmp" version --json) || {
+  echo "build: 产物无法执行 version --json" >&2
+  exit 1
+}
+echo "$stamp"
+for needle in "\"commit\":\"$commit\"" "\"dirty\":\"$dirty\"" "\"buildTime\":\"$build_time\""; do
+  case "$stamp" in
+    *"$needle"*) ;;
+    *)
+      echo "build: 产物缺少 build 戳 ${needle}（ldflags 变量名与框架不一致？）" >&2
+      exit 1
+      ;;
+  esac
+done
+if ! "$tmp" help | grep -q '^  server '; then
+  echo "build: 产物缺少 server 命令（构建脚本与框架不一致）" >&2
+  exit 1
+fi
+mv -f "$tmp" "$out"
+trap - 0 2 15
+
+echo "build: ok $out"
+echo "build: version=$version commit=$commit dirty=$dirty build_time=$build_time"
+if [ "$dirty" = true ]; then
+  echo "build: 注意：源码有未提交改动 → local 模式（主控不会自主 restart；改完重跑 scripts/build）"
+fi

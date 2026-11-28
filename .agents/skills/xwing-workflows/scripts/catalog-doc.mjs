@@ -9,9 +9,9 @@
 //   node catalog-doc.mjs view <blockType>         # full field detail for one block
 //   node catalog-doc.mjs options <type> <field>   # dynamic options for a field
 //
-// cli.app and space (identifier or UUID, ADR 0033) are auto-detected from
-// environments/*/environment.yaml (first environment); override with
-// --cli <app> / --space <id>.
+// cli.app and space (identifier or UUID, ADR 0033) are auto-detected from the
+// first environment's environment.yaml under the configured environmentsDir;
+// override with --cli <app> / --space <id>.
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -22,9 +22,39 @@ const flag = (name) => {
   return i >= 0 ? process.argv[i + 1] : undefined;
 };
 
+// 布局一律问 CLI（ADR 0036）：`x-deploy settings` 用与 doctor 同一套严格校验解析
+// x-deploy.yaml。手写解析曾在这里静默接受绝对 configDir，把目录读到仓外去。
+// 调用形态跟 init 注入的同一套探测：仓根有 ./x-deploy 壳脚本就用它（copy/子模块
+// 安装），否则 `npx --no-install x-deploy`（npm 安装；不联网、不自动装）。
+function deploymentSettings(root) {
+  const local = join(root, "x-deploy");
+  const [cmd, args] = existsSync(local) ? [local, []] : ["npx", ["--no-install", "x-deploy"]];
+  let out;
+  try {
+    out = execFileSync(cmd, [...args, "settings", "--root", root], {
+      encoding: "utf8",
+      maxBuffer: 8 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (err) {
+    // 非零退出仍然带 JSON（payload 的 error 字段是判据）；拿不到 JSON 才是硬失败。
+    out = err.stdout;
+    if (!out) {
+      console.error(`x-deploy settings 无法执行（${cmd}）：${String(err.stderr || err.message).trim()}`);
+      process.exit(2);
+    }
+  }
+  return JSON.parse(out);
+}
+
 function detect() {
   const root = process.cwd();
-  const envDirs = join(root, "environments");
+  const settings = deploymentSettings(root);
+  if (settings.error) {
+    console.error(`catalog-doc: x-deploy.yaml 非法，拒绝在不明的布局上取 catalog：${settings.error}`);
+    process.exit(2);
+  }
+  const envDirs = join(root, settings.environmentsDir);
   if (existsSync(envDirs)) {
     for (const name of readdirSync(envDirs)) {
       const file = join(envDirs, name, "environment.yaml");

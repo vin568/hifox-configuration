@@ -1,0 +1,6 @@
+key: task-runtime
+name: XWing Task Runtime
+description: "xwing task-local 运行时操作契约（make agent-task-* 生命周期、.task-env 布局、auth.env 接线与 token 纪律）与环境预检脚本：任务接收（P0）时按改动面运行 preflight.sh，不自行安装。移动端任务按改动面传 surface：base 恒开，碰 iOS 加 ios、碰 Android 加 android，要用 hifox CLI 读写任务时再加 hifox。"
+dir: "@/.xwing/skills/xwing-task-runtime"
+config: {}
+namingPattern: "{{name}}"

@@ -1,0 +1,163 @@
+#!/bin/sh
+# 用途：项目作业工作区的增删查（linked git worktree），供主控按批准派发、供作业 agent 在
+#       自己那一轮里建/删工作区。与 checkout 同级建目录，不写检出本身（ADR 0043）。
+# 参数：add --repo <检出绝对路径> --name <作业名> [--branch <分支>] [--base <基线>] [--no-submodules]
+#       list --repo <检出绝对路径>
+#       remove --repo <检出绝对路径> --name <作业名> [--force]
+#       prune --repo <检出绝对路径>
+# 示例：direct/worktree add --repo /Users/vin/code/apifox/sharkly --name fix-login
+#       direct/worktree remove --repo /Users/vin/code/apifox/sharkly --name fix-login
+# 副作用：add 建 ../<检出目录名>-<作业名> 与分支（缺省 feature/<作业名>）；
+#         给了 --base 从 origin/<base> 切，不给则从检出当前 HEAD 切（脚本不查项目表；
+#         交付作业应由派活方带 --base）。
+#         特性分支不设 upstream（--no-track），push 目标由人显式指定。
+#         检出带 .gitmodules 时从远端初始化子模块（--no-submodules 跳过）。
+#         remove 删工作区（分支保留）。脚本自身不 push、不合并、不切检出分支、不 commit。
+#
+# 不依赖脚本自身位置：节点上脚本来自作业物料目录，那里没有仓布局。一切路径按 --repo 解析。
+set -e
+
+die() { echo "error: $*" >&2; exit 1; }
+info() { echo "==> $*"; }
+
+usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0; }
+
+cmd="${1:-}"
+case "$cmd" in
+  -h|--help|help|"") usage ;;
+esac
+shift
+
+repo=""
+name=""
+branch=""
+base=""
+submodules=1
+force=0
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --repo) repo="${2:-}"; [ -n "$repo" ] || die "--repo 需要检出路径"; shift 2 ;;
+    --name) name="${2:-}"; [ -n "$name" ] || die "--name 需要作业名"; shift 2 ;;
+    --branch) branch="${2:-}"; [ -n "$branch" ] || die "--branch 需要分支名"; shift 2 ;;
+    --base) base="${2:-}"; [ -n "$base" ] || die "--base 需要基线分支"; shift 2 ;;
+    --no-submodules) submodules=0; shift ;;
+    --force) force=1; shift ;;
+    -h|--help) usage ;;
+    *) die "未知选项: $1" ;;
+  esac
+done
+
+[ -n "$repo" ] || die "${cmd} 需要 --repo <检出绝对路径>（作业契约里的「检出」）"
+case "$repo" in
+  /*) ;;
+  *) die "--repo 必须是绝对路径：$repo" ;;
+esac
+[ -d "$repo" ] || die "检出不存在: $repo"
+git -C "$repo" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "不是 git 工作副本: $repo"
+
+worktree_dir() {
+  # 先规整再取 base/dir：`/x/y/` 直接拼会得到 `/x/y/../y-fix-1` 这种落进检出的形状。
+  local clean parent base
+  clean=$(cd "$repo" && pwd -P) || die "无法解析检出路径: $repo"
+  base=${clean##*/}
+  parent=${clean%/*}
+  [ -n "$parent" ] || parent=/
+  printf '%s/%s-%s' "$parent" "$base" "$1"
+}
+
+main_worktree_only() {
+  # --absolute-git-dir / --path-format=absolute：脚本可从任意 cwd 调用（ADR 0043），
+  # 相对路径的 .git 会在 cd 时解析到调用者的目录。
+  local git_dir common_dir
+  git_dir=$(git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null) || die "读不到 git 目录: $repo"
+  common_dir=$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || die "读不到 git 公共目录: $repo"
+  [ "$git_dir" = "$common_dir" ] || die "请在检出的主工作树运行（当前在 linked worktree）"
+}
+
+has_submodules() { [ -f "$repo/.gitmodules" ]; }
+
+cmd_add() {
+  [ -n "$name" ] || die "add 需要 --name <作业名>"
+  main_worktree_only
+  [ -z "$branch" ] && branch="feature/$name"
+  local dir
+  dir=$(worktree_dir "$name")
+  [ -e "$dir" ] && die "目标目录已存在: $dir"
+
+  if [ -n "$base" ]; then
+    base="origin/${base#origin/}"
+    git -C "$repo" fetch --quiet origin "$(expr "$base" : 'origin/\(.*\)')" 2>/dev/null || true
+    git -C "$repo" rev-parse --verify --quiet "$base" >/dev/null || die "基线不存在: $base（先 git fetch origin）"
+  fi
+
+  if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+    info "挂载已有分支 $branch 到 $dir"
+    git -C "$repo" worktree add "$dir" "$branch"
+  else
+    if [ -n "$base" ]; then
+      info "创建 worktree ${dir}（新分支 ${branch}，基于 ${base}）"
+      git -C "$repo" worktree add -b "$branch" --no-track "$dir" "$base"
+    else
+      info "创建 worktree ${dir}（新分支 ${branch}）"
+      git -C "$repo" worktree add -b "$branch" --no-track "$dir"
+    fi
+  fi
+
+  if [ "$submodules" = 1 ] && has_submodules; then
+    info "初始化子模块（从远端克隆，需网络）"
+    git -C "$dir" submodule update --init
+    local path sub_branch
+    while IFS= read -r path; do
+      sub_branch=$(git -C "$repo" config -f .gitmodules --get "submodule.$path.branch" 2>/dev/null || true)
+      if [ -n "$sub_branch" ]; then
+        info "子模块 $path 切同名特性分支 $branch（基于 origin/$sub_branch）"
+        git -C "$dir/$path" fetch --quiet origin "$sub_branch"
+        git -C "$dir/$path" switch --no-track -c "$branch" "origin/$sub_branch"
+      fi
+    done <<EOF
+$(git -C "$repo" config -f .gitmodules --get-regexp '^submodule\..*\.path$' | cut -d' ' -f2)
+EOF
+  fi
+
+  printf '工作区：%s\n分支：%s\n' "$(cd "$dir" && pwd)" "$branch"
+}
+
+cmd_list() {
+  git -C "$repo" worktree list
+}
+
+cmd_remove() {
+  [ -n "$name" ] || die "remove 需要 --name <作业名>"
+  local dir
+  dir=$(worktree_dir "$name")
+  if [ -d "$dir" ] && git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    local dirty
+    dirty=$(git -C "$dir" status --porcelain)
+    if [ -n "$dirty" ] && [ "$force" != 1 ]; then
+      printf '%s\n' "$dirty" >&2
+      die "工作区不干净（上方清单）：确认丢弃用 --force；分支仍会保留"
+    fi
+  fi
+  if has_submodules && [ "$force" != 1 ]; then
+    # 子模块在位时 git worktree remove 一律 fatal（git 2.50 实测）；只在确认时强制。
+    die "检出带子模块：git worktree remove 需要 --force（子模块特性分支未 push 会随之消失）"
+  fi
+  if [ "$force" = 1 ]; then
+    git -C "$repo" worktree remove --force "$dir"
+  else
+    git -C "$repo" worktree remove "$dir"
+  fi
+  info "已移除工作区 $dir（分支 $name 保留；自行 git branch -d）"
+}
+
+cmd_prune() { git -C "$repo" worktree prune -v && info "已清理失联 worktree 元数据"; }
+
+case "$cmd" in
+  add) cmd_add ;;
+  list) cmd_list ;;
+  remove) cmd_remove ;;
+  prune) cmd_prune ;;
+  -h|--help|help) usage ;;
+  *) die "未知子命令: $cmd（可用：add | list | remove | prune）" ;;
+esac

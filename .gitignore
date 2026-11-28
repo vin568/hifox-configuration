@@ -1,8 +1,8 @@
 # Generated remote-state caches.
-snapshots/
+.xwing/snapshots/
 
 # Timestamped local backup bundles. Copy these to durable private storage.
-backups/
+.xwing/backups/
 
 
 # mise per-machine secrets: hand-maintained [env] store, never commit.
@@ -12,5 +12,5 @@ mise.toml.local
 .DS_Store
 
 # super-agent instance: local config and dev build artifacts are not committed
-super-agent/superctl.toml
-super-agent/bin/
+/superctl.toml
+/bin/

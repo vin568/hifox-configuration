@@ -5,7 +5,7 @@
 // derived coverage — that is the point.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DIRECT_MUTATORS, parseCommandSurface, hasRequiredArgs, tiersFor, buildCoverage } from "../../../config/hifox/agents/daizong/skills/acceptance/scripts/lib/surface.mjs";
+import { DIRECT_MUTATORS, parseCommandSurface, hasRequiredArgs, tiersFor, buildCoverage } from "../../../.xwing/config/hifox/agents/daizong/skills/acceptance/scripts/lib/surface.mjs";
 
 const HELP = `Usage:
   x-deploy init          [DIR] [--layout dedicated|embedded] [--config-set NAME] [--environment NAME] [--cli-source PATH] [--repo-url URL] [--ref NAME]
