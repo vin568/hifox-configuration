@@ -815,7 +815,7 @@ test("checkLessons passes a well-formed file", () => {
   writeFileSync(join(dir, "lessons.md"), [
     "## 全局",
     "- [已验证] (2026-11-27) 规则一 — 证据：a.md",
-    "## 仓库/hifox-configuration",
+    "## 仓库/northstar",
     "- [待确认] (2026-11-27) 规则二 — 证据：b.md",
     "## agent/andaoquan",
     "- [已验证] (2026-11-27) 规则三 — 证据：c.md",
