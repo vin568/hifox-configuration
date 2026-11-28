@@ -1,4 +1,4 @@
-# 0049：会话留档只删过期的、在用的永不删（配套「读不到 ≠ 没送到」）
+# 0051：会话留档只删过期的、在用的永不删（配套「读不到 ≠ 没送到」）
 
 2026-11-27 11:37 一次 `/new` 换脑删掉了常驻巡检者正在写的会话目录：`pruneSessions` 只按目录名排序、`RemoveAll` 掉 keep 之外的最老目录，**不判断目录是否被存活 agent 使用**。omp 继续往已 unlink 的 inode 写，注入确认（`waitPrimeLanded` → `os.ReadFile`）每轮 ENOENT，运行时据此报「巡检失明」；蒋敬的会话目录更早被删，复盘轮同样中招。同日暴露两个连带缺陷：失败路径把在途条目移出后 `done` 事件被丢，`LastDoneAt`/`RunningSince` 停更；`rotate`/`context_alerts` 对会话文件 stat 失败静默 `continue`，上下文轮换对这两人整体失效且无日志。当时 `sessions/` 下 7 个目录 > 默认 keep=5，第 5 次换脑就会删到主控现役目录。
 
