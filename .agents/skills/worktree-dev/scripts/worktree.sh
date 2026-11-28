@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# hifox-configuration 的 git worktree 助手（根仓 + 子模块）。
+# northstar 的 git worktree 助手（根仓 + 子模块）。
 # 用法: worktree.sh add <name> [-b <branch>] | list | remove <name> [--force] | prune
 # 契约与机制说明见同目录 SKILL.md；仅在主检出运行。
 set -euo pipefail

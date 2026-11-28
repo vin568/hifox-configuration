@@ -46,7 +46,7 @@
 首次克隆与补齐：
 
 ```bash
-git clone --recurse-submodules git@apifox.github.com:vin568/hifox-configuration.git
+git clone --recurse-submodules git@apifox.github.com:vin568/northstar.git
 git submodule update --init --recursive
 ```
 

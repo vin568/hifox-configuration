@@ -1,4 +1,4 @@
-# hifox-configuration
+# northstar
 
 xwing 家族部署实例的声明式配置仓库：配置集合、环境绑定，以及 x-deploy 的发布流水线（门禁、判定与发布语义都在本仓定义）。
 

@@ -9,10 +9,10 @@ session    = "super-agent"                  # herdr 命名 session
 state_dir  = "~/.local/state/super-agent"   # 运行时状态目录（按实例名，不按主控人格名）
 # 实例根：本配置放在 ~/.config/super-agent/ 时，必须显式指向仓根（capabilities/、
 # direct/、bin/ 都在那里），否则会相对配置目录解析（落在家目录下）。
-instance_dir = "~/code/apifox/hifox-configuration"
+instance_dir = "~/code/apifox/northstar"
 env_prefix = "SUPERAGENT"                   # 凭证环境变量前缀（新实例由 superctl init 按主控 key 派生）
-runtime_cmd = "/ABS/PATH/hifox-configuration/bin/superctl"  # 稳定入口（scripts/build 产物）
-work_dir   = "~/code/apifox/hifox-configuration"  # agent pane 的 cwd（主检出）；也是 skills.yaml 里 `@/` 的锚（ADR 0050）；本仓 = 实例根
+runtime_cmd = "/ABS/PATH/northstar/bin/superctl"  # 稳定入口（scripts/build 产物）
+work_dir   = "~/code/apifox/northstar"  # agent pane 的 cwd（主检出）；也是 skills.yaml 里 `@/` 的锚（ADR 0050）；本仓 = 实例根
 
 # 主控与复盘 agent 不在此声明：由能力注册表 role=master / role=retro 派生。
 # 平台任务的人工豁免表不是配置键：state_dir/untracked.yaml，由 superctl untracked 维护（ADR 0054）。

@@ -1,4 +1,4 @@
-# hifox-configuration — 宋江实例宿主 + xwing 部署配置
+# northstar — 宋江实例宿主 + xwing 部署配置
 
 本仓是 **super-agent 框架的一个运行时实例（宋江）的宿主**：仓根就是实例根，`capabilities/`、`direct/`、`bin/` 都在这里；框架代码在 git 子模块 `vendor/super-agent`（[vin568/super-agent](https://github.com/vin568/super-agent)，branch `main`）。实跑在本机 herdr 上，不经 x-deploy 部署。
 

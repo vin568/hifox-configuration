@@ -1,4 +1,4 @@
-# hifox-configuration
+# northstar
 
 事实源是仓库根 `AGENTS.md`（含 `<!-- x-deploy:start -->` 受管章节）与三个子模块各自的 `AGENTS.md`。本文件只补它没有的机器事实。
 

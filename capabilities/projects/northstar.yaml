@@ -1,0 +1,4 @@
+key: northstar
+name: northstar
+repo: git@apifox.github.com:vin568/northstar.git
+base: main

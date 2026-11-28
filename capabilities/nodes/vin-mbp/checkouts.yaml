@@ -1,4 +1,4 @@
 # 本机（运行时宿主）的检出表：项目 key → 绝对路径（ADR 0043）。
 # 路径属于机器，不写进项目文件；加一台机器只改它自己的这个文件。
-hifox-configuration: /Users/vin/code/apifox/hifox-configuration
+northstar: /Users/vin/code/apifox/northstar
 xwing: /Users/vin/code/apifox/sharkly

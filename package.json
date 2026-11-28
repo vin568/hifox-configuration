@@ -1,5 +1,5 @@
 {
-  "name": "hifox-configuration",
+  "name": "northstar",
   "private": true,
   "description": "Declarative xwing family configuration under .xwing/ plus the super-agent runtime instance; tests cover the locally maintained skill scripts and the instance checks.",
   "scripts": {

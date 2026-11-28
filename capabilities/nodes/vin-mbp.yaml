@@ -6,7 +6,7 @@ session: super-agent
 # 本机节点（ADR 0042）：identity 与本机一致时按本地执行面派活，不走 ssh/--machine。
 identity: 117B7D5C-A349-5EB2-BCD6-ED998885D0E1
 state_root: /Users/vin/.local/state/super-agent
-work_dir: /Users/vin/code/apifox/hifox-configuration
+work_dir: /Users/vin/code/apifox/northstar
 limits:
   mem_available_pct: 10
   load_per_cpu: 2
