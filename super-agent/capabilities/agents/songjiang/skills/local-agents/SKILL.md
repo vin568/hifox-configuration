@@ -18,18 +18,19 @@ description: 本机 herdr 与执行节点上的能力 agent 派活、动态并�
 - **石秀（shixiu，role: job，只读）**：本地调研员。**平台专家接不到的只读活都派他**——调研、排查、根因与方案对比、资料搜集、读代码/文档/台账：
 
   ```bash
-  superctl dispatch --local --agent shixiu --body "<要查什么 + 背景 + 验收要点>"
+  superctl dispatch --local --agent shixiu --playbook investigate --body "<要查什么 + 背景 + 验收要点>"
   ```
 
   他的边界：**只读，不创建/修改/删除任何文件**（结果与进度文件除外），不跑会写工作树的构建/脚本，不做 git 写操作，不动运行时、不派活、不对外发消息。任务需要改文件时他会停手，写进结果文件的「需要你决定」——**改文件派安道全，不要派石秀**。干完 `superctl cancel --agent shixiu-<时刻>` 收掉。
-- **安道全（andaoquan，role: job，读写）**：本机维护员。**要改本仓文件（配置、文档、技能、脚本、框架子模块代码）的活都派他**：
+- **安道全（andaoquan，role: job，读写）**：通用开发作业 agent。**要改文件（任何已声明项目里的配置、文档、技能、脚本、代码）的活都派他**，并用 `--playbook` 指定作业法（`dev-loop` 交付 / `investigate` 只读调研 / `review-diff` 评审）：
 
   ```bash
-  superctl dispatch --local --agent andaoquan --body "<改什么 + 为什么 + 验收 + 范围>"
+  superctl dispatch --local --agent andaoquan --project <项目> --worktree <作业名> --playbook dev-loop \
+    --body "<改什么 + 为什么 + 验收 + 范围>"
   ```
 
-  他每次作业建自己的 worktree（由他自己跑 `super-agent/direct/worktree add --repo <检出> --name <作业名>`，检出取自派活注入的项目事实），改完跑对应测试，提交并 push **同名特性分支**（`feature/<作业名>`），worktree 保留给你审。**合并由用户做**：先子模块特性分支 → `dev`，再把根仓分支的 gitlink 指到 `dev` 上的 commit，最后根仓分支 → `main`。他不 push `main`/`dev`、不碰运行时状态、不读凭证；`maxConcurrent: 2`，满了先收口再派。
-- **分派判据**：先判是不是平台/产品交付（是 → 朱贵）；只读的本机活 → 石秀；要改本仓文件 → 安道全。**不要因为「看起来只是查一下」就自己上**——调研也是石秀的活。
+  项目按 `--project <key> --worktree <作业名>` 指定：他建自己的工作区（由他自己跑 `direct/worktree add`，路径与分支取自派活注入的项目事实），改完跑对应测试，提交并 push **同名特性分支**（`feature/<作业名>`），工作区保留给你审。**合并由用户做**，规则以注入的项目约定为准。他不 push 共享分支、不碰运行时状态、不读凭证；`maxConcurrent: 3` 按「能力 + 位置」计，某台机器上的额度满了先收口再派。
+- **分派判据**：先判是不是平台/产品交付（是 → 朱贵）；只读的本机活 → 石秀；要改文件 → 安道全（带 `--playbook`）。**不要因为「看起来只是查一下」就自己上**——调研也是石秀的活。
 - **朱贵（zhugui，role: job）**：平台派活员。平台/产品交付一律经他；你只转原话与附件，不挑人、不写正文。协议与命令见 `[[skill:platform-dispatch]]`。
 - **动态能力 agent（role=job）**：一律经同一入口，别自己拼 `herdr agent start`：
 
@@ -56,4 +57,4 @@ description: 本机 herdr 与执行节点上的能力 agent 派活、动态并�
 - **派活用 `superctl dispatch --local`（本机）、`--node`（钉死节点）或 `--auto`（自动择节点）**：确认要与批准都走派活信封，你不在派活前替副手做判断。
 - **回报通道（ADR 0029）**：作业中的 agent 用 `superctl report --agent <名字> --text` 主动找主控；你收到 `[触发器: agent]` 就按需回 `superctl tell --agent <名字> --text`。回合结束时运行时会发 `[触发器: event] ... done（不代表已交付，可能是在等你回话）；结果：<路径>`，读结果文件判断。**派完就收轮**，不要轮询或 `herdr agent wait`；巡检发现报来「在途无进度」时，用 `tell` 问一句（同一作业每轮最多一次，两次没回音上报用户）。
 - **收掉**：`superctl cancel --agent <名字>`（关 pane、移出在途清单）。干完的活不要留着占并发额度。安道全的 worktree **不**自己 remove——留给你审。
-- 并发上限来自该能力的 `maxConcurrent`（默认 3）：满了就先收口再派。
+- 并发上限来自该能力的 `maxConcurrent`（默认 3），按「能力 + 位置」计：同一能力在另一台机器上并行不占本机额度；某台机器上满了就先收口再派。

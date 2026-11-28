@@ -11,8 +11,8 @@
 // YAML 用 yq 转 JSON 读：与 x-deploy 同一套工具前提，不引 node 依赖。
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -307,6 +307,18 @@ export function checkOffline({ platforms, platformDefaults = [], configSets, con
 // 在改名后静默腐烂，锚定格式才能被检查器验。
 const SKILL_REF = /\[\[skill:([a-z0-9-]+)\]\]/g;
 
+// 节点锚点：定义 `{#id}`（机器可读的阶段身份），引用 `[[node:id]]`（回流/跳转）。
+// 与框架 internal/capability/nodeanchor.go 同构——两份实现是刻意的，检查器零依赖。
+const NODE_DEF = /\{#([a-z][a-z0-9-]*)\}/g;
+// 与 Go 的 ParseNodeRefs 一致：内部允许空白（TrimSpace 后取 id），否则
+// `[[node: implement]]` 在解析器眼里合法、在检查器眼里不存在，静默漏过。
+const NODE_REF = /\[\[node:\s*([a-z][a-z0-9-]*)\s*\]\]/g;
+
+// findAll 用全新的正则实例取全部匹配：matchAll 要求带 g，而带 g 的正则跨调用会
+// 保留 lastIndex。逐行调用时这不是理论风险——同一个正则实例被反复 matchAll 时，
+// 上一轮残留的 lastIndex 会让下一行开头的匹配被跳过。
+const findAll = (re, text) => [...text.matchAll(new RegExp(re.source, re.flags))];
+
 // MACHINE_PATH 抓写死的本机绝对路径（/Users/<人>/…、/home/<人>/…）。路径是机制
 // 事实，由框架首条注入给出（ADR 0007）；手册里写死会换机/换用户即失效——主控的
 // pane cwd 也可能是旧工作树，绝对路径必须来自注入而不是抄一份。`/Users/...` 这种
@@ -332,6 +344,9 @@ const MACHINE_PATH = /\/(?:Users|home)\/[^/\s`'"）)]+\//;
 // 只看本地能力目录；平台侧技能由 x-deploy 管理，不在这里（ADR 0037 的范围）。
 export function checkCapabilityDocs(root) {
   const capRoot = join(root, "super-agent", "capabilities");
+  // `@/` 的锚：持有 super-agent/ 的那个仓库根（ADR 0050）。本检查器只跑本仓，
+  // 根就是 root；不读实例配置，避免 CLI 没登录/没配置时检查面跟着变。
+  const pathRoot = root;
   const problems = [];
 
   const shared = new Map(); // key -> SKILL.md 路径
@@ -340,7 +355,53 @@ export function checkCapabilityDocs(root) {
     if (existsSync(p)) shared.set(key, p);
   }
 
-  const agents = new Map(); // key -> { dir, own: Map, declared: Set }
+  // 解析一条 skills.yaml 声明：裸名 → 共享池；`@/…` → 仓库根下的技能目录。
+  // 返回 { key, path } 或抛错（路径越界/目录不存在都是硬错误，与 Go 侧同口径）。
+  const resolveDeclared = (spec) => {
+    const s = String(spec).trim();
+    if (!s.startsWith("@/")) {
+      const p = shared.get(s);
+      return p ? { key: s, path: p } : null;
+    }
+    const rel = s.slice(2).trim();
+    if (!rel) throw new Error(`技能引用 ${JSON.stringify(s)} 缺少路径`);
+    // `..` 一律拒绝，不是只拦越界（ADR 0050）：根内绕一圈的写法解析后与直写那份
+    // 无法区分，排查时对不上声明。与 Go 侧 ResolveSkillRef 同口径——两处不一致时
+    // 这里放行的引用会在派活链上 fatal。
+    if (rel.split("/").includes("..")) {
+      throw new Error(`技能引用 ${JSON.stringify(s)} 含 \`..\`（路径根内直接写目标位置，不要绕）`);
+    }
+    const abs = resolve(pathRoot, rel);
+    const back = relative(pathRoot, abs);
+    if (back === ".." || back.startsWith(`..${sep}`) || isAbsolute(back)) {
+      throw new Error(`技能引用 ${JSON.stringify(s)} 越出路径根 ${pathRoot}`);
+    }
+    // 符号链接二次校验：字符串前缀判断挡不住「根内的链接指向根外」。
+    // 与 Go 的 ResolveSkillRef、x-deploy 的 assertWithinRoot 同一套判据。
+    if (existsSync(pathRoot) && existsSync(abs)) {
+      const realBase = realpathSync(pathRoot);
+      const realTarget = realpathSync(abs);
+      const back2 = relative(realBase, realTarget);
+      if (back2 === ".." || back2.startsWith(`..${sep}`) || isAbsolute(back2)) {
+        throw new Error(`技能引用 ${JSON.stringify(s)} 经符号链接越出路径根 ${pathRoot}`);
+      }
+    }
+    const p = join(abs, "SKILL.md");
+    if (!existsSync(p)) throw new Error(`技能引用 ${JSON.stringify(s)} 指向的目录缺 SKILL.md（${p}）`);
+    return { key: basename(abs), path: p, external: true };
+  };
+
+  const agents = new Map(); // key -> { dir, own: Map, declared: Set, external: Map, playbooks: Set }
+  // playbooks.yaml 与 skills.yaml 同形态（裸 YAML 列表）；只用来回答「这门作业法
+  // 由谁持有」。文件不存在 = 这个 agent 没有作业法（合法）。解析失败**不吞**：
+  // 坏 YAML 会让「谁持有」判断静默变成空，作业法里的技能引用就再也报不出来——
+  // 与框架 --check 的口径一致（那里也是 fatal 而不是忽略）。
+  const readPlaybookKeys = (dir) => {
+    const p = join(dir, "playbooks.yaml");
+    if (!existsSync(p)) return [];
+    const body = readYaml(p);
+    return Array.isArray(body) ? body.map(String) : [];
+  };
   for (const key of listDirs(join(capRoot, "agents"))) {
     const dir = join(capRoot, "agents", key);
     const own = new Map();
@@ -349,16 +410,54 @@ export function checkCapabilityDocs(root) {
       if (existsSync(p)) own.set(s, p);
     }
     const declared = new Set();
+    const external = []; // [{ key, path }]：以路径为单位，同一 key 出现在两个路径必须都留
+                              // （以 key 为键时后一条会覆盖前一条，真实重名就被吞掉）
     const skillsYaml = join(dir, "skills.yaml");
     if (existsSync(skillsYaml)) {
       const body = readYaml(skillsYaml);
-      if (Array.isArray(body)) for (const k of body) declared.add(String(k));
+      if (Array.isArray(body)) {
+        for (const raw of body) {
+          let hit;
+          try {
+            hit = resolveDeclared(raw);
+          } catch (error) {
+            problems.push(`agents/${key}/skills.yaml：${error.message}`);
+            continue;
+          }
+          if (!hit) {
+            // 裸名落到共享池的判定留给框架（它报得更准）；这里只记下声明本身。
+            declared.add(String(raw));
+            continue;
+          }
+          if (hit.external) external.push({ key: hit.key, path: hit.path });
+          else declared.add(String(raw));
+        }
+      }
     }
-    agents.set(key, { dir, own, declared });
+    agents.set(key, { dir, own, declared, external, playbooks: new Set(readPlaybookKeys(dir)) });
   }
 
   const allOwnKeys = new Set();
   for (const a of agents.values()) for (const k of a.own.keys()) allOwnKeys.add(k);
+  const allExternalKeys = new Set();
+  for (const a of agents.values()) for (const e of a.external) allExternalKeys.add(e.key);
+
+  // 同名技能不能在两处出现：底层按 name 注册，重名会被加前缀，而带前缀的名字在
+  // `[[skill:]]` 里写不出来（ADR 0050）。跨共享池、专属目录、外部引用一起算。
+  const nameHost = new Map(); // name -> 出处
+  const noteHost = (name, where) => {
+    const prev = nameHost.get(name);
+    if (prev && prev !== where) {
+      problems.push(`${prev} 与 ${where} 的技能名都是 "${name}"：底层按 name 注册，重名会被加前缀，裸名只剩一个`);
+      return;
+    }
+    if (!prev) nameHost.set(name, where);
+  };
+  for (const [key] of shared) noteHost(key, `capabilities/skills/${key}`);
+  for (const [agent, a] of agents) {
+    for (const k of a.own.keys()) noteHost(k, `agents/${agent}/skills/${k}`);
+    for (const e of a.external) noteHost(e.key, `skills.yaml → ${relative(root, e.path)}`);
+  }
 
   const label = (p) => relative(root, p);
   const checkRefs = (path, scope) => {
@@ -369,13 +468,13 @@ export function checkCapabilityDocs(root) {
     }
     for (const m of text.matchAll(SKILL_REF)) {
       const name = m[1];
-      if (!shared.has(name) && !allOwnKeys.has(name)) {
-        problems.push(`${label(path)}：引用的技能 "${name}" 不存在（应放在 capabilities/skills/${name}/ 或某 agent 的 skills/${name}/）`);
+      if (!shared.has(name) && !allOwnKeys.has(name) && !allExternalKeys.has(name)) {
+        problems.push(`${label(path)}：引用的技能 "${name}" 不存在（应放在 capabilities/skills/${name}/、某 agent 的 skills/${name}/，或用 @/ 路径引用并在 skills.yaml 声明）`);
         continue;
       }
       if (!scope) continue;
       const a = agents.get(scope);
-      if (!a.own.has(name) && !a.declared.has(name)) {
+      if (!a.own.has(name) && !a.declared.has(name) && !a.external.some((e) => e.key === name)) {
         problems.push(`${label(path)}：引用的技能 "${name}" 没有挂载给 ${scope}（加到 ${scope} 的 skills.yaml，或改引用）`);
       }
     }
@@ -386,6 +485,7 @@ export function checkCapabilityDocs(root) {
     for (const p of a.own.values()) checkRefs(p, key);
   }
   for (const p of shared.values()) checkRefs(p, null);
+  for (const [key, a] of agents) for (const e of a.external) checkRefs(e.path, key);
 
   // 重复正文行：规范化（去空白）后按长度过滤，避开短句与列表符号造成的噪声。
   const seen = new Map(); // norm -> { label, text }
@@ -448,6 +548,77 @@ export function checkCapabilityDocs(root) {
       scanDoc(p);
       scanEnums(p);
     }
+  }
+  // 作业法里的 `[[skill:]]`：必须命中某个技能，且至少被「声明了这门作业法」的某个
+  // agent 挂载。作业法是按 key 派给具体 agent 的，全仓都没人挂就是死引用——派活时
+  // 模型拿不到实现，只会照自己的理解干。
+  // 节点锚点：定义不重复、引用有落点。与框架同口径（去掉围栏与行内代码再判）。
+  const checkPlaybookAnchors = (path) => {
+    // 围栏与行内代码整段置空但**保留行数**：删字符会让后面所有行号前移，报错指错位置。
+    const blank = (t) => t.replace(/[^\n]/g, "");
+    const raw = readFileSync(path, "utf8")
+      .replace(/```[\s\S]*?```/g, blank)
+      .replace(/`[^`\n]*`/g, blank);
+    const defined = new Map(); // id -> 首次出现的行号
+    raw.split(/\r?\n/).forEach((line, i) => {
+      for (const m of findAll(NODE_DEF, line)) {
+        const prev = defined.get(m[1]);
+        if (prev !== undefined) {
+          problems.push(`${label(path)}:${i + 1}：节点锚点 ${m[0]} 与第 ${prev} 行重复（一个 id 只能标一个节点）`);
+          continue;
+        }
+        defined.set(m[1], i + 1);
+      }
+    });
+    raw.split(/\r?\n/).forEach((line, i) => {
+      for (const m of findAll(NODE_REF, line)) {
+        if (!defined.has(m[1])) {
+          problems.push(`${label(path)}:${i + 1}：引用了节点 ${m[0]}，但本文没有定义 {#${m[1]}}`);
+        }
+      }
+    });
+  };
+
+  const checkPlaybookSkillRefs = (path) => {
+    const text = readFileSync(path, "utf8");
+    const key = basename(path, ".md");
+    const declaring = [...agents.entries()].filter(([, a]) => a.playbooks.has(key)).map(([k]) => k);
+    for (const m of text.matchAll(SKILL_REF)) {
+      const name = m[1];
+      if (!shared.has(name) && !allOwnKeys.has(name) && !allExternalKeys.has(name)) {
+        problems.push(`${label(path)}：引用的技能 "${name}" 不存在（作业法的节点与实现之间就断在这里）`);
+        continue;
+      }
+      if (declaring.length === 0) continue; // 没有持有者的作业法由框架的 --check 报
+      const mounted = declaring.some((agent) => {
+        const a = agents.get(agent);
+        return a.own.has(name) || a.declared.has(name) || a.external.some((e) => e.key === name);
+      });
+      if (!mounted) {
+        problems.push(
+          `${label(path)}：引用的技能 "${name}" 没有挂载给任何声明这门作业法的能力（${declaring.join("、")}）——` +
+            `派这种作业时模型拿不到实现，把这个技能加进对应 skills.yaml`,
+        );
+      }
+    }
+  };
+
+  // 作业法与项目约定是同一类散文面：从仓库手册搬出去的事实会落在这里，不扫等于让
+  // 「一个事实只许有一份」在最容易长第二份的地方失效（ADR 0049）。
+  // 作业法里的 `[[skill:]]` 也要校验（ADR 0050）：它是节点与实现之间的唯一连接，
+  // 引用写错时没有任何运行时报错——模型只会拿不到方法照自己的理解干。
+  for (const file of listFiles(join(capRoot, "playbooks"))) {
+    const p = join(capRoot, "playbooks", file);
+    scanDoc(p);
+    scanEnums(p);
+    checkPlaybookSkillRefs(p);
+    checkPlaybookAnchors(p);
+  }
+  for (const file of listFiles(join(capRoot, "projects"))) {
+    if (!file.endsWith(".instructions.md")) continue;
+    const p = join(capRoot, "projects", file);
+    scanDoc(p);
+    scanEnums(p);
   }
 
   return problems;

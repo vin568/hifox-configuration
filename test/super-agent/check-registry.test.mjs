@@ -406,6 +406,49 @@ test("capability docs: duplicate body lines across skills are drift", () => {
 
 // 机器路径不是实例知识：写死在手册/技能里，换机、换检出即失效；正确形态是从首条
 // 注入的「直连脚本目录」拼绝对路径。省略写法（`/Users/...`）是反例说明，不该误报。
+// 作业法与项目约定是同一类散文面（ADR 0049）：从手册搬出去的事实会落在这里，
+// 不扫就等于让「一个事实只许有一份」在最容易长第二份的地方失效。
+test("capability docs: duplicate body lines across playbooks are drift", () => {
+  const root = docsFixture();
+  t_cleanup(root);
+  const line = "同一段作业阶段不应该在两份作业法里各写一份，这会让维护与改名都漂移。";
+  write(root, "super-agent/capabilities/playbooks/a.md", `# A
+
+${line}
+`);
+  write(root, "super-agent/capabilities/playbooks/b.md", `# B
+
+${line}
+`);
+  assert.match(checkCapabilityDocs(root).join("\n"), /正文重复/);
+});
+
+test("capability docs: playbook line duplicated into a project note is drift", () => {
+  const root = docsFixture();
+  t_cleanup(root);
+  const line = "这条约定只有一个宿主：写进作业法还是项目约定，作者必须二选一。";
+  write(root, "super-agent/capabilities/playbooks/a.md", `# A
+
+${line}
+`);
+  write(root, "super-agent/capabilities/projects/xwing.instructions.md", `# xwing
+
+${line}
+`);
+  const out = checkCapabilityDocs(root).join("\n");
+  assert.match(out, /正文重复/);
+  assert.match(out, /projects\/xwing\.instructions\.md/);
+});
+
+// 闭集声明（`字段：甲 | 乙 | 丙`）在作业法里也只有一个宿主。
+test("capability docs: closed set duplicated in a playbook is drift", () => {
+  const root = docsFixture();
+  t_cleanup(root);
+  write(root, "super-agent/capabilities/agents/worker/instructions.md", "# 工人\n\n作业形态：只读 | 原地写 | 作业工作区\n");
+  write(root, "super-agent/capabilities/playbooks/a.md", "# A\n\n作业形态：只读 | 原地写 | 作业工作区\n");
+  assert.match(checkCapabilityDocs(root).join("\n"), /闭集声明出现两次/);
+});
+
 test("capability docs: hardcoded machine path is drift", () => {
   const root = docsFixture();
   t_cleanup(root);
@@ -795,4 +838,94 @@ test("checkLessons accepts the shape the Go reader accepts", () => {
   const dir = mkdtempSync(join(tmpdir(), "lessons-check-"));
   writeFileSync(join(dir, "lessons.md"), "## 全局\n- [待确认] (2028-02-29) 闰日合法 — 证据：x\n");
   assert.deepEqual(checkLessons(dir), []);
+});
+
+// ---------- 技能按路径引用（ADR 0050） ----------
+
+// 外部引用的技能放在 .agents/skills，稍后在 skills.yaml 里用 `@/` 指向它。
+function externalSkillFixture() {
+  const root = docsFixture();
+  write(root, ".agents/skills/test-review/SKILL.md",
+    "---\nname: test-review\ndescription: 测试质量\n---\n\n# 测试质量\n");
+  return root;
+}
+
+test("capability docs: @/ path reference to an existing skill passes", () => {
+  const root = externalSkillFixture();
+  t_cleanup(root);
+  write(root, "super-agent/capabilities/agents/worker/skills.yaml", '- "@/.agents/skills/test-review"\n');
+  write(root, "super-agent/capabilities/agents/worker/instructions.md", "# 工人\n\n按 [[skill:test-review]] 执行。\n");
+  assert.deepEqual(checkCapabilityDocs(root), []);
+});
+
+test("capability docs: @/ path reference to a missing skill is drift", () => {
+  const root = docsFixture();
+  t_cleanup(root);
+  write(root, "super-agent/capabilities/agents/worker/skills.yaml", '- "@/.agents/skills/nope"\n');
+  assert.match(checkCapabilityDocs(root).join("\n"), /缺 SKILL\.md|不存在/);
+});
+
+// `..` 在越界判定之前就被拒（ADR 0050：路径根内直接写目标位置）。
+// 这条守的是「不接受任何上跳」，而不是碰巧目标不存在才报错。
+test("capability docs: @/ path reference cannot escape the path root", () => {
+  const root = externalSkillFixture();
+  t_cleanup(root);
+  write(root, "super-agent/capabilities/agents/worker/skills.yaml", '- "@/../outside"\n');
+  const out = checkCapabilityDocs(root).join("\n");
+  assert.match(out, /含 `\.\.`/);
+  assert.doesNotMatch(out, /越出路径根/);
+});
+
+// 同名技能在两个根：底层按 name 注册，重名会被加前缀，裸名只剩一个。
+test("capability docs: duplicate skill name across roots is drift", () => {
+  const root = externalSkillFixture();
+  t_cleanup(root);
+  write(root, "super-agent/capabilities/skills/test-review/SKILL.md",
+    "---\nname: test-review\ndescription: 池里也有一份\n---\n\n# 另一份\n");
+  write(root, "super-agent/capabilities/agents/worker/skills.yaml", '- "@/.agents/skills/test-review"\n');
+  assert.match(checkCapabilityDocs(root).join("\n"), /技能名都是 "test-review"/);
+});
+
+// ---------- 作业法节点锚点（ADR 0050） ----------
+
+test("capability docs: node anchors must be unique", () => {
+  const root = docsFixture();
+  t_cleanup(root);
+  write(root, "super-agent/capabilities/playbooks/loop.md",
+    "# 循环\n\n1. **甲** {#stage}\n2. **乙** {#stage}\n");
+  assert.match(checkCapabilityDocs(root).join("\n"), /节点锚点 \{#stage\} 与第 3 行重复/);
+});
+
+test("capability docs: node refs must have a definition", () => {
+  const root = docsFixture();
+  t_cleanup(root);
+  write(root, "super-agent/capabilities/playbooks/loop.md",
+    "# 循环\n\n1. **甲** {#stage}\n\n回到[[node:missing]]。\n");
+  assert.match(checkCapabilityDocs(root).join("\n"), /没有定义 \{#missing\}/);
+});
+
+test("capability docs: a valid node round-trip passes", () => {
+  const root = docsFixture();
+  t_cleanup(root);
+  write(root, "super-agent/capabilities/playbooks/loop.md",
+    "# 循环\n\n1. **实现** {#implement}\n\n回到[[node:implement]]。\n");
+  assert.deepEqual(checkCapabilityDocs(root), []);
+});
+
+// 锚点可以没有同名技能：技能只是节点的补充，不是前提。
+test("capability docs: anchors without a matching skill pass", () => {
+  const root = docsFixture();
+  t_cleanup(root);
+  write(root, "super-agent/capabilities/playbooks/loop.md",
+    "# 循环\n\n1. **目标** {#scope}\n2. **计划** {#plan}\n");
+  assert.deepEqual(checkCapabilityDocs(root), []);
+});
+
+// `..` 一律拒绝，与 Go 侧 ResolveSkillRef 同口径：这里放行的引用会在派活链上 fatal。
+test("capability docs: @/ reference with .. is rejected", () => {
+  const root = docsFixture();
+  t_cleanup(root);
+  write(root, "skills/review/SKILL.md", "---\nname: review\ndescription: d\n---\n\n# r\n");
+  write(root, "super-agent/capabilities/agents/worker/skills.yaml", '- "@/skills/../skills/review"\n');
+  assert.match(checkCapabilityDocs(root).join("\n"), /含 `\.\.`/);
 });

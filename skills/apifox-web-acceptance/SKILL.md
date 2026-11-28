@@ -1,3 +1,8 @@
+---
+name: apifox-web-acceptance
+description: "部署到测试服之后的浏览器验收与取证规范：登录、浏览器操作、截图、录屏、验收结论与缺陷回流。"
+---
+
 # Apifox Staging Acceptance
 
 部署到测试服之后的浏览器验收与取证规范：登录、浏览器操作、截图、录屏、结论与缺陷回流。单一来源，由 eir / yanqing / xiaorang 以各自实例引用；各 agent 的验收入口路径与覆盖范围**不在**本技能内。

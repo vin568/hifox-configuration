@@ -1,8 +1,14 @@
 key: andaoquan
 name: 安道全
-description: 本机维护作业 agent（读写）：在本仓 worktree 里改配置、文档、技能与框架子模块代码，跑对应测试，把改动提交在自己的特性分支上。不 push 共享分支、不动运行时状态与凭证。
+description: 本机与执行节点上的通用开发作业 agent（读写）：按派活指定的作业法（交付改动 / 只读调研 / 评审 diff）与项目约定，在项目检出或作业工作区里干活，跑对应测试，把改动提交在自己的特性分支上。不 push 共享分支、不动运行时状态与凭证。
 role: job
 workspace: jobs
 kind: omp
 args: []
+# 与石秀同一组节点：他的 description 写的是「本机与执行节点上」，没有 targets 时
+# 空 = 只认 local（ADR 0041），`dispatch --node andaoquan` 必失败。
+targets:
+  - local
+  - dev-mbp-1
+  - dev-mbp-2
 maxConcurrent: 3

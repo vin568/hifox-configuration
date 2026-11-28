@@ -1,3 +1,8 @@
+---
+name: apifox-staging-deploy
+description: "apifox 集成测试服的部署契约：触发前检查、workflow 参数模板、用户名到端口的映射、未改动包的处理、失败口径与汇报清单。"
+---
+
 # Apifox Integration Deploy
 
 apifox 集成测试服（workflow `apifox-integration`）的部署契约：触发前检查、参数模板、端口映射、未改动包的处理、失败口径与汇报清单。单一来源，由 yanqing / xiaorang / skadi 以各自实例引用；各 agent 的包面与验收入口路径**不在**本技能内。

@@ -12,7 +12,7 @@ state_dir  = "~/.local/state/songjiang"     # 存量状态目录：不搬家
 instance_dir = "~/code/apifox/hifox-configuration/super-agent"
 env_prefix = "SONGJIANG"                    # 本实例沿用存量凭证前缀；新实例用 superctl init 派生
 runtime_cmd = "/ABS/PATH/hifox-configuration/super-agent/bin/superctl"  # 稳定入口（super-agent/build 产物）
-work_dir   = "~/code/apifox/hifox-configuration"  # agent pane 的 cwd（主检出）
+work_dir   = "~/code/apifox/hifox-configuration"  # agent pane 的 cwd（主检出）；也是 skills.yaml 里 `@/` 的锚（ADR 0050）
 
 # 主控与复盘 agent 不在此声明：由能力注册表 role=master / role=retro 派生。
 

@@ -1,3 +1,8 @@
+---
+name: xwing-task-runtime
+description: "xwing task-local 运行时操作契约与环境预检脚本：make agent-task-* 生命周期、.task-env 布局、auth.env 接线与 token 纪律；任务接收时按改动面运行 preflight.sh，不自行安装。"
+---
+
 # XWing Task Runtime
 
 跨 agent 共享的 xwing task-local 运行时操作契约与环境预检脚本（单一来源，被多个 agent 以各自实例引用）。
